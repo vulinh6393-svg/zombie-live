@@ -34,11 +34,11 @@ export class BattlefieldScene extends Phaser.Scene {
 
   // Fortress & Map elements
   private baseWallGraphics!: Phaser.GameObjects.Graphics;
-  private lastBaseHp: number = 10000;
+  private lastBaseHp: number = 9850;
+  private lastBaseHitTime: number = 0;
 
   // Combat firing loop
   private fireTimer: number = 0;
-  private bloodDecals: Phaser.GameObjects.Graphics[] = [];
 
   // FPS & Diagnostics
   private currentFps: number = 60;
@@ -59,40 +59,38 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   preload() {
-    // 1. Load all real character, weapon, and environment sprites
     SpriteAssetLoader.loadAll(this);
   }
 
   create() {
-    // 2. Register all frame-by-frame animations into Phaser Animation Manager
     CharacterAnimationRegistry.registerAll(this);
 
-    // 3. Draw 9:16 Atmospheric Battlefield Highway & Fortress Compound
+    // 1. Draw 9:16 Natural Battlefield Highway & Military Fortress
     this.createBattlefieldMap();
 
-    // 4. Object Pools
+    // 2. Object Pools
     this.projectilePool = new ProjectilePool(this, 60);
     this.damagePool = new DamageNumberPool(this, 50);
 
-    // 5. Initialize 3 Tactical Squads (Alpha, Bravo, Charlie)
+    // 3. Initialize 3 Tactical Squads (Alpha, Bravo, Charlie - 3 distinct soldiers each, zero overlap)
     this.squadVisualizer = new SquadVisualizer(this);
 
-    // 6. Spawn 3 Sentry Turrets on reinforced concrete pads
+    // 4. Spawn 3 Sentry Turrets on reinforced circular pads
     this.createFortressTurrets();
 
-    // 7. HUD
+    // 5. HUD
     this.hud = new HUD(this);
 
-    // 8. TikTok Safe Zone Simulation Overlay
+    // 6. TikTok Safe Zone Simulation Overlay
     this.tiktokSafeZone = new TikTokSafeZone(this);
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('tiktok') === '1') {
       this.tiktokSafeZone.setVisible(true);
     }
 
-    // 9. Benchmark HUD (only on development mode, never on /overlay)
+    // 7. Benchmark HUD (only on development mode, never on /overlay)
     if (!this.isOverlayMode) {
-      this.fpsText = this.add.text(35, 185, 'FPS: 60 | Real Sprites: 100%', {
+      this.fpsText = this.add.text(35, 185, 'FPS: 60 | Natural View (Zero Red Haze)', {
         fontFamily: 'Courier',
         fontSize: '15px',
         color: '#00f5d4',
@@ -101,10 +99,10 @@ export class BattlefieldScene extends Phaser.Scene {
       }).setDepth(110);
     }
 
-    // 10. Expose laboratory & automation APIs to window
+    // 8. Expose automation & QA API to window
     this.setupWindowBattlefieldAPI();
 
-    // 11. Connect Snapshot Source
+    // 9. Connect Snapshot Source
     if (this.snapshotSource) {
       this.snapshotSource.connect();
       this.unsubscribeSnapshot = this.snapshotSource.subscribe((snapshot) => {
@@ -114,7 +112,6 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
-    // FPS tracking
     this.currentFps = Math.round(this.game.loop.actualFps);
     if (this.lastFrameTime > 0) {
       this.frameTimes.push(time - this.lastFrameTime);
@@ -135,7 +132,7 @@ export class BattlefieldScene extends Phaser.Scene {
       zombie.update(delta);
     }
 
-    // Visual Combat Loop (Authoritative Snapshot firing simulation)
+    // Visual Combat Loop
     this.fireTimer += delta;
     if (this.fireTimer >= 320) {
       this.fireTimer = 0;
@@ -144,122 +141,136 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // BATTLEFIELD MAP & FORTRESS COMPOUND (9:16 Portrait Layout)
+  // NATURAL 9:16 HIGHWAY BATTLEFIELD & MILITARY FORTRESS
   // =========================================================================
   private createBattlefieldMap(): void {
     const width = 1080;
     const height = 1920;
 
-    // 1. Dark dirt ground
-    const ground = this.add.graphics();
-    ground.fillStyle(0x0e1117, 1);
+    // 1. Dark dirt ground (Zone outside highway)
+    const ground = this.add.graphics().setDepth(0);
+    ground.fillStyle(0x0c0f15, 1);
     ground.fillRect(0, 0, width, height);
 
-    // 2. 3 Assault Lanes with Asphalt Pavement (Left: 260, Center: 540, Right: 820)
-    const lanes = [260, 540, 820];
-    const laneWidth = 220;
+    // 2. Wide Asphalt Highway Bed (Center 800px width from x: 140 to 940)
+    const roadX = 140;
+    const roadW = 800;
+    const roadGraphics = this.add.graphics().setDepth(1);
 
-    const roadGraphics = this.add.graphics();
-    for (let i = 0; i < 3; i++) {
-      const lx = lanes[i];
-      // Asphalt road body (y: 200 to 1480)
-      roadGraphics.fillStyle(0x21252d, 1);
-      roadGraphics.fillRect(lx - laneWidth / 2, 200, laneWidth, 1280);
+    // Dark asphalt texture
+    roadGraphics.fillStyle(0x1e222b, 1);
+    roadGraphics.fillRect(roadX, 190, roadW, 1310);
 
-      // Concrete curbs
-      roadGraphics.fillStyle(0x3a3f4b, 1);
-      roadGraphics.fillRect(lx - laneWidth / 2 - 8, 200, 8, 1280);
-      roadGraphics.fillRect(lx + laneWidth / 2, 200, 8, 1280);
+    // Concrete shoulders & curbs
+    roadGraphics.fillStyle(0x323742, 1);
+    roadGraphics.fillRect(roadX - 14, 190, 14, 1310);
+    roadGraphics.fillRect(roadX + roadW, 190, 14, 1310);
 
-      // Double yellow lines in lane center
-      roadGraphics.fillStyle(0xebaf25, 0.75);
-      roadGraphics.fillRect(lx - 4, 200, 3, 1280);
-      roadGraphics.fillRect(lx + 2, 200, 3, 1280);
+    // White outer lane boundary lines
+    roadGraphics.fillStyle(0xffffff, 0.4);
+    roadGraphics.fillRect(roadX + 12, 190, 4, 1310);
+    roadGraphics.fillRect(roadX + roadW - 16, 190, 4, 1310);
 
-      // Lane tag header
-      this.add.text(lx, 215, `LÀN ${i + 1} (${i === 0 ? 'ALPHA' : i === 1 ? 'BRAVO' : 'CHARLIE'})`, {
-        fontFamily: 'Arial Black',
-        fontSize: '13px',
-        color: '#00f5d4',
-        backgroundColor: '#000000aa',
-        padding: { x: 6, y: 3 },
-      }).setOrigin(0.5).setDepth(5);
+    // 3. Lane Dividers for 3 Tactical Lanes (Left: 260, Center: 540, Right: 820)
+    // Double solid yellow center divider for center lane
+    roadGraphics.fillStyle(0xebaf25, 0.85);
+    roadGraphics.fillRect(540 - 5, 190, 4, 1100);
+    roadGraphics.fillRect(540 + 2, 190, 4, 1100);
+
+    // White dashed dividers between lanes at x: 400 and x: 680
+    roadGraphics.fillStyle(0xffffff, 0.5);
+    for (let y = 200; y < 1280; y += 75) {
+      roadGraphics.fillRect(398, y, 4, 45);
+      roadGraphics.fillRect(678, y, 4, 45);
     }
 
-    // Asphalt cracks & scorch marks
-    const decals = this.add.graphics();
-    decals.lineStyle(2, 0x12141a, 0.8);
-    decals.beginPath();
-    decals.moveTo(240, 600); decals.lineTo(280, 630); decals.lineTo(310, 615);
-    decals.moveTo(520, 850); decals.lineTo(560, 880); decals.lineTo(600, 865);
-    decals.moveTo(800, 720); decals.lineTo(840, 745); decals.lineTo(880, 730);
-    decals.strokePath();
+    // Asphalt cracks & oil marks (natural combat wear)
+    const cracks = this.add.graphics().setDepth(2);
+    cracks.lineStyle(2, 0x12141a, 0.85);
+    cracks.beginPath();
+    cracks.moveTo(250, 620); cracks.lineTo(290, 650); cracks.lineTo(330, 635);
+    cracks.moveTo(510, 840); cracks.lineTo(550, 870); cracks.lineTo(580, 855);
+    cracks.moveTo(790, 710); cracks.lineTo(830, 735); cracks.lineTo(870, 720);
+    cracks.strokePath();
 
-    decals.fillStyle(0x13151b, 0.7);
-    decals.fillEllipse(540, 920, 80, 40);
-    decals.fillEllipse(260, 1080, 60, 30);
-    decals.fillEllipse(820, 1140, 65, 35);
+    cracks.fillStyle(0x13151b, 0.65);
+    cracks.fillEllipse(540, 930, 90, 45);
+    cracks.fillEllipse(260, 1070, 65, 30);
+    cracks.fillEllipse(820, 1120, 70, 35);
 
-    // 3. Fortress Defense Compound (y: 1280 to 1620)
-    // Front barricades across lanes at y: 1300
-    for (let i = 0; i < 3; i++) {
-      const lx = lanes[i];
-      const bar1 = this.add.image(lx - 60, 1310, 'barricade_barrier').setScale(0.85).setDepth(3);
-      const bar2 = this.add.image(lx + 60, 1310, 'barricade_barrier').setScale(0.85).setDepth(3);
-
-      // Sandbags
-      this.add.image(lx - 45, 1335, 'sandbags').setScale(0.9).setDepth(4);
-      this.add.image(lx + 45, 1335, 'sandbags').setScale(0.9).setDepth(4);
-
-      // Ammo Crates
-      this.add.image(lx - 90, 1345, 'ammo_crate').setScale(0.75).setDepth(4);
-      this.add.image(lx + 90, 1345, 'ammo_crate').setScale(0.75).setDepth(4);
-    }
-
-    // 4. Main Fortress Concrete Wall (at y: 1470 to 1540 across full width)
-    this.baseWallGraphics = this.add.graphics().setDepth(5);
-    this.drawFortressWall(10000, 10000);
-
-    // Central Heavy Blast Gate (at x: 540, y: 1485)
-    const blastGate = this.add.graphics().setDepth(6);
-    blastGate.fillStyle(0x1a2130, 1);
-    blastGate.fillRoundedRect(540 - 70, 1470, 140, 40, 8);
-    blastGate.lineStyle(2, 0xfee440, 1);
-    blastGate.strokeRoundedRect(540 - 70, 1470, 140, 40, 8);
-
-    const gateTitle = this.add.text(540, 1490, '⚡ CỔNG THÀNH TRÌ ⚡', {
-      fontFamily: 'Arial Black',
-      fontSize: '11px',
-      color: '#fee440',
-    }).setOrigin(0.5).setDepth(7);
-
-    // 5. High-power Defense Spotlights (Illuminating 3 lanes upward)
+    // 4. Soft Tactical Spotlights (Lighting the combat zone with warm ambient glow)
     const spotlights = this.add.graphics().setDepth(2);
-    for (let i = 0; i < 3; i++) {
-      const lx = lanes[i];
-      spotlights.fillStyle(0xffe89e, 0.09);
-      spotlights.fillTriangle(lx, 1440, lx - 110, 400, lx + 110, 400);
-    }
+    spotlights.fillStyle(0xffeed1, 0.07);
+    spotlights.fillCircle(540, 960, 260);
+    spotlights.fillCircle(260, 1050, 180);
+    spotlights.fillCircle(820, 1050, 180);
     spotlights.setBlendMode(Phaser.BlendModes.ADD);
 
-    // 6. Rear Squad Staging Platform (y: 1540 to 1750)
-    const staging = this.add.graphics().setDepth(2);
-    staging.fillStyle(0x111622, 0.95);
-    staging.fillRoundedRect(40, 1530, width - 80, 220, 16);
-    staging.lineStyle(2, 0x00f5d4, 0.6);
-    staging.strokeRoundedRect(40, 1530, width - 80, 220, 16);
+    // 5. ZONE 3: MILITARY FORTRESS DEFENSE COMPOUND (y: 1260 to 1650)
+    // Front barricade obstacle line at y: 1280 across all 3 lanes
+    const barricades = [260, 540, 820];
+    for (const bx of barricades) {
+      // Wood/metal traffic barriers
+      this.add.image(bx - 55, 1285, 'barricade_barrier').setScale(0.85).setDepth(3);
+      this.add.image(bx + 55, 1285, 'barricade_barrier').setScale(0.85).setDepth(3);
 
-    this.add.text(width / 2, 1555, '🛡️ KHU VỰC TẬP KẾT QUÂN ĐỘI & TUYẾN PHÒNG THỦ CHÍNH', {
+      // Sandbag fortifications
+      this.add.image(bx - 40, 1315, 'sandbags').setScale(0.95).setDepth(4);
+      this.add.image(bx + 40, 1315, 'sandbags').setScale(0.95).setDepth(4);
+
+      // Ammo crates
+      this.add.image(bx - 85, 1325, 'ammo_crate').setScale(0.8).setDepth(4);
+      this.add.image(bx + 85, 1325, 'ammo_crate').setScale(0.8).setDepth(4);
+    }
+
+    // Main Concrete Wall & Blast Gate (y: 1480 to 1540 across width)
+    this.baseWallGraphics = this.add.graphics().setDepth(5);
+    this.drawFortressWall(9850, 10000);
+
+    // Central Blast Gate Structure (at x: 540, y: 1510)
+    const blastGate = this.add.graphics().setDepth(6);
+    blastGate.fillStyle(0x161c28, 1);
+    blastGate.fillRoundedRect(540 - 75, 1485, 150, 50, 8);
+    blastGate.lineStyle(2, 0xfee440, 1);
+    blastGate.strokeRoundedRect(540 - 75, 1485, 150, 50, 8);
+
+    // Hazard caution stripes on gate
+    blastGate.fillStyle(0xfee440, 0.9);
+    for (let gx = 540 - 65; gx <= 540 + 45; gx += 25) {
+      blastGate.beginPath();
+      blastGate.moveTo(gx, 1530);
+      blastGate.lineTo(gx + 12, 1490);
+      blastGate.lineTo(gx + 20, 1490);
+      blastGate.lineTo(gx + 8, 1530);
+      blastGate.fillPath();
+    }
+
+    this.add.text(540, 1510, '⚡ CỔNG THÀNH TRÌ ⚡', {
       fontFamily: 'Arial Black',
-      fontSize: '15px',
+      fontSize: '11px',
+      color: '#00f5d4',
+      backgroundColor: '#0a1128ee',
+      padding: { x: 6, y: 2 },
+    }).setOrigin(0.5).setDepth(7);
+
+    // Rear Staging Platform (y: 1550 to 1750)
+    const staging = this.add.graphics().setDepth(2);
+    staging.fillStyle(0x111622, 0.96);
+    staging.fillRoundedRect(40, 1550, width - 80, 200, 14);
+    staging.lineStyle(2, 0x00f5d4, 0.5);
+    staging.strokeRoundedRect(40, 1550, width - 80, 200, 14);
+
+    this.add.text(width / 2, 1572, '🛡️ KHU VỰC TẬP KẾT QUÂN ĐỘI & TUYẾN PHÒNG THỦ CHÍNH', {
+      fontFamily: 'Arial Black',
+      fontSize: '14px',
       color: '#00f5d4',
     }).setOrigin(0.5).setDepth(3);
 
-    // 7. Dark Perimeter Vignette
-    const vignette = this.add.graphics().setDepth(10);
+    // Dark perimeter vignette
+    const vignette = this.add.graphics().setDepth(12);
     vignette.fillStyle(0x040609, 0.65);
-    vignette.fillRect(0, 0, 130, height);
-    vignette.fillRect(width - 130, 0, 130, height);
+    vignette.fillRect(0, 0, roadX - 14, height);
+    vignette.fillRect(roadX + roadW + 14, 0, width - (roadX + roadW + 14), height);
   }
 
   private drawFortressWall(hp: number, maxHp: number): void {
@@ -267,30 +278,37 @@ export class BattlefieldScene extends Phaser.Scene {
     this.baseWallGraphics.clear();
 
     const ratio = Math.max(0, hp / maxHp);
-    const wallColor = ratio > 0.4 ? 0x242a38 : 0x4a1520;
+    const wallColor = ratio > 0.4 ? 0x272e3d : 0x481822;
     const borderColor = ratio > 0.4 ? 0x00f5d4 : 0xff0055;
 
-    // Concrete fortress wall body
+    // Fortress wall body
     this.baseWallGraphics.fillStyle(wallColor, 1);
-    this.baseWallGraphics.fillRoundedRect(50, 1460, width - 100, 60, 10);
+    this.baseWallGraphics.fillRoundedRect(50, 1480, width - 100, 60, 10);
     this.baseWallGraphics.lineStyle(3, borderColor, 0.9);
-    this.baseWallGraphics.strokeRoundedRect(50, 1460, width - 100, 60, 10);
+    this.baseWallGraphics.strokeRoundedRect(50, 1480, width - 100, 60, 10);
 
     // Embrasures / crenels along the wall
     this.baseWallGraphics.fillStyle(0x161a24, 1);
     for (let x = 80; x < width - 80; x += 60) {
-      this.baseWallGraphics.fillRect(x, 1465, 30, 12);
+      this.baseWallGraphics.fillRect(x, 1485, 30, 12);
     }
   }
 
   private createFortressTurrets(): void {
     const turretPositions = [
-      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1450, level: 1 },
-      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1430, level: 1 },
-      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1450, level: 1 },
+      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1465, level: 1 },
+      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1445, level: 1 },
+      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1465, level: 1 },
     ];
 
     for (const t of turretPositions) {
+      // Circular reinforced concrete pad under each turret
+      const pad = this.add.graphics().setDepth(5);
+      pad.fillStyle(0x2d3545, 1);
+      pad.fillCircle(t.x, t.y, 42);
+      pad.lineStyle(2, 0x00f5d4, 0.8);
+      pad.strokeCircle(t.x, t.y, 42);
+
       const tower = new TowerRenderer(this, t);
       this.towers.set(t.id, tower);
     }
@@ -306,7 +324,7 @@ export class BattlefieldScene extends Phaser.Scene {
     const activeZombies = Array.from(this.zombies.values()).filter((z) => !z.isDead);
     if (activeZombies.length === 0) return;
 
-    // 1. Squad Soldiers fire at closest zombies in their lanes
+    // Squad Soldiers fire at closest zombies
     const shootersCount = Math.min(3, allSoldiers.length);
     for (let i = 0; i < shootersCount; i++) {
       const soldier = allSoldiers[Phaser.Math.Between(0, allSoldiers.length - 1)];
@@ -316,9 +334,9 @@ export class BattlefieldScene extends Phaser.Scene {
         const { flashX, flashY } = soldier.fireMuzzleFlash();
 
         // Projectile flight
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 160);
+        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 150);
 
-        this.time.delayedCall(160, () => {
+        this.time.delayedCall(150, () => {
           if (!target.isDead) {
             target.triggerHitFlash();
             const dmg = Phaser.Math.Between(25, 45);
@@ -332,15 +350,15 @@ export class BattlefieldScene extends Phaser.Scene {
       }
     }
 
-    // 2. Turrets fire dual supporting burst
+    // Turrets fire dual supporting bursts
     for (const turret of this.towers.values()) {
       const target = this.getClosestZombie(turret.getX(), turret.getY());
       if (target) {
         turret.aimAt(target.getX(), target.getY());
         const { flashX, flashY } = turret.fireMuzzleFlash();
 
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 140);
-        this.time.delayedCall(140, () => {
+        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 130);
+        this.time.delayedCall(130, () => {
           if (!target.isDead) {
             target.triggerHitFlash();
             this.damagePool.showDamage(target.getX(), target.getY(), 55, true);
@@ -391,8 +409,10 @@ export class BattlefieldScene extends Phaser.Scene {
       }
     }
 
-    // 2. Check Base HP Reaction
-    if (snapshot.baseHp < this.lastBaseHp) {
+    // 2. Check Base HP Reaction (Localized only, strictly throttled)
+    const now = this.time.now;
+    if (snapshot.baseHp < this.lastBaseHp && now - this.lastBaseHitTime > 3000) {
+      this.lastBaseHitTime = now;
       this.triggerBaseHitReaction();
     }
     this.lastBaseHp = snapshot.baseHp;
@@ -402,52 +422,59 @@ export class BattlefieldScene extends Phaser.Scene {
     this.hud.update(snapshot);
   }
 
-  private triggerBaseHitReaction(): void {
-    // Screen shake + red vignette flash
-    this.cameras.main.shake(200, 0.008);
+  // LOCALIZED BASE HIT REACTION (P0 Fix: Never covers full screen in red!)
+  public triggerBaseHitReaction(): void {
+    // 1. Micro-shake on camera (120ms, subtle impact feeling)
+    this.cameras.main.shake(120, 0.004);
 
-    const hitFlash = this.add.graphics().setDepth(120);
-    hitFlash.fillStyle(0xff0033, 0.25);
-    hitFlash.fillRect(0, 0, 1080, 1920);
+    // 2. Localized spark burst along the fortress wall
+    const sparkX = 540 + Phaser.Math.Between(-150, 150);
+    const spark = this.add.image(sparkX, 1490, 'hit_explosion').setScale(1.2).setDepth(25);
+    this.time.delayedCall(100, () => spark.destroy());
+
+    // 3. Localized warning flash ON THE WALL ONLY (y: 1480, height: 60)
+    const wallFlash = this.add.graphics().setDepth(20);
+    wallFlash.fillStyle(0xff2200, 0.4);
+    wallFlash.fillRoundedRect(50, 1480, 1080 - 100, 60, 10);
 
     this.tweens.add({
-      targets: hitFlash,
+      targets: wallFlash,
       alpha: 0,
-      duration: 300,
-      onComplete: () => hitFlash.destroy(),
+      duration: 200,
+      onComplete: () => wallFlash.destroy(),
     });
   }
 
   // =========================================================================
   // GIFT SKILL VISUAL EFFECT (Airstrike / Orbital Laser)
   // =========================================================================
-  public triggerGiftSkillVFX(skillName: string = 'Mưa Tên Lửa'): void {
+  public triggerGiftSkillVFX(skillName: string = 'Tên Lửa Tổng Lực'): void {
     this.hud.showGiftAlert(skillName, 'Viewer VIP');
 
-    // Orbital beam strike down the center lane
+    // Orbital beam strike down the center lane (clear boundary, auto-cleanup)
     const laser = this.add.graphics().setDepth(45);
-    laser.fillStyle(0x00f5d4, 0.85);
-    laser.fillRect(540 - 25, 200, 50, 1100);
-    laser.lineStyle(4, 0xffffff, 1);
-    laser.strokeRect(540 - 25, 200, 50, 1100);
+    laser.fillStyle(0x00f5d4, 0.7);
+    laser.fillRect(540 - 20, 200, 40, 1080);
+    laser.lineStyle(3, 0xffffff, 1);
+    laser.strokeRect(540 - 20, 200, 40, 1080);
 
     // Screen shockwave
-    this.cameras.main.shake(350, 0.012);
+    this.cameras.main.shake(250, 0.008);
 
     this.tweens.add({
       targets: laser,
       alpha: 0,
-      scaleX: 2.5,
-      duration: 600,
+      scaleX: 2.0,
+      duration: 500,
       ease: 'Cubic.Out',
       onComplete: () => laser.destroy(),
     });
 
-    // Massive explosions along the lane
-    for (let y = 350; y <= 1150; y += 180) {
-      this.time.delayedCall(Phaser.Math.Between(50, 250), () => {
-        const boom = this.add.image(540 + Phaser.Math.Between(-60, 60), y, 'hit_explosion').setScale(2.2).setDepth(48);
-        this.time.delayedCall(120, () => boom.destroy());
+    // Explosions along the lane
+    for (let y = 350; y <= 1100; y += 180) {
+      this.time.delayedCall(Phaser.Math.Between(40, 200), () => {
+        const boom = this.add.image(540 + Phaser.Math.Between(-50, 50), y, 'hit_explosion').setScale(1.8).setDepth(48);
+        this.time.delayedCall(100, () => boom.destroy());
       });
     }
   }
@@ -457,7 +484,6 @@ export class BattlefieldScene extends Phaser.Scene {
   // =========================================================================
   private setupWindowBattlefieldAPI(): void {
     (window as any).battlefield = {
-      // Spawn 10 Real Walker Zombies in lanes
       spawn10Zombies: () => {
         for (let i = 0; i < 10; i++) {
           const lane = i % 3;
@@ -465,9 +491,9 @@ export class BattlefieldScene extends Phaser.Scene {
           const zSnapshot: ZombieSnapshot = {
             id: `walker_bench_${Date.now()}_${i}`,
             type: 'walker',
-            name: `Walker #${i + 1}`,
-            x: lanesX[lane] + Phaser.Math.Between(-40, 40),
-            y: 350 + i * 70,
+            name: `Zombie #${i + 1}`,
+            x: lanesX[lane] + Phaser.Math.Between(-35, 35),
+            y: 360 + i * 65,
             hp: 100,
             maxHp: 100,
             lane: lane + 1,
@@ -477,7 +503,6 @@ export class BattlefieldScene extends Phaser.Scene {
         }
       },
 
-      // Spawn 30 Entities (Dense wave)
       spawn30Entities: () => {
         for (let i = 0; i < 20; i++) {
           const lane = i % 3;
@@ -486,7 +511,7 @@ export class BattlefieldScene extends Phaser.Scene {
             id: `walker_swarm_${Date.now()}_${i}`,
             type: 'walker',
             name: `Swarm #${i + 1}`,
-            x: lanesX[lane] + Phaser.Math.Between(-55, 55),
+            x: lanesX[lane] + Phaser.Math.Between(-45, 45),
             y: 320 + i * 45,
             hp: 100,
             maxHp: 100,
@@ -497,29 +522,28 @@ export class BattlefieldScene extends Phaser.Scene {
         }
       },
 
-      // Trigger JOIN simulation
       triggerViewerJoin: (viewerName: string = 'HungGamer', squadId: 'alpha' | 'bravo' | 'charlie' = 'bravo') => {
         this.squadVisualizer.handleViewerJoin(squadId, viewerName);
       },
 
-      // Trigger Gift simulation
-      triggerGift: (skillName: string = 'Tên Lửa Siêu Thanh') => {
+      triggerGift: (skillName: string = 'Tên Lửa Tổng Lực') => {
         this.triggerGiftSkillVFX(skillName);
       },
 
-      // Set mock scenario (e.g. 'boss', 'wave1', 'wave3')
+      triggerMinorDamage: () => {
+        this.triggerBaseHitReaction();
+      },
+
       setMockScenario: (sc: any) => {
         if ((this.snapshotSource as any)?.setScenario) {
           (this.snapshotSource as any).setScenario(sc);
         }
       },
 
-      // Toggle TikTok Safe Zone Overlay
       toggleTikTokSafeZone: () => {
         return this.tiktokSafeZone.toggle();
       },
 
-      // Metrics
       getFpsMetrics: () => ({
         actualFps: Math.round(this.game.loop.actualFps),
         p95FrameTime: this.calculateP95FrameTime(),

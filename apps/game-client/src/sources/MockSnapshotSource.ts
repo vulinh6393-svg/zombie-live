@@ -10,6 +10,8 @@ export class MockSnapshotSource implements GameSnapshotSource {
   private currentScenario: MockScenario = 'wave3';
   private tickCount = 0;
   private connected = false;
+  private currentBaseHp: number = 9850;
+  private activeGiftSkill?: { skillId: string; name: string; remainingSeconds: number; senderName?: string };
 
   connect(): void {
     if (this.connected) return;
@@ -191,21 +193,32 @@ export class MockSnapshotSource implements GameSnapshotSource {
       tick: this.tickCount,
       elapsedSeconds: (elapsedSeconds % 180) + 30,
       phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
-      baseHp: Math.max(2500, 10000 - Math.floor(this.tickCount * 2.5)),
+      baseHp: this.currentBaseHp,
       maxBaseHp: 10000,
       soldiers: this.generateSoldiers(12),
       zombies,
       towers,
       activePlayerCount: 40,
       result: 'IN_PROGRESS',
-      giftSkillActive: (this.tickCount % 120 < 35) ? {
-        skillId: 'orbital_laser',
-        name: 'TÊN LỬA TỔNG LỰC',
-        remainingSeconds: Math.ceil((35 - (this.tickCount % 120)) / 10),
-        senderName: 'FanCung07',
-      } : undefined,
+      giftSkillActive: this.activeGiftSkill,
       mvpPlayers,
     };
+  }
+
+  public takeBaseDamage(amount: number = 350): void {
+    this.currentBaseHp = Math.max(0, this.currentBaseHp - amount);
+  }
+
+  public triggerGift(name: string = 'TÊN LỬA TỔNG LỰC', sender: string = 'VIP_Gamer99'): void {
+    this.activeGiftSkill = {
+      skillId: 'airstrike',
+      name,
+      remainingSeconds: 3,
+      senderName: sender,
+    };
+    setTimeout(() => {
+      this.activeGiftSkill = undefined;
+    }, 3000);
   }
 
   private generateSoldiers(count: number): SoldierSnapshot[] {

@@ -34,7 +34,7 @@ export class SoldierRenderer {
     this.maxHp = snapshot.maxHp;
     this.scaleTier = scaleTier;
 
-    this.container = scene.add.container(snapshot.x, snapshot.y);
+    this.container = scene.add.container(snapshot.x, snapshot.y).setDepth(15);
 
     // 1. Lower body feet layer (Riley Gombart CC-BY)
     this.feetSprite = scene.add.sprite(0, 0, 'survivor_feet_walk_0');
@@ -44,20 +44,23 @@ export class SoldierRenderer {
     this.mainSprite = scene.add.sprite(0, 0, 'survivor_idle_0');
     this.mainSprite.setOrigin(0.35, 0.5); // Pivot at shoulders/torso for natural gun aiming
 
-    // 3. HP bar and Name tag
+    // 3. Compact tactical HP bar (clean micro-indicator, only visible when taking damage)
     this.hpBarBg = scene.add.graphics();
     this.hpBarFill = scene.add.graphics();
-    this.nameText = scene.add.text(0, -55, snapshot.name || 'Chiến Binh', {
+
+    // 4. Name Tag (Hidden by default to prevent screen clutter; shows during highlight events)
+    this.nameText = scene.add.text(0, -60, snapshot.name || '', {
       fontFamily: 'Arial Black',
-      fontSize: '13px',
+      fontSize: '12px',
       color: '#00f5d4',
       stroke: '#000000',
       strokeThickness: 3,
     }).setOrigin(0.5);
+    this.nameText.setVisible(false);
 
     this.container.add([this.feetSprite, this.mainSprite, this.hpBarBg, this.hpBarFill, this.nameText]);
 
-    // Apply scale & rotation (facing upward toward zombies)
+    // Apply scale & rotation (facing upward toward incoming zombies)
     this.applyScale(this.scaleTier);
     this.setRotation(-Math.PI / 2);
     this.drawHpBar();
@@ -70,7 +73,7 @@ export class SoldierRenderer {
     scene.tweens.add({
       targets: this.container,
       scale: 1,
-      duration: 250,
+      duration: 200,
       ease: 'Back.easeOut',
     });
   }
@@ -81,8 +84,8 @@ export class SoldierRenderer {
     this.mainSprite.setScale(mult);
     this.feetSprite.setScale(mult * 0.95);
 
-    const yOffset = -mult * 90;
-    this.nameText.setY(yOffset - 16);
+    const yOffset = -mult * 80;
+    this.nameText.setY(yOffset - 14);
     this.drawHpBar();
   }
 
@@ -140,15 +143,15 @@ export class SoldierRenderer {
     const flash = this.scene.add.image(flashX, flashY, 'muzzle_flash');
     flash.setScale(0.7 * this.scaleTier.soldierScale);
     flash.setRotation(angle);
-    flash.setDepth(20);
-    this.scene.time.delayedCall(60, () => flash.destroy());
+    flash.setDepth(25);
+    this.scene.time.delayedCall(50, () => flash.destroy());
 
     // Gun recoil tween
     this.scene.tweens.add({
       targets: this.mainSprite,
-      x: -Math.cos(angle) * 6,
-      y: -Math.sin(angle) * 6,
-      duration: 50,
+      x: -Math.cos(angle) * 5,
+      y: -Math.sin(angle) * 5,
+      duration: 45,
       yoyo: true,
       ease: 'Quad.easeOut',
       onComplete: () => {
@@ -157,6 +160,22 @@ export class SoldierRenderer {
     });
 
     return { flashX, flashY, angle };
+  }
+
+  public showTemporaryName(name: string, durationMs: number = 2500): void {
+    this.nameText.setText(name);
+    this.nameText.setVisible(true);
+    this.nameText.setAlpha(1);
+
+    this.scene.tweens.add({
+      targets: this.nameText,
+      alpha: 0,
+      delay: durationMs - 400,
+      duration: 400,
+      onComplete: () => {
+        this.nameText.setVisible(false);
+      },
+    });
   }
 
   public updateSnapshot(snapshot: SoldierSnapshot): void {
@@ -168,27 +187,30 @@ export class SoldierRenderer {
   }
 
   public update(deltaMs: number): void {
-    // Interpolation for smooth 60 FPS motion from 10Hz snapshots
     const lerpFactor = Math.min(1, (deltaMs / 100) * 2);
     this.container.x = Phaser.Math.Linear(this.container.x, this.targetX, lerpFactor);
     this.container.y = Phaser.Math.Linear(this.container.y, this.targetY, lerpFactor);
   }
 
-  public highlightReinforcement(): void {
+  public highlightReinforcement(viewerName?: string): void {
     const aura = this.scene.add.graphics();
     aura.lineStyle(3, 0x00f5d4, 1);
-    aura.strokeCircle(this.container.x, this.container.y, 45);
-    aura.setDepth(15);
+    aura.strokeCircle(this.container.x, this.container.y, 42);
+    aura.setDepth(20);
 
     this.scene.tweens.add({
       targets: aura,
-      scaleX: 1.8,
-      scaleY: 1.8,
+      scaleX: 1.7,
+      scaleY: 1.7,
       alpha: 0,
       duration: 600,
       ease: 'Cubic.easeOut',
       onComplete: () => aura.destroy(),
     });
+
+    if (viewerName) {
+      this.showTemporaryName(`⭐ @${viewerName}`, 3000);
+    }
   }
 
   public destroy(): void {
@@ -196,7 +218,7 @@ export class SoldierRenderer {
       targets: this.container,
       scale: 0.1,
       alpha: 0,
-      duration: 250,
+      duration: 200,
       onComplete: () => {
         this.container.destroy();
       },
@@ -215,13 +237,16 @@ export class SoldierRenderer {
     this.hpBarBg.clear();
     this.hpBarFill.clear();
 
-    const mult = this.scaleTier.soldierScale;
-    const barW = 50 * mult;
-    const barH = 6;
-    const barX = -barW / 2;
-    const barY = -mult * 90;
+    // Only draw HP bar if injured to keep screen ultra-clean
+    if (this.hp >= this.maxHp) return;
 
-    this.hpBarBg.fillStyle(0x111111, 0.85);
+    const mult = this.scaleTier.soldierScale;
+    const barW = 36 * mult;
+    const barH = 4;
+    const barX = -barW / 2;
+    const barY = -mult * 70;
+
+    this.hpBarBg.fillStyle(0x111111, 0.8);
     this.hpBarBg.fillRect(barX, barY, barW, barH);
 
     const ratio = Math.max(0, this.hp / this.maxHp);
