@@ -8,8 +8,10 @@ import { ProjectilePool } from '../entities/ProjectilePool.js';
 import { DamageNumberPool } from '../entities/DamageNumberPool.js';
 import { HUD } from '../ui/HUD.js';
 import { TikTokSafeZone } from '../ui/TikTokSafeZone.js';
+import { FortressRenderer } from '../renderer/FortressRenderer.js';
 import { SpriteAssetLoader } from '../assets/SpriteAssetLoader.js';
 import { CharacterAnimationRegistry } from '../assets/CharacterAnimationRegistry.js';
+import { TextureGenerator } from '../graphics/TextureGenerator.js';
 import { DEFAULT_SCALE_TIER } from '../config/SpriteScaleConfig.js';
 import { GAME_FONTS } from '../config/FontConfig.js';
 
@@ -33,7 +35,8 @@ export class BattlefieldScene extends Phaser.Scene {
   private tiktokSafeZone!: TikTokSafeZone;
 
   // Environment & Fortress
-  private baseWallGraphics!: Phaser.GameObjects.Graphics;
+  private fortressRenderer!: FortressRenderer;
+  private layoutVariant: 'highway' | 'bastion' = 'highway';
   private lastBaseHp: number = 10000;
   private lastBaseHitTime: number = 0;
 
@@ -48,7 +51,7 @@ export class BattlefieldScene extends Phaser.Scene {
 
   // QA & Diagnostic flags
   private debugEntities: boolean = false;
-  private currentFormationMode: FormationMode = 'B';
+  private currentFormationMode: FormationMode = 'C';
 
   constructor() {
     super({ key: 'BattlefieldScene' });
@@ -61,6 +64,7 @@ export class BattlefieldScene extends Phaser.Scene {
 
   preload() {
     SpriteAssetLoader.loadAll(this);
+    TextureGenerator.generateProps(this);
   }
 
   create() {
@@ -73,6 +77,9 @@ export class BattlefieldScene extends Phaser.Scene {
     if (reqFormation === 'A' || reqFormation === 'B' || reqFormation === 'C') {
       this.currentFormationMode = reqFormation;
     }
+
+    const reqLayout = urlParams.get('layout') === '2' ? 'bastion' : 'highway';
+    this.layoutVariant = reqLayout;
 
     // 1. Draw 9:16 Natural Highway & Architectural Military Fortress
     this.createBattlefieldMap();
@@ -235,109 +242,31 @@ export class BattlefieldScene extends Phaser.Scene {
       // Munitions crates
       this.add.image(bx - 95, 1270, 'ammo_crate').setScale(0.85).setDepth(9);
       this.add.image(bx + 95, 1270, 'ammo_crate').setScale(0.85).setDepth(9);
+
+      // Tactical traffic cones (Warning perimeter)
+      this.add.image(bx - 125, 1230, 'traffic_cone').setScale(0.85).setDepth(8);
+      this.add.image(bx + 125, 1230, 'traffic_cone').setScale(0.85).setDepth(8);
     }
 
-    // 6. MAIN REINFORCED CONCRETE FORTRESS WALL (y: 1380 to 1450)
-    this.baseWallGraphics = this.add.graphics().setDepth(20);
-    this.drawFortressWall(9850, 10000);
+    // Traffic cones marking craters and debris
+    this.add.image(495, 805, 'traffic_cone').setScale(0.8).setDepth(4);
+    this.add.image(585, 845, 'traffic_cone').setScale(0.8).setDepth(4);
+    this.add.image(225, 960, 'traffic_cone').setScale(0.8).setDepth(4);
 
-    // 7. CENTRAL HEAVY BLAST GATE (x: 540, y: 1380 to 1445)
-    const blastGate = this.add.graphics().setDepth(21);
-    // Heavy steel frame with bevel
-    blastGate.fillStyle(0x0e131d, 1);
-    blastGate.fillRoundedRect(540 - 90, 1385, 180, 58, 8);
-    blastGate.lineStyle(3, 0xfee440, 1);
-    blastGate.strokeRoundedRect(540 - 90, 1385, 180, 58, 8);
+    // Abandoned roadside vehicles (Atmosphere storytelling)
+    // Left shoulder: Abandoned police car angled towards the road
+    this.add.image(roadX - 45, 820, 'vehicle_police').setRotation(0.18).setScale(0.95).setDepth(5);
+    // Right shoulder: Military humvee parked near the checkpoint barricade
+    this.add.image(roadX + roadW + 48, 1080, 'vehicle_humvee').setRotation(-0.14).setScale(0.95).setDepth(5);
 
-    // Yellow / Black hazard caution stripes
-    blastGate.fillStyle(0xfee440, 0.95);
-    for (let gx = 540 - 80; gx <= 540 + 60; gx += 26) {
-      blastGate.beginPath();
-      blastGate.moveTo(gx, 1438);
-      blastGate.lineTo(gx + 14, 1390);
-      blastGate.lineTo(gx + 22, 1390);
-      blastGate.lineTo(gx + 8, 1438);
-      blastGate.fillPath();
-    }
-
-    this.add.text(540, 1414, '⚡ CỔNG THÀNH TRÌ #01 ⚡', {
-      fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '12px',
-      fontStyle: 'bold',
-      color: '#00f5d4',
-      backgroundColor: '#0a1128ee',
-      padding: { x: 8, y: 3 },
-    }).setOrigin(0.5).setDepth(23);
-
-    // 8. LOGISTICS, COMMAND DEPOT & STAGING YARD (y: 1450 to 1750)
-    const staging = this.add.graphics().setDepth(5);
-    // Concrete industrial floor
-    staging.fillStyle(0x131722, 0.98);
-    staging.fillRoundedRect(35, 1450, width - 70, 240, 12);
-    staging.lineStyle(2, 0x334155, 0.8);
-    staging.strokeRoundedRect(35, 1450, width - 70, 240, 12);
-
-    // Logistics markings & supply containers
-    staging.lineStyle(1.5, 0x00f5d4, 0.4);
-    staging.strokeRect(60, 1475, 220, 80);
-    staging.strokeRect(width - 280, 1475, 220, 80);
-
-    this.add.text(170, 1515, '📦 KHO TIẾP VẬN ALPHA', {
-      fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '11px',
-      fontStyle: 'bold',
-      color: '#64748b',
-    }).setOrigin(0.5).setDepth(6);
-
-    this.add.text(width - 170, 1515, '📦 KHO TIẾP VẬN CHARLIE', {
-      fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '11px',
-      fontStyle: 'bold',
-      color: '#64748b',
-    }).setOrigin(0.5).setDepth(6);
-
-    this.add.text(width / 2, 1550, '🛡️ SỞ CHỈ HUY & TUYẾN DỰ BỊ THÀNH TRÌ', {
-      fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#00f5d4',
-    }).setOrigin(0.5).setDepth(6);
+    // 6. High-Fidelity Fortress Architecture & Defense Emplacements
+    this.fortressRenderer = new FortressRenderer(this, this.layoutVariant);
 
     // Dark perimeter vignette for focus
     const vignette = this.add.graphics().setDepth(26);
     vignette.fillStyle(0x040609, 0.7);
     vignette.fillRect(0, 0, roadX - 16, height);
     vignette.fillRect(roadX + roadW + 16, 0, width - (roadX + roadW + 16), height);
-  }
-
-  private drawFortressWall(hp: number, maxHp: number): void {
-    const width = 1080;
-    this.baseWallGraphics.clear();
-
-    const ratio = Math.max(0, hp / maxHp);
-    const wallColor = ratio > 0.4 ? 0x222938 : 0x481822;
-    const borderColor = ratio > 0.4 ? 0x00f5d4 : 0xff0055;
-
-    // Concrete drop shadow
-    this.baseWallGraphics.fillStyle(0x080b10, 0.85);
-    this.baseWallGraphics.fillRect(40, 1445, width - 80, 15);
-
-    // Main wall body (depth 20)
-    this.baseWallGraphics.fillStyle(wallColor, 1);
-    this.baseWallGraphics.fillRoundedRect(40, 1380, width - 80, 65, 8);
-    this.baseWallGraphics.lineStyle(3, borderColor, 0.95);
-    this.baseWallGraphics.strokeRoundedRect(40, 1380, width - 80, 65, 8);
-
-    // Wall top edge parapet highlight
-    this.baseWallGraphics.fillStyle(0x3e4a62, 1);
-    this.baseWallGraphics.fillRect(44, 1382, width - 88, 12);
-
-    // Embrasures / firing ports along wall
-    this.baseWallGraphics.fillStyle(0x0e131d, 1);
-    for (let x = 70; x < width - 70; x += 65) {
-      if (x > 430 && x < 650) continue; // Clear around central blast gate
-      this.baseWallGraphics.fillRect(x, 1398, 28, 14);
-    }
   }
 
   private createFortressTurrets(): void {
@@ -448,7 +377,7 @@ export class BattlefieldScene extends Phaser.Scene {
       this.triggerBaseHitReaction();
     }
     this.lastBaseHp = snapshot.baseHp;
-    this.drawFortressWall(snapshot.baseHp, snapshot.maxBaseHp);
+    this.fortressRenderer.updateHp(snapshot.baseHp, snapshot.maxBaseHp);
 
     // 3. Update HUD
     this.hud.update(snapshot);
@@ -549,6 +478,11 @@ export class BattlefieldScene extends Phaser.Scene {
         this.currentFormationMode = mode;
         this.squadVisualizer.setFormationMode(mode);
         return this.squadVisualizer.generateOverlapReport();
+      },
+
+      setLayoutVariant: (variant: 'highway' | 'bastion') => {
+        this.layoutVariant = variant;
+        this.fortressRenderer.setLayoutVariant(variant);
       },
 
       getSquadOverlapReport: () => {

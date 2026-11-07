@@ -158,6 +158,65 @@ export class SoldierRenderer {
     return { flashX, flashY, angle };
   }
 
+  public triggerReinforcementAnimation(viewerName: string = 'Đồng Minh'): void {
+    this.nameText.setText(`★ ${viewerName}`);
+    this.nameText.setVisible(true);
+    this.nameText.setColor('#fee440');
+
+    // 1. Hero scale pop
+    this.scene.tweens.add({
+      targets: this.container,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      duration: 180,
+      yoyo: true,
+      ease: 'Back.easeOut',
+    });
+
+    // 2. Floating reinforcement banner
+    const floatText = this.scene.add.text(this.container.x, this.container.y - 70, `+1 CHI VIỆN [@${viewerName}]`, {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#fee440',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(45);
+
+    this.scene.tweens.add({
+      targets: floatText,
+      y: floatText.y - 45,
+      alpha: 0,
+      duration: 1800,
+      ease: 'Cubic.easeOut',
+      onComplete: () => floatText.destroy(),
+    });
+
+    // 3. Golden-cyan energy ring
+    const ring = this.scene.add.graphics().setDepth(15);
+    ring.lineStyle(3, 0xfee440, 1);
+    ring.strokeCircle(this.container.x, this.container.y, 40 * this.scaleTier.soldierScale);
+
+    this.scene.tweens.add({
+      targets: ring,
+      scaleX: 1.8,
+      scaleY: 1.8,
+      alpha: 0,
+      duration: 800,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+
+    // Play rapid fire salute
+    this.fireMuzzleFlash();
+    this.scene.time.delayedCall(120, () => this.fireMuzzleFlash());
+
+    this.scene.time.delayedCall(3000, () => {
+      this.nameText.setVisible(false);
+      this.nameText.setColor('#00f5d4');
+    });
+  }
+
   public showTemporaryHighlight(color: number = 0x00f5d4, durationMs: number = 2500): void {
     this.nameText.setVisible(true);
     this.drawHpBar(true);

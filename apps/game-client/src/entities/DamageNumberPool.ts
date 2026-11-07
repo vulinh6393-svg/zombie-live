@@ -26,26 +26,26 @@ export class DamageNumberPool {
     if (!text) {
       text = this.scene.add.text(0, 0, '', {
         fontFamily: GAME_FONTS.DISPLAY,
-        fontSize: '22px',
+        fontSize: '16px',
         fontStyle: 'bold',
         color: '#ff3333',
         stroke: '#000000',
-        strokeThickness: 3,
+        strokeThickness: 2,
       }).setDepth(50);
       this.pool.push(text);
     }
 
-    text.setText(isCritical ? `-${amount} CHÍ MẠNG!` : `-${amount}`);
-    text.setColor(isCritical ? '#fee440' : '#ff3333');
-    text.setFontSize(isCritical ? 28 : 22);
-    text.setPosition(x + (Math.random() * 20 - 10), y - 20);
+    text.setText(isCritical ? `-${amount} CRIT!` : `-${amount}`);
+    text.setColor(isCritical ? '#fee440' : '#ff4d4d');
+    text.setFontSize(isCritical ? 19 : 15);
+    text.setPosition(x + (Math.random() * 16 - 8), y - 18);
     text.setActive(true).setVisible(true).setAlpha(1);
 
     this.scene.tweens.add({
       targets: text,
-      y: y - 70,
+      y: y - 48,
       alpha: 0,
-      duration: 650,
+      duration: 420,
       ease: 'Cubic.easeOut',
       onComplete: () => {
         text.setActive(false).setVisible(false);

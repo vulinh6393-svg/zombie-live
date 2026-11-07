@@ -46,7 +46,7 @@ export class SquadVisualizer {
   private squads: Map<'alpha' | 'bravo' | 'charlie', SquadData> = new Map();
   private squadBadges: Map<'alpha' | 'bravo' | 'charlie', { container: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text }> = new Map();
   private squadSoldiers: Map<'alpha' | 'bravo' | 'charlie', SoldierRenderer[]> = new Map();
-  private formationMode: FormationMode = 'B'; // Option B (Tactical Pair) default for optimal 360x640 mobile readability
+  private formationMode: FormationMode = 'C'; // Default to 1 Soldier đại diện/lane for Phase 02.4
   private debugEntities: boolean = false;
 
   // Formations specifically designed with calculated visual bounds to guarantee ZERO OVERLAP
@@ -57,18 +57,18 @@ export class SquadVisualizer {
       { dx: -85, dy: 35, role: 'Xạ Thủ Trái' },
       { dx: 85, dy: 35, role: 'Xạ Thủ Phải' },
     ],
-    // Option B: 2 Soldiers/lane (Tactical Defensive Pair) - RECOMMENDED for 360x640 mobile
+    // Option B: 2 Soldiers/lane (Tactical Defensive Pair)
     B: [
       { dx: -65, dy: -10, role: 'Tiền Vệ' },
       { dx: 65, dy: 20, role: 'Hậu Cần' },
     ],
-    // Option C: 1 Hero Soldier/lane + Large Squad Banner
+    // Option C: 1 Hero Representative Soldier/lane (PHASE 02.4 DEFAULT: Ultra-clean TikTok view)
     C: [
       { dx: 0, dy: 0, role: 'Đại Diện' },
     ],
   };
 
-  constructor(scene: Phaser.Scene, initialMode: FormationMode = 'B', debugEntities: boolean = false) {
+  constructor(scene: Phaser.Scene, initialMode: FormationMode = 'C', debugEntities: boolean = false) {
     this.scene = scene;
     this.formationMode = initialMode;
     this.debugEntities = debugEntities;
@@ -119,7 +119,8 @@ export class SquadVisualizer {
     bg.strokeRoundedRect(-100, -13, 200, 26, 6);
 
     const repCount = this.formations[this.formationMode].length;
-    const text = this.scene.add.text(0, 0, `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`, {
+    const label = repCount === 1 ? `${sq.name} SQUAD: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`;
+    const text = this.scene.add.text(0, 0, label, {
       fontFamily: GAME_FONTS.TACTICAL,
       fontSize: '11px',
       fontStyle: 'bold',
@@ -134,7 +135,8 @@ export class SquadVisualizer {
     const badge = this.squadBadges.get(sq.id);
     if (!badge) return;
     const repCount = this.formations[this.formationMode].length;
-    badge.text.setText(`${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`);
+    const label = repCount === 1 ? `${sq.name} SQUAD: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`;
+    badge.text.setText(label);
   }
 
   private spawnSoldiersForSquad(sq: SquadData): void {
@@ -171,13 +173,49 @@ export class SquadVisualizer {
     const list = this.squadSoldiers.get(squadId);
     if (!list || list.length === 0) return;
 
-    // Highlight representative soldier
-    const target = list[Phaser.Math.Between(0, list.length - 1)];
-    target.showTemporaryHighlight(0x00f5d4, 2500);
+    // Trigger reinforcement animation on the representative soldier
+    const target = list[0];
+    target.triggerReinforcementAnimation(viewerName);
 
     const sq = this.squads.get(squadId)!;
     sq.totalMembers++;
     this.updateBadgeText(sq);
+
+    // In 1-soldier mode, spawn a temporary tactical reinforcement trooper who assists for 2.5s and fades away
+    if (this.formationMode === 'C') {
+      const tempSnapshot: SoldierSnapshot = {
+        id: `temp_reinf_${Date.now()}`,
+        userId: `user_${Date.now()}`,
+        name: viewerName,
+        x: sq.centerX + 70,
+        y: sq.centerY + 15,
+        hp: 100,
+        maxHp: 100,
+      };
+
+      const tempSoldier = new SoldierRenderer(this.scene, tempSnapshot, DEFAULT_SCALE_TIER);
+      tempSoldier.setRotation(-Math.PI / 2);
+      tempSoldier.container.setAlpha(0);
+
+      this.scene.tweens.add({
+        targets: tempSoldier.container,
+        alpha: 1,
+        duration: 200,
+        onComplete: () => {
+          tempSoldier.fireMuzzleFlash();
+          this.scene.time.delayedCall(300, () => tempSoldier.fireMuzzleFlash());
+        },
+      });
+
+      this.scene.time.delayedCall(2500, () => {
+        this.scene.tweens.add({
+          targets: tempSoldier.container,
+          alpha: 0,
+          duration: 400,
+          onComplete: () => tempSoldier.destroy(),
+        });
+      });
+    }
   }
 
   public update(deltaMs: number): void {

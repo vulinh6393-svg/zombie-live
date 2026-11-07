@@ -119,6 +119,58 @@
   - [x] `docs/visual/BATTLEFIELD_PERFORMANCE_02_3_2.md`
   - [x] Cập nhật trang xem video trực tiếp `player.html` trong Artifacts.
 
+## Giai đoạn 02.4: Battlefield Art Direction & TikTok LIVE Experience (ĐÃ HOÀN THÀNH - CHỜ REVIEW & CHỈ THỊ)
+- [x] **A. Sửa cách thể hiện các Squad (1 Soldier đại diện / lane):**
+  - [x] Chuyển mặc định sang 1 Soldier đại diện/lane ở kích thước hiện tại (Alpha, Bravo, Charlie).
+  - [x] Hiển thị rõ nét từng Soldier kèm huy hiệu quân số chi viện.
+  - [x] Khi nhận sự kiện JOIN/Reinforcement: cập nhật badge, phát animation tiếp viện (golden-cyan halo, 1.15x scale pop, weapon salute, floating label), xuất hiện lính hỗ trợ tạm thời 2.5s không gây chồng lấn.
+  - [x] Giữ đầy đủ 40 người tham gia trong dữ liệu server.
+  - [x] Kiểm tra visual bounds thực tế ở runtime từ container và display scale.
+- [x] **B. Thiết kế mới Fortress (Art Direction chuyên nghiệp):**
+  - [x] Phong cách: Top-down military zombie survival, semi-realistic 2D painted sprites, weathered concrete, dark asphalt, metal barricades, realistic cast shadows.
+  - [x] Cổng thép trung tâm lớn (Heavy Blast Gate) dập gân kim loại, sọc cảnh báo vàng đen và khóa thủy lực.
+  - [x] Tường thành bê tông cốt thép khối dày, có gờ bê tông sáng và bóng đổ chân tường.
+  - [x] 3 phân khu phòng thủ Alpha, Bravo, Charlie có bệ pháo, bao cát, hàng rào kim loại chướng ngại vật, côn giao thông.
+  - [x] Ụ pháo kép có bệ xoay, thân pháo, nòng súng kép giật nòng và đường nạp đạn.
+  - [x] Sở chỉ huy và kho tiếp vận phía sau tường thành tạo chiều sâu.
+  - [x] Hiệu ứng hư hại thành trì theo mức HP (vết nứt bê tông, tia lửa, khói).
+  - [x] Tạo cảnh `FortressArtScene` (`/fortress-lab`) độc lập để kiểm tra độ rõ ràng ở 360×640 trước khi tích hợp vào `BattlefieldScene`.
+- [x] **C. Bố cục chiến trường 1080×1920 mới (2 phương án Layout):**
+  - [x] Thu gọn đường cao tốc, mở rộng không gian chiến trường theo phân tầng dọc:
+    - Vùng HUD / LIVE an toàn: y: 0–220
+    - Vùng Zombie xuất hiện: y: 220–550
+    - Vùng giao tranh chính (Active Combat Zone): y: 550–1150
+    - Vùng Thành trì phòng thủ (Fortress Defense): y: 1150–1500
+    - Vùng Hậu cần & Sở chỉ huy: y: 1500–1800
+  - [x] Cung cấp 2 phương án layout (`?layout=1`: Fortified Highway vs `?layout=2`: Checkpoint Bastion) và chụp preview 360×640.
+- [x] **D. Tính đồng bộ nghệ thuật (Art Consistency):**
+  - [x] Đồng bộ phong cách giữa Walker, Survivor, Turret, Fortress và môi trường xung quanh (thêm xe tuần tra cảnh sát và thiết giáp quân sự dã chiến trên lề đường).
+  - [x] Cập nhật manifest và ghi rõ license cho mọi asset.
+- [x] **E. Tối ưu Zombie & Hiệu ứng chiến đấu:**
+  - [x] Giữ 10 Walker làm mật độ mock. Bỏ nhãn "Zombie #1", "#2" cố định trong bản phát LIVE.
+  - [x] Ẩn thanh máu của zombie khi 100% HP, chỉ hiện khi bị bắn hoặc chọn.
+  - [x] Giảm kích thước và thời gian hiển thị damage number xuống 400ms để không che khung hình.
+  - [x] Chỉ tạo hit flash khi có sự kiện trúng đạn thật.
+  - [x] Viết test xác nhận khi zombie chết thì alive count giảm từ 10 xuống 9 (`apps/game-client/src/client.test.ts`).
+- [x] **F. Tái thiết kế TikTok LIVE Visual Hierarchy:**
+  - [x] Thiết kế lại Wave, Base HP, MVP Leaderboard, Squad Status, Gift Alert, JOIN Alert, Boss Warning, Comment Callout (`Gõ '1' hoặc 'JOIN Alpha' để tham chiến!`).
+  - [x] Đảm bảo Gift Alert nổi bật nhưng ngắn gọn (2.5s) và không che quái hay boss.
+  - [x] Kiểm tra hiển thị an toàn trên lớp giả lập TikTok ở 360×640.
+- [x] **G. Ghi video gameplay biểu diễn (>= 45 giây):**
+  - [x] Quay trực tiếp từ BattlefieldScene: Zombie xuất hiện -> 3 Squad phòng thủ -> Súng & ụ pháo bắn -> Zombie trúng đạn -> 1 Zombie chết thật theo authoritative event -> Viewer JOIN -> Gift airstrike -> Thành trì nhận sát thương -> Khôi phục bình thường (48s, 22.7MB).
+- [x] **H. Xuất đầy đủ sản phẩm nghiệm thu Phase 02.4:**
+  - [x] `layout_1_highway_1080x1920.png` & `layout_1_highway_360x640.png`
+  - [x] `layout_2_bastion_1080x1920.png` & `layout_2_bastion_360x640.png`
+  - [x] `fortress_art_preview_1080x1920.png` & `fortress_art_preview_360x640.png`
+  - [x] `squad_c_mode_preview.png`
+  - [x] `battlefield_full_combat_02_4.png`
+  - [x] `tiktok_safezone_preview_02_4.png`
+  - [x] `battlefield_gameplay_02_4.webm` (48 giây, 22.7MB)
+  - [x] `docs/visual/BATTLEFIELD_QA_02_4.md`
+  - [x] `docs/visual/BATTLEFIELD_PERFORMANCE_02_4.md`
+  - [x] Cập nhật trang xem video trực tiếp `player.html` trong Artifacts.
+  - [x] Git commit trên branch `feat/phase02-visual-refinement`.
+
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions

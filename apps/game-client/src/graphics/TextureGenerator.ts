@@ -2,6 +2,10 @@ import Phaser from 'phaser';
 
 export class TextureGenerator {
   static generateAll(scene: Phaser.Scene): void {
+    if (!scene.textures.exists('traffic_cone')) {
+      this.generateProps(scene);
+    }
+
     if (scene.textures.exists('soldier_tactical')) {
       return;
     }
@@ -11,6 +15,79 @@ export class TextureGenerator {
     this.generateTowers(scene);
     this.generateBaseFortress(scene);
     this.generateVFX(scene);
+  }
+
+  public static generateProps(scene: Phaser.Scene): void {
+    // 1. Traffic Cone (Côn giao thông) - Top-down with reflective ring
+    let g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x000000, 0.45);
+    g.fillEllipse(18, 22, 22, 10);
+    g.fillStyle(0xff5400, 1);
+    g.fillRoundedRect(6, 6, 24, 24, 4);
+    g.fillStyle(0xcc3300, 1);
+    g.fillRoundedRect(8, 8, 20, 20, 2);
+    g.fillStyle(0xff6b00, 1);
+    g.fillCircle(18, 18, 9);
+    g.fillStyle(0xffffff, 0.95);
+    g.fillCircle(18, 18, 6.5);
+    g.fillStyle(0xff5400, 1);
+    g.fillCircle(18, 18, 4);
+    g.fillStyle(0x331100, 1);
+    g.fillCircle(18, 18, 1.5);
+    g.generateTexture('traffic_cone', 36, 36);
+    g.destroy();
+
+    // 2. Abandoned Police Cruiser (Xe cảnh sát tuần tra)
+    g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x000000, 0.5);
+    g.fillRoundedRect(4, 6, 66, 128, 12);
+    g.fillStyle(0x15181e, 1);
+    g.fillRoundedRect(8, 8, 58, 120, 10);
+    g.fillStyle(0xf1f5f9, 1);
+    g.fillRect(10, 36, 54, 56);
+    g.fillStyle(0x1e293b, 1);
+    g.fillRoundedRect(12, 30, 50, 14, 4);
+    g.fillRoundedRect(12, 86, 50, 12, 4);
+    g.fillRect(10, 44, 4, 42);
+    g.fillRect(60, 44, 4, 42);
+    g.fillStyle(0x334155, 1);
+    g.fillRect(14, 6, 46, 5);
+    g.fillRect(18, 11, 4, 6);
+    g.fillRect(52, 11, 4, 6);
+    g.fillStyle(0xfff3b0, 0.9);
+    g.fillCircle(16, 12, 4);
+    g.fillCircle(58, 12, 4);
+    g.fillStyle(0xd90429, 1);
+    g.fillRoundedRect(16, 58, 18, 8, 2);
+    g.fillStyle(0x0077b6, 1);
+    g.fillRoundedRect(40, 58, 18, 8, 2);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(34, 59, 6, 6);
+    g.generateTexture('vehicle_police', 74, 136);
+    g.destroy();
+
+    // 3. Military Armored Transport / Humvee (Xe quân sự thiết giáp)
+    g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x000000, 0.5);
+    g.fillRoundedRect(4, 6, 76, 130, 8);
+    g.fillStyle(0x384033, 1);
+    g.fillRoundedRect(8, 8, 68, 124, 6);
+    g.fillStyle(0x272d24, 1);
+    g.fillRect(6, 20, 72, 22);
+    g.fillRect(6, 92, 72, 22);
+    g.fillStyle(0x242a21, 1);
+    g.fillRect(20, 16, 44, 18);
+    g.fillStyle(0x131a19, 1);
+    g.fillRect(16, 38, 24, 10);
+    g.fillRect(44, 38, 24, 10);
+    g.fillStyle(0x4a5544, 1);
+    g.fillCircle(42, 70, 16);
+    g.fillStyle(0x1f241d, 1);
+    g.fillCircle(42, 70, 10);
+    g.fillStyle(0x2f362b, 1);
+    g.fillRoundedRect(14, 88, 56, 38, 4);
+    g.generateTexture('vehicle_humvee', 84, 140);
+    g.destroy();
   }
 
   private static generateSoldier(scene: Phaser.Scene): void {

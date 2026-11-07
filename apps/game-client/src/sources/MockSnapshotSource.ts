@@ -105,7 +105,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
         phase: 'BOSS',
         baseHp: 6500,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(6),
+        soldiers: this.generateSoldiers(3),
         zombies,
         towers,
         activePlayerCount: 40,
@@ -132,7 +132,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
         phase: 'RESULTS',
         baseHp: 7800,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(6),
+        soldiers: this.generateSoldiers(3),
         zombies: [],
         towers,
         activePlayerCount: 38,
@@ -195,7 +195,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
       phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
       baseHp: this.currentBaseHp,
       maxBaseHp: 10000,
-      soldiers: this.generateSoldiers(6),
+      soldiers: this.generateSoldiers(3),
       zombies,
       towers,
       activePlayerCount: 40,
@@ -221,33 +221,25 @@ export class MockSnapshotSource implements GameSnapshotSource {
     }, 3000);
   }
 
-  private generateSoldiers(count: number = 6): SoldierSnapshot[] {
+  private generateSoldiers(count: number = 3): SoldierSnapshot[] {
     const soldiers: SoldierSnapshot[] = [];
     const squads = [
-      { id: 'alpha', cx: 260, cy: 1340 },
-      { id: 'bravo', cx: 540, cy: 1320 },
-      { id: 'charlie', cx: 820, cy: 1340 },
+      { id: 'alpha', cx: 260, cy: 1320, role: 'Đại Diện' },
+      { id: 'bravo', cx: 540, cy: 1300, role: 'Đại Diện' },
+      { id: 'charlie', cx: 820, cy: 1320, role: 'Đại Diện' },
     ];
 
-    const offsets = [
-      { dx: -65, dy: -10, role: 'Tiền Vệ' },
-      { dx: 65, dy: 20, role: 'Hậu Cần' },
-    ];
-
-    let idx = 0;
-    for (const sq of squads) {
-      for (let i = 0; i < offsets.length; i++) {
-        idx++;
-        soldiers.push({
-          id: `soldier_${sq.id}_${i}`,
-          userId: `user_${sq.id}_${i}`,
-          name: `${sq.id.toUpperCase()} ${offsets[i].role}`,
-          x: sq.cx + offsets[i].dx,
-          y: sq.cy + offsets[i].dy,
-          hp: 100,
-          maxHp: 100,
-        });
-      }
+    for (let i = 0; i < squads.length; i++) {
+      const sq = squads[i];
+      soldiers.push({
+        id: `soldier_${sq.id}_0`,
+        userId: `user_${sq.id}_0`,
+        name: `${sq.id.toUpperCase()} ${sq.role}`,
+        x: sq.cx,
+        y: sq.cy,
+        hp: 100,
+        maxHp: 100,
+      });
     }
     return soldiers;
   }

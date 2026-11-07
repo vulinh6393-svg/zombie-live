@@ -68,14 +68,24 @@ export class HUD {
     }).setOrigin(0.5);
 
     // Clear Military Statistics
-    this.entityCountText = scene.add.text(width / 2, 92, 'Lực Lượng Chi Viện: 40 Người (3 Đội) | Trực Chiến: 6 Lính | Kẻ Địch: 10 Zombie', {
+    this.entityCountText = scene.add.text(width / 2, 92, 'Quân Chi Viện: 40 Người (3 Đội) | Trực Chiến: 3 Lính | Kẻ Địch: 10 Zombie', {
       fontFamily: GAME_FONTS.TACTICAL,
       fontSize: '13px',
       fontStyle: 'bold',
       color: '#adb5bd',
     }).setOrigin(0.5);
 
-    topContainer.add([topBg, this.waveText, this.timerText, baseHpBarBg, this.baseHpBarFill, this.baseHpText, this.entityCountText]);
+    // Callout guidance for TikTok viewers
+    const callout = scene.add.text(width / 2, 118, '💬 Bình luận: "1" (Alpha) | "2" (Bravo) | "3" (Charlie) để chi viện!', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#00f5d4',
+      backgroundColor: '#050a14cc',
+      padding: { x: 8, y: 2 },
+    }).setOrigin(0.5);
+
+    topContainer.add([topBg, this.waveText, this.timerText, baseHpBarBg, this.baseHpBarFill, this.baseHpText, this.entityCountText, callout]);
 
     // --- 2. Boss HP Bar (Docked safely at y: 255) ---
     this.bossContainer = scene.add.container(0, 255).setDepth(150);
@@ -181,10 +191,10 @@ export class HUD {
     // 4. Entity Statistics (Transparent distinction)
     const aliveZombies = snapshot.zombies.filter((z) => z.hp > 0).length;
     const totalMembers = snapshot.activePlayerCount || 40;
-    const activeSoldiers = Math.min(6, snapshot.soldiers.length || 6);
+    const activeSoldiers = 3; // 1 representative soldier per squad in Phase 02.4
 
     this.entityCountText.setText(
-      `Lực Lượng Chi Viện: ${totalMembers} Người (3 Đội) | Trực Chiến: ${activeSoldiers} Lính | Kẻ Địch: ${aliveZombies} Zombie`
+      `Quân Chi Viện: ${totalMembers} Người (3 Đội) | Trực Chiến: ${activeSoldiers} Lính | Kẻ Địch: ${aliveZombies} Zombie`
     );
 
     // 5. Boss Bar

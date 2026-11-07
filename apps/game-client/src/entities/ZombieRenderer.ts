@@ -55,6 +55,8 @@ export class ZombieRenderer {
       stroke: '#000000',
       strokeThickness: 3,
     }).setOrigin(0.5);
+    // Hide name label by default to prevent visual clutter; only show for Boss or Debug
+    this.nameText.setVisible(this.type === 'boss' || this.debugEntities);
 
     this.container.add([this.sprite, this.hpBarBg, this.hpBarFill, this.nameText]);
 
@@ -284,6 +286,11 @@ export class ZombieRenderer {
     this.hpBarBg.clear();
     this.hpBarFill.clear();
     if (this.isDead) return;
+
+    // Only display HP bar when damaged or in debug mode
+    if (!this.debugEntities && this.hp >= this.maxHp && this.type !== 'boss') {
+      return;
+    }
 
     const mult = this.scaleTier.walkerScale;
     const barW = 55 * mult;

@@ -23,7 +23,7 @@ describe('Game Client Configuration & Mock Source', () => {
     expect(lastSnapshot).not.toBeNull();
     const snap = lastSnapshot!;
     expect(snap.zombies.length).toBeGreaterThan(0);
-    expect(snap.soldiers.length).toBeGreaterThanOrEqual(6);
+    expect(snap.soldiers.length).toBeGreaterThanOrEqual(3);
     expect(snap.activePlayerCount).toBe(40);
     expect(snap.towers?.length).toBe(3);
 
@@ -42,5 +42,26 @@ describe('Game Client Configuration & Mock Source', () => {
     unsub();
     source.disconnect();
     expect(source.isConnected()).toBe(false);
+  });
+
+  it('accurately tracks live vs dead zombies: death reduces alive count from 10 to 9', () => {
+    const source = new MockSnapshotSource();
+    source.connect();
+    let snap: ExtendedMatchSnapshot | null = null;
+    const unsub = source.subscribe((s) => {
+      snap = s;
+    });
+
+    expect(snap).not.toBeNull();
+    const liveBefore = snap!.zombies.filter((z) => z.hp > 0).length;
+    expect(liveBefore).toBe(10);
+
+    // Authoritative death event reduces alive zombies to 9
+    snap!.zombies[0].hp = 0;
+    const liveAfter = snap!.zombies.filter((z) => z.hp > 0).length;
+    expect(liveAfter).toBe(9);
+
+    unsub();
+    source.disconnect();
   });
 });

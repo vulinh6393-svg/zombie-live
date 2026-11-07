@@ -2,16 +2,18 @@ import Phaser from 'phaser';
 import { BattlefieldScene } from './scenes/BattlefieldScene.js';
 import { ContactSheetScene } from './renderer/scenes/ContactSheetScene.js';
 import { QualityLabScene } from './renderer/scenes/QualityLabScene.js';
+import { FortressArtScene } from './scenes/FortressArtScene.js';
 import { MockSnapshotSource, MockScenario } from './sources/MockSnapshotSource.js';
 import { SocketSnapshotSource } from './sources/SocketSnapshotSource.js';
 import { GameSnapshotSource } from './sources/GameSnapshotSource.js';
 import { GAME_CONFIG } from './config.js';
 
-// Route check: /quality-lab vs /overlay vs /contact-sheet vs / (development)
+// Route check: /quality-lab vs /overlay vs /contact-sheet vs /fortress-lab vs / (development)
+const urlParams = new URLSearchParams(window.location.search);
 const isQualityLab = window.location.pathname.startsWith('/quality-lab');
+const isFortressLab = window.location.pathname.startsWith('/fortress-lab') || urlParams.get('scene') === 'fortress';
 const isOverlay = window.location.pathname.startsWith('/overlay');
 const isContactSheet = window.location.pathname.startsWith('/contact-sheet');
-const urlParams = new URLSearchParams(window.location.search);
 const useSocket = urlParams.get('mode') === 'socket';
 
 let snapshotSource: GameSnapshotSource;
@@ -39,7 +41,7 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene],
+  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene, FortressArtScene],
 };
 
 let gameInstance: Phaser.Game | null = null;
@@ -53,7 +55,9 @@ if (typeof window !== 'undefined') {
 
     gameInstance = new Phaser.Game(phaserGameConfig);
 
-    if (isQualityLab) {
+    if (isFortressLab) {
+      gameInstance.scene.start('FortressArtScene');
+    } else if (isQualityLab) {
       gameInstance.scene.start('QualityLabScene');
       const showControls = urlParams.get('debug') === '1' || window.location.pathname.startsWith('/quality-lab/controls');
       if (showControls) {
