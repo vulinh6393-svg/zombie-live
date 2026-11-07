@@ -1,0 +1,153 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Player {
+  id              String             @id @default(uuid())
+  provider        String
+  platformUserId  String             @map("platform_user_id")
+  username        String
+  level           Int                @default(1)
+  xp              Int                @default(0)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  matchPlayers    MatchPlayer[]
+  missionProgress MissionProgress[]
+  inventory       PlayerInventory[]
+
+  @@unique([provider, platformUserId], name: "provider_platformUserId")
+  @@map("players")
+}
+
+model LiveSession {
+  id         String     @id @default(uuid())
+  provider   String
+  status     String     @default("active")
+  startedAt  DateTime   @default(now()) @map("started_at")
+  endedAt    DateTime?  @map("ended_at")
+  matches    Match[]
+  eventLogs  EventLog[]
+
+  @@map("live_sessions")
+}
+
+model Match {
+  id             String        @id @default(uuid())
+  sessionId      String?       @map("session_id")
+  seed           Int
+  phase          String
+  result         String        @default("IN_PROGRESS")
+  baseHp         Int           @map("base_hp")
+  startedAt      DateTime      @default(now()) @map("started_at")
+  endedAt        DateTime?     @map("ended_at")
+  session        LiveSession?  @relation(fields: [sessionId], references: [id])
+  matchPlayers   MatchPlayer[]
+
+  @@map("matches")
+}
+
+model MatchPlayer {
+  matchId         String   @map("match_id")
+  playerId        String   @map("player_id")
+  kills           Int      @default(0)
+  assists         Int      @default(0)
+  repairs         Int      @default(0)
+  rescues         Int      @default(0)
+  bossDamage      Int      @default(0) @map("boss_damage")
+  giftDamage      Int      @default(0) @map("gift_damage")
+  match           Match    @relation(fields: [matchId], references: [id])
+  player          Player   @relation(fields: [playerId], references: [id])
+
+  @@id([matchId, playerId])
+  @@map("match_players")
+}
+
+model EventLog {
+  id             String       @id @default(uuid())
+  eventKey       String       @unique @map("event_key")
+  provider       String
+  liveSessionId  String?      @map("live_session_id")
+  userId         String       @map("user_id")
+  username       String
+  eventType      String       @map("event_type")
+  payload        Json
+  receivedAt     DateTime     @default(now()) @map("received_at")
+  liveSession    LiveSession? @relation(fields: [liveSessionId], references: [id])
+
+  @@map("event_log")
+}
+
+model GiftMapping {
+  id             String   @id @default(uuid())
+  provider       String
+  giftId         String   @map("gift_id")
+  skillId        String   @map("skill_id")
+  enabled        Boolean  @default(true)
+  cooldownSeconds Int     @default(0) @map("cooldown_seconds")
+  perTriggerCap   Int     @default(1) @map("per_trigger_cap")
+
+  @@unique([provider, giftId])
+  @@map("gift_mappings")
+}
+
+model Mission {
+  id          String            @id @default(uuid())
+  code        String            @unique
+  title       String
+  description String
+  targetValue Int               @map("target_value")
+  xpReward    Int               @map("xp_reward")
+  progresses  MissionProgress[]
+
+  @@map("missions")
+}
+
+model MissionProgress {
+  id         String   @id @default(uuid())
+  playerId   String   @map("player_id")
+  missionId  String   @map("mission_id")
+  period     String   // e.g. 2026-11-07 in Asia/Ho_Chi_Minh
+  currentVal Int      @default(0) @map("current_val")
+  completed  Boolean  @default(false)
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  player     Player   @relation(fields: [playerId], references: [id])
+  mission    Mission  @relation(fields: [missionId], references: [id])
+
+  @@unique([playerId, missionId, period])
+  @@map("mission_progress")
+}
+
+model RewardGrant {
+  id         String   @id @default(uuid())
+  sourceKey  String   @unique @map("source_key")
+  playerId   String   @map("player_id")
+  xpGranted  Int      @default(0) @map("xp_granted")
+  grantedAt  DateTime @default(now()) @map("granted_at")
+
+  @@map("reward_grants")
+}
+
+model PlayerInventory {
+  id        String   @id @default(uuid())
+  playerId  String   @map("player_id")
+  itemId    String   @map("item_id")
+  quantity  Int      @default(1)
+  player    Player   @relation(fields: [playerId], references: [id])
+
+  @@map("player_inventory")
+}
+
+model LeaderboardSnapshot {
+  id        String   @id @default(uuid())
+  scope     String   // match, daily, weekly, season
+  periodKey String   @map("period_key")
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("leaderboard_snapshots")
+}
