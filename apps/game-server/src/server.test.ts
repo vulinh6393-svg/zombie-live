@@ -26,5 +26,7 @@ describe('Game Server Health & Ready Endpoints', () => {
     const body = JSON.parse(res.payload);
     expect(body.status).toBe('ready');
     expect(body.mockMode).toBe(true);
+    expect(body.dependencies).toBeDefined();
+    expect(body.dependencies.database).toBeDefined();
   });
 });

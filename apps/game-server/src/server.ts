@@ -26,10 +26,22 @@ export function buildServer(opts: BuildServerOptions = {}): {
   });
 
   app.get('/ready', async () => {
+    const hasDbUrl = Boolean(process.env.DATABASE_URL);
+    const hasRedisUrl = Boolean(process.env.REDIS_URL);
     return {
       status: 'ready',
       uptime: process.uptime(),
-      mockMode: true,
+      mockMode: process.env.MOCK_MODE !== 'false',
+      dependencies: {
+        database: {
+          configured: hasDbUrl,
+          mode: hasDbUrl ? 'postgresql' : 'in_memory_fallback',
+        },
+        redis: {
+          configured: hasRedisUrl,
+          mode: hasRedisUrl ? 'redis_queue' : 'in_memory_fallback',
+        },
+      },
       timestamp: new Date().toISOString(),
     };
   });
