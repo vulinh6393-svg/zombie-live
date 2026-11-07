@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import { BattlefieldScene } from './scenes/BattlefieldScene.js';
+import { ContactSheetScene } from './renderer/scenes/ContactSheetScene.js';
 import { MockSnapshotSource, MockScenario } from './sources/MockSnapshotSource.js';
 import { SocketSnapshotSource } from './sources/SocketSnapshotSource.js';
 import { GameSnapshotSource } from './sources/GameSnapshotSource.js';
 import { GAME_CONFIG } from './config.js';
 
-// Route check: /overlay vs / (development)
+// Route check: /overlay vs /contact-sheet vs / (development)
 const isOverlay = window.location.pathname.startsWith('/overlay');
+const isContactSheet = window.location.pathname.startsWith('/contact-sheet');
 const urlParams = new URLSearchParams(window.location.search);
 const useSocket = urlParams.get('mode') === 'socket';
 
@@ -35,7 +37,7 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [BattlefieldScene],
+  scene: [BattlefieldScene, ContactSheetScene],
 };
 
 let gameInstance: Phaser.Game | null = null;
@@ -43,13 +45,18 @@ let gameInstance: Phaser.Game | null = null;
 if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
     gameInstance = new Phaser.Game(phaserGameConfig);
-    gameInstance.scene.start('BattlefieldScene', {
-      snapshotSource,
-      isOverlayMode: isOverlay,
-    });
 
-    if (!isOverlay && mockSource) {
-      createDevControlPanel(mockSource);
+    if (isContactSheet) {
+      gameInstance.scene.start('ContactSheetScene');
+    } else {
+      gameInstance.scene.start('BattlefieldScene', {
+        snapshotSource,
+        isOverlayMode: isOverlay,
+      });
+
+      if (!isOverlay && mockSource) {
+        createDevControlPanel(mockSource);
+      }
     }
   });
 }
@@ -114,14 +121,26 @@ function createDevControlPanel(mock: MockSnapshotSource): void {
     panel.appendChild(btn);
   }
 
-  // OBS link
+  // Contact Sheet Link
+  const contactLink = document.createElement('a');
+  contactLink.href = '/contact-sheet';
+  contactLink.target = '_blank';
+  contactLink.innerText = '📋 10 Zombie Sheet';
+  contactLink.style.color = '#00f5d4';
+  contactLink.style.fontSize = '12px';
+  contactLink.style.marginLeft = '8px';
+  contactLink.style.textDecoration = 'none';
+  contactLink.style.fontWeight = 'bold';
+  panel.appendChild(contactLink);
+
+  // OBS Overlay link
   const obsLink = document.createElement('a');
   obsLink.href = '/overlay';
   obsLink.target = '_blank';
-  obsLink.innerText = '🔗 Mở /overlay (OBS)';
+  obsLink.innerText = '🔗 OBS /overlay';
   obsLink.style.color = '#fee440';
   obsLink.style.fontSize = '12px';
-  obsLink.style.marginLeft = '10px';
+  obsLink.style.marginLeft = '8px';
   obsLink.style.textDecoration = 'none';
   obsLink.style.fontWeight = 'bold';
   panel.appendChild(obsLink);
