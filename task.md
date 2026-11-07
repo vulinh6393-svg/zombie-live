@@ -171,6 +171,64 @@
   - [x] Cập nhật trang xem video trực tiếp `player.html` trong Artifacts.
   - [x] Git commit trên branch `feat/phase02-visual-refinement`.
 
+## Giai đoạn 02.5: Asset-First Art Production & LIVE Gameplay Polish (ĐÃ HOÀN THÀNH - CHỜ REVIEW & CHỈ THỊ)
+- [x] **1. Asset-First Art Production & Audit (Task 1):**
+  - [x] Kiểm kê 100% asset hiện tại vào `docs/visual/ART_ASSET_AUDIT.md` (Production-ready, Needs modification, Placeholder, Missing, Style mismatch).
+  - [x] Cập nhật `docs/visual/ASSET_LICENSE_MANIFEST.md` đầy đủ: Source URL, Author, License, File gốc, Kích thước, Asset ID, Vai trò trong game.
+  - [x] Tạo/Tích hợp 12 sprite thành phần thực tế cho Fortress với alpha transparency và phong cách semi-realistic survival:
+    - `fortress_wall_left.png`
+    - `fortress_wall_right.png`
+    - `fortress_main_gate.png`
+    - `fortress_gate_damaged.png`
+    - `fortress_turret_platform.png`
+    - `fortress_sandbags.png`
+    - `fortress_barricade.png`
+    - `fortress_ammo_storage.png`
+    - `fortress_command_center.png`
+    - `fortress_spotlight.png`
+    - `fortress_floor.png`
+    - `fortress_damage_vfx.png`
+  - [x] Tuyệt đối không dùng Phaser Graphics để giả lập thành trì trong runtime.
+- [x] **2. Tái Cấu Trúc FortressRenderer & Trang Thử Nghiệm (/fortress-lab) (Task 2):**
+  - [x] Viết lại `FortressRenderer.ts` lắp ráp hoàn toàn từ 12 asset sprite thực tế.
+  - [x] Cổng thép dập gân (Heavy Blast Gate), pít-tông thủy lực, khối tường bê tông cốt thép, đài chỉ huy, bệ pháo xoay.
+  - [x] Hiển thị trực quan và sắc nét ở cả 1080×1920 và 360×640.
+  - [x] Xuất ảnh `fortress_art_final.png` (1080×1920) và preview 360×640.
+- [x] **3. Kiến Trúc 2 Layout Hoàn Toàn Khác Biệt (Task 3):**
+  - [x] **Layout A — Highway Last Stand**:
+    - Đường cao tốc 3 làn tuyến tính, xe cảnh sát & humvee bỏ hoang hai bên lề, rào chắn giao thông, thành trì chặn ngang cuối đường.
+  - [x] **Layout B — Fortified Bastion**:
+    - Bản đồ hoàn toàn độc lập (Không dùng chung đường cao tốc Layout A)!
+    - Sân tiền đồn / quảng trường căn cứ dã chiến (nền bê tông/đá phiến quân sự), tường thành kiên cố bao quanh 3 hướng, 3 cửa phễu đón quái, ụ pháo đặt tại các góc thành, sở chỉ huy boong-ke ở trung tâm.
+  - [x] Bảng so sánh chi tiết ưu nhược điểm của 2 layout cho livestream TikTok LIVE.
+  - [x] Xuất ảnh `layout_A_highway.png`, `layout_B_bastion.png` và `layout_comparison_mobile.png`.
+- [x] **4. Xác Minh và Kiểm Chứng Authoritative Zombie Death (10 ➔ 9) (Task 4):**
+  - [x] Chuẩn hóa deterministic replay: Snapshot A (10 alive) ➔ Visual Hit ➔ Snapshot B (target zombie HP=0, DEAD) ➔ Death animation & blood decal ➔ Snapshot C (9 alive).
+  - [x] Đồng bộ HUD: Cập nhật lập tức `Kẻ Địch: 9 Zombie` khi có sự kiện chết từ server.
+  - [x] Ghi event log chi tiết kèm timestamp và Zombie ID.
+  - [x] Xuất video độc lập `zombie_authoritative_death.webm` thể hiện rõ quá trình chuyển đổi số lượng kẻ địch.
+- [x] **5. Nâng Cấp Hiệu Ứng Phản Hồi Gift "Tên Lửa Tổng Lực" (Task 5):**
+  - [x] Kịch bản gift hoàn chỉnh:
+    - Viewer gửi gift ➔ Banner vinh danh ngắn (2.5s).
+    - Vùng mục tiêu xuất hiện hồng tâm ngắm bắn radar (targeting reticle).
+    - Tên lửa chiến thuật lao xuống theo đường chéo kèm khói lửa phản lực.
+    - Hoạt ảnh nổ diện rộng (high-impact explosion + shockwave blast wave).
+    - Rung màn hình (camera shake nhẹ, có kiểm soát).
+    - Zombie chịu tác động giật lùi, nổ văng và hiển thị số sát thương.
+    - Khôi phục chiến trường sạch sẽ.
+  - [x] Xuất video demo độc lập `gift_missile_animation.webm`.
+- [x] **6. Chuẩn Hóa Logic Đồng Hồ (Timer) & LIVE UI Sạch (Task 6):**
+  - [x] Sửa logic Timer: Nếu đếm ngược (Wave Countdown), giảm đều theo `remainingSeconds` (e.g. 02:00 ➔ 01:59). Nếu thời gian trôi qua, gắn nhãn rõ ràng `THỜI GIAN TRẬN ĐẤU`.
+  - [x] Viết unit tests kiểm tra pause, resume, reconnect và hiển thị timer.
+  - [x] Loại bỏ toàn bộ debug text (`FPS`, `p95`, `SAFE ZONE`) trên production overlay.
+  - [x] Tối ưu độ tương phản và phân cấp thị giác trên màn hình điện thoại 360×640.
+- [x] **7. Kiểm Thử Tự Động, Đo Hiệu Năng 60s & Xuất Toàn Bộ Sản Phẩm Nghiệm Thu (Task 7):**
+  - [x] Chạy typecheck và 100% unit tests pass.
+  - [x] Ghi hình video gameplay hoàn chỉnh `battlefield_02_5_gameplay.webm` (>= 60 giây).
+  - [x] Chạy benchmark 60 giây wall-clock cho 10, 30, 50 entities.
+  - [x] Tạo `docs/visual/PHASE_02_5_VISUAL_QA.md` chi tiết.
+  - [x] Dừng lại chờ người dùng nghiệm thu, tuyệt đối KHÔNG tự ý chuyển sang Phase 03.
+
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions

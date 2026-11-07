@@ -171,10 +171,16 @@ export class HUD {
     else if (snapshot.phase === 'RESULTS') phaseDisplay = snapshot.result === 'VICTORY' ? '🏆 CHIẾN THẮNG' : '💀 THẤT THỦ';
     this.waveText.setText(phaseDisplay);
 
-    // 2. Timer
-    const mins = Math.floor(snapshot.elapsedSeconds / 60);
-    const secs = snapshot.elapsedSeconds % 60;
-    this.timerText.setText(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    // 2. Timer (Countdown vs Elapsed)
+    if (snapshot.waveRemainingSeconds !== undefined) {
+      const rMins = Math.floor(snapshot.waveRemainingSeconds / 60);
+      const rSecs = snapshot.waveRemainingSeconds % 60;
+      this.timerText.setText(`⏱️ ${rMins.toString().padStart(2, '0')}:${rSecs.toString().padStart(2, '0')}`);
+    } else {
+      const mins = Math.floor(snapshot.elapsedSeconds / 60);
+      const secs = snapshot.elapsedSeconds % 60;
+      this.timerText.setText(`⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    }
 
     // 3. Base HP
     const baseRatio = Math.max(0, snapshot.baseHp / snapshot.maxBaseHp);

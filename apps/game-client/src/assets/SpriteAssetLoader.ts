@@ -40,8 +40,24 @@ export class SpriteAssetLoader {
     scene.load.image('road_asphalt', 'assets/environment/road_asphalt.png');
     scene.load.image('road_line', 'assets/environment/road_line.png');
 
-    // --- 5. VFX ---
+    // --- 5. Fortress Architecture Sprites (Phase 02.5 Asset-First) ---
+    scene.load.image('fortress_main_gate', 'assets/environment/fortress/fortress_main_gate.png');
+    scene.load.image('fortress_gate_damaged', 'assets/environment/fortress/fortress_gate_damaged.png');
+    scene.load.image('fortress_wall_left', 'assets/environment/fortress/fortress_wall_left.png');
+    scene.load.image('fortress_wall_right', 'assets/environment/fortress/fortress_wall_right.png');
+    scene.load.image('fortress_turret_platform', 'assets/environment/fortress/fortress_turret_platform.png');
+    scene.load.image('fortress_sandbags', 'assets/environment/fortress/fortress_sandbags.png');
+    scene.load.image('fortress_barricade', 'assets/environment/fortress/fortress_barricade.png');
+    scene.load.image('fortress_ammo_storage', 'assets/environment/fortress/fortress_ammo_storage.png');
+    scene.load.image('fortress_command_center', 'assets/environment/fortress/fortress_command_center.png');
+    scene.load.image('fortress_spotlight', 'assets/environment/fortress/fortress_spotlight.png');
+    scene.load.image('fortress_floor', 'assets/environment/fortress/fortress_floor.png');
+    scene.load.image('fortress_damage_vfx', 'assets/environment/fortress/fortress_damage_vfx.png');
+
+    // --- 6. VFX & Gift Skills ---
     scene.load.image('muzzle_flash', 'assets/vfx/muzzle_flash.png');
     scene.load.image('hit_explosion', 'assets/vfx/hit_explosion.png');
+    scene.load.image('gift_missile', 'assets/vfx/gift_missile.png');
+    scene.load.image('tactical_reticle', 'assets/vfx/tactical_reticle.png');
   }
 }

@@ -41,11 +41,11 @@ export class FortressArtScene extends Phaser.Scene {
     // 3. Render Independent Fortress Architecture
     this.fortress = new FortressRenderer(this, layout);
 
-    // 4. Mount 3 Sentry Turrets
+    // 4. Mount 3 Sentry Turrets on mechanical platforms
     const turretPositions = [
-      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1395, level: 1 },
-      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1370, level: 1 },
-      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1395, level: 1 },
+      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1330, level: 1 },
+      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1310, level: 1 },
+      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1330, level: 1 },
     ];
     for (const t of turretPositions) {
       this.towers.push(new TowerRenderer(this, t));
@@ -53,9 +53,9 @@ export class FortressArtScene extends Phaser.Scene {
 
     // 5. Place 1 Representative Soldier per Squad (Alpha, Bravo, Charlie)
     const squadReps = [
-      { id: 'alpha_rep', name: 'Alpha Xạ Thủ', x: 260, y: 1320, squad: 'alpha' },
-      { id: 'bravo_rep', name: 'Bravo Đội Trưởng', x: 540, y: 1300, squad: 'bravo' },
-      { id: 'charlie_rep', name: 'Charlie Hỏa Lực', x: 820, y: 1320, squad: 'charlie' },
+      { id: 'alpha_rep', name: 'Alpha Xạ Thủ', x: 260, y: 1220, squad: 'alpha' },
+      { id: 'bravo_rep', name: 'Bravo Đội Trưởng', x: 540, y: 1200, squad: 'bravo' },
+      { id: 'charlie_rep', name: 'Charlie Hỏa Lực', x: 820, y: 1220, squad: 'charlie' },
     ];
     for (const rep of squadReps) {
       const s = new SoldierRenderer(this, {

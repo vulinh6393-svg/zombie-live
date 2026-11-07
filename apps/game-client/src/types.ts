@@ -12,6 +12,7 @@ export interface TowerSnapshot {
 
 export interface ExtendedMatchSnapshot extends MatchSnapshot {
   towers?: TowerSnapshot[];
+  waveRemainingSeconds?: number;
   giftSkillActive?: {
     skillId: string;
     name: string;

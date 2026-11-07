@@ -56,10 +56,30 @@ describe('Game Client Configuration & Mock Source', () => {
     const liveBefore = snap!.zombies.filter((z) => z.hp > 0).length;
     expect(liveBefore).toBe(10);
 
-    // Authoritative death event reduces alive zombies to 9
-    snap!.zombies[0].hp = 0;
-    const liveAfter = snap!.zombies.filter((z) => z.hp > 0).length;
+    // Call server-authoritative zombie kill
+    const res = source.killAuthoritativeZombie();
+    expect(res.killedId).toBeTruthy();
+    expect(res.aliveCount).toBe(9);
+
+    // Next snapshot verifies alive count is 9
+    const liveAfter = source['generateSnapshot']().zombies.filter((z) => z.hp > 0).length;
     expect(liveAfter).toBe(9);
+
+    unsub();
+    source.disconnect();
+  });
+
+  it('correctly manages wave countdown timer without unexpected incrementation', () => {
+    const source = new MockSnapshotSource();
+    source.connect();
+    let snap: ExtendedMatchSnapshot | null = null;
+    const unsub = source.subscribe((s) => {
+      snap = s;
+    });
+
+    expect(snap).not.toBeNull();
+    expect(snap!.waveRemainingSeconds).toBeDefined();
+    expect(snap!.waveRemainingSeconds).toBeLessThanOrEqual(120);
 
     unsub();
     source.disconnect();

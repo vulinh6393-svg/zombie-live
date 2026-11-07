@@ -11,7 +11,33 @@ export class MockSnapshotSource implements GameSnapshotSource {
   private tickCount = 0;
   private connected = false;
   private currentBaseHp: number = 9850;
+  private deadZombieIds: Set<string> = new Set();
   private activeGiftSkill?: { skillId: string; name: string; remainingSeconds: number; senderName?: string };
+
+  public killAuthoritativeZombie(zombieId?: string): { killedId: string; aliveCount: number } {
+    let targetId = zombieId;
+    const totalZombies = this.currentScenario === 'wave1' ? 6 : 10;
+    if (!targetId) {
+      for (let i = 0; i < totalZombies; i++) {
+        const id = `walker_lane_${i % 3}_${i}`;
+        if (!this.deadZombieIds.has(id)) {
+          targetId = id;
+          break;
+        }
+      }
+    }
+    if (targetId) {
+      this.deadZombieIds.add(targetId);
+      const aliveCount = Math.max(0, totalZombies - this.deadZombieIds.size);
+      console.log(`[AUTHORITATIVE EVENT] ${new Date().toISOString()} | Tick: ${this.tickCount} | Zombie ${targetId} HP: 0 (DEAD) | Live Count: ${aliveCount + 1} -> ${aliveCount}`);
+      return { killedId: targetId, aliveCount };
+    }
+    return { killedId: '', aliveCount: Math.max(0, totalZombies - this.deadZombieIds.size) };
+  }
+
+  public resetAuthoritativeZombies(): void {
+    this.deadZombieIds.clear();
+  }
 
   connect(): void {
     if (this.connected) return;
@@ -170,28 +196,33 @@ export class MockSnapshotSource implements GameSnapshotSource {
     for (let i = 0; i < totalZombies; i++) {
       const lane = i % 3;
       const laneX = lanes[lane];
+      const id = `walker_lane_${lane}_${i}`;
+      const isDead = this.deadZombieIds.has(id);
       // March down from y: 320 towards y: 1250 (defense line)
       const speed = 2.4;
       const initialOffset = i * 95;
       const currentY = ((initialOffset + this.tickCount * speed) % 950) + 320;
 
       zombies.push({
-        id: `walker_lane_${lane}_${i}`,
+        id,
         type: 'walker',
         name: `Zombie #${i + 1}`,
         x: laneX + Math.sin(this.tickCount * 0.08 + i) * 28,
         y: currentY,
-        hp: Math.max(10, 100 - ((this.tickCount * 4 + i * 20) % 90)),
+        hp: isDead ? 0 : Math.max(10, 100 - ((this.tickCount * 4 + i * 20) % 90)),
         maxHp: 100,
         lane: lane + 1,
       });
     }
 
+    const waveRemaining = Math.max(0, 120 - Math.floor(this.tickCount / 10));
+
     return {
       matchId: 'mock-match-ongoing',
       seed: 42,
       tick: this.tickCount,
-      elapsedSeconds: (elapsedSeconds % 180) + 30,
+      elapsedSeconds: Math.floor(this.tickCount / 10),
+      waveRemainingSeconds: waveRemaining,
       phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
       baseHp: this.currentBaseHp,
       maxBaseHp: 10000,
