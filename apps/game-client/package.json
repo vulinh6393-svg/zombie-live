@@ -7,7 +7,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e:quality-lab": "tsx e2e/run-quality-lab-e2e.ts"
   },
   "dependencies": {
     "@zombie-live/shared": "workspace:*",

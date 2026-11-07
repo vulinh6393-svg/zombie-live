@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import { BattlefieldScene } from './scenes/BattlefieldScene.js';
 import { ContactSheetScene } from './renderer/scenes/ContactSheetScene.js';
+import { QualityLabScene } from './renderer/scenes/QualityLabScene.js';
 import { MockSnapshotSource, MockScenario } from './sources/MockSnapshotSource.js';
 import { SocketSnapshotSource } from './sources/SocketSnapshotSource.js';
 import { GameSnapshotSource } from './sources/GameSnapshotSource.js';
 import { GAME_CONFIG } from './config.js';
 
-// Route check: /overlay vs /contact-sheet vs / (development)
+// Route check: /quality-lab vs /overlay vs /contact-sheet vs / (development)
+const isQualityLab = window.location.pathname.startsWith('/quality-lab');
 const isOverlay = window.location.pathname.startsWith('/overlay');
 const isContactSheet = window.location.pathname.startsWith('/contact-sheet');
 const urlParams = new URLSearchParams(window.location.search);
@@ -37,7 +39,7 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [BattlefieldScene, ContactSheetScene],
+  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene],
 };
 
 let gameInstance: Phaser.Game | null = null;
@@ -46,7 +48,10 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
     gameInstance = new Phaser.Game(phaserGameConfig);
 
-    if (isContactSheet) {
+    if (isQualityLab) {
+      gameInstance.scene.start('QualityLabScene');
+      createQualityLabControlPanel();
+    } else if (isContactSheet) {
       gameInstance.scene.start('ContactSheetScene');
     } else {
       gameInstance.scene.start('BattlefieldScene', {
@@ -59,6 +64,65 @@ if (typeof window !== 'undefined') {
       }
     }
   });
+}
+
+function createQualityLabControlPanel(): void {
+  const panel = document.createElement('div');
+  panel.id = 'quality-lab-controls';
+  panel.style.position = 'fixed';
+  panel.style.bottom = '12px';
+  panel.style.left = '50%';
+  panel.style.transform = 'translateX(-50%)';
+  panel.style.backgroundColor = 'rgba(10, 17, 40, 0.95)';
+  panel.style.border = '2px solid #00f5d4';
+  panel.style.borderRadius = '12px';
+  panel.style.padding = '8px 14px';
+  panel.style.display = 'flex';
+  panel.style.flexWrap = 'wrap';
+  panel.style.justifyContent = 'center';
+  panel.style.gap = '6px';
+  panel.style.alignItems = 'center';
+  panel.style.zIndex = '9999';
+  panel.style.boxShadow = '0 0 25px rgba(0, 245, 212, 0.4)';
+  panel.style.maxWidth = '95vw';
+
+  const title = document.createElement('span');
+  title.innerText = '🔬 LAB CONTROLS:';
+  title.style.color = '#00f5d4';
+  title.style.fontWeight = 'bold';
+  title.style.fontSize = '12px';
+  panel.appendChild(title);
+
+  const actions: Array<{ label: string; color: string; fn: () => void }> = [
+    { label: 'Spawn Walker', color: '#00bbf9', fn: () => (window as any).qualityLab?.spawnWalker() },
+    { label: 'Walk', color: '#00bbf9', fn: () => (window as any).qualityLab?.walk() },
+    { label: 'Attack', color: '#f72585', fn: () => (window as any).qualityLab?.attack() },
+    { label: '💥 Shoot (Combat)', color: '#ff0055', fn: () => (window as any).qualityLab?.shoot() },
+    { label: 'Hit', color: '#fee440', fn: () => (window as any).qualityLab?.hit() },
+    { label: '☠️ Death', color: '#adb5bd', fn: () => (window as any).qualityLab?.death() },
+    { label: '🔄 Reset', color: '#7209b7', fn: () => (window as any).qualityLab?.reset() },
+    { label: 'Scale A (32px)', color: '#4cc9f0', fn: () => (window as any).qualityLab?.setScale('A') },
+    { label: 'Scale B (40px)', color: '#00f5d4', fn: () => (window as any).qualityLab?.setScale('B') },
+    { label: 'Scale C (48px)', color: '#f72585', fn: () => (window as any).qualityLab?.setScale('C') },
+  ];
+
+  for (const act of actions) {
+    const btn = document.createElement('button');
+    btn.innerText = act.label;
+    btn.style.backgroundColor = '#162238';
+    btn.style.color = '#ffffff';
+    btn.style.border = `1px solid ${act.color}`;
+    btn.style.borderRadius = '6px';
+    btn.style.padding = '5px 10px';
+    btn.style.fontSize = '11px';
+    btn.style.cursor = 'pointer';
+    btn.style.fontWeight = 'bold';
+
+    btn.addEventListener('click', act.fn);
+    panel.appendChild(btn);
+  }
+
+  document.body.appendChild(panel);
 }
 
 function createDevControlPanel(mock: MockSnapshotSource): void {
@@ -104,16 +168,6 @@ function createDevControlPanel(mock: MockSnapshotSource): void {
     btn.style.padding = '6px 12px';
     btn.style.fontSize = '12px';
     btn.style.cursor = 'pointer';
-    btn.style.transition = '0.2s';
-
-    btn.addEventListener('mouseenter', () => {
-      btn.style.backgroundColor = '#00bbf9';
-      btn.style.color = '#000000';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.backgroundColor = '#1a2639';
-      btn.style.color = '#ffffff';
-    });
 
     btn.addEventListener('click', () => {
       mock.setScenario(s.id);
@@ -121,29 +175,28 @@ function createDevControlPanel(mock: MockSnapshotSource): void {
     panel.appendChild(btn);
   }
 
+  // Quality Lab Link
+  const labLink = document.createElement('a');
+  labLink.href = '/quality-lab';
+  labLink.innerText = '🔬 Quality Lab';
+  labLink.style.color = '#00f5d4';
+  labLink.style.fontSize = '12px';
+  labLink.style.marginLeft = '8px';
+  labLink.style.textDecoration = 'none';
+  labLink.style.fontWeight = 'bold';
+  panel.appendChild(labLink);
+
   // Contact Sheet Link
   const contactLink = document.createElement('a');
   contactLink.href = '/contact-sheet';
   contactLink.target = '_blank';
-  contactLink.innerText = '📋 10 Zombie Sheet';
-  contactLink.style.color = '#00f5d4';
+  contactLink.innerText = '📋 Sheet';
+  contactLink.style.color = '#fee440';
   contactLink.style.fontSize = '12px';
   contactLink.style.marginLeft = '8px';
   contactLink.style.textDecoration = 'none';
   contactLink.style.fontWeight = 'bold';
   panel.appendChild(contactLink);
-
-  // OBS Overlay link
-  const obsLink = document.createElement('a');
-  obsLink.href = '/overlay';
-  obsLink.target = '_blank';
-  obsLink.innerText = '🔗 OBS /overlay';
-  obsLink.style.color = '#fee440';
-  obsLink.style.fontSize = '12px';
-  obsLink.style.marginLeft = '8px';
-  obsLink.style.textDecoration = 'none';
-  obsLink.style.fontWeight = 'bold';
-  panel.appendChild(obsLink);
 
   document.body.appendChild(panel);
 }

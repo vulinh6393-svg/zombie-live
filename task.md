@@ -11,28 +11,36 @@
 - [x] Tuyệt đối không chứa combat logic hay tính damage trên client
 - [x] Git commit: `65be2ad`
 
-## Giai đoạn 02.1: Visual Asset & Animation Quality Gate (ĐÃ HOÀN THÀNH NGHIỆM THU)
+## Giai đoạn 02.1: Visual Asset & Animation Quality Gate (ĐÃ BỊ TỪ CHỐI CHẤT LƯỢNG - CHUYỂN TIẾP SANG 02.2)
 - [x] Tạo branch `feat/phase02-visual-refinement`
-- [x] Tạo kế hoạch & tài liệu `docs/visual/`:
-  - [x] `PHASE_02_1_IMPLEMENTATION_PLAN.md` (Kế hoạch M1 -> M6)
-  - [x] `ASSET_MANIFEST.md` (Bảng kê khai nguồn gốc & license CC0 / Project-Original)
-  - [x] `CHARACTER_SHEET.md` (Đặc tả chi tiết hình dáng, kích thước, silhouette 10 zombie & boss)
-  - [x] `ANIMATION_SPECS.md` (Đặc tả trạng thái spawn, walk, attack, hit, death)
-  - [x] `VISUAL_QA.md` (Tiêu chuẩn nghiệm thu hình ảnh)
-  - [x] `THIRD_PARTY_LICENSES/KENNEY_CC0_LICENSE.txt`
-- [x] Xây dựng Asset Registry & Procedural Vector Pipeline (`AssetRegistry.ts`, `TextureGenerator.ts`):
-  - [x] Nhân vật lính (Survivor): mũ bảo hiểm cyan, giáp ngực, súng trường carbine, nameplate, thanh máu
-  - [x] 10 loại zombie riêng biệt: Walker, Runner, Armored, Spitter, Healer, Brute, Shocker, Summoner, Shadow, Zombie King
-  - [x] 3 loại tháp: Súng máy nòng đôi, Pháo plasma, Tháp điện Tesla
-  - [x] Căn cứ phòng thủ 10,000 HP kiên cố
-- [x] Xây dựng `ContactSheetScene`: Bảng tổng hợp đối chiếu trực quan 10 chủng quái vật
-- [x] Tích hợp thanh Dev Control Panel trên `/` (Đổi nhanh đợt, trùm cuối, kết quả)
-- [x] Đảm bảo route `/overlay` sạch bóng 100% không có bất kỳ nút debug hay công cụ dev
-- [x] Kiểm thử tự động & Bằng chứng thực tế:
-  - [x] Strict Typecheck: 100% pass trên 8 workspace projects
-  - [x] Vitest Unit Tests: 12/12 tests pass
-  - [x] Playwright E2E: Đạt 9/9 screenshots thực tế, 0 Console Errors
-- [x] Tạo Git commit hoàn thiện Phase 02.1
+- [x] Tạo tài liệu giai đoạn 02.1
+- [x] Người dùng từ chối nghiệm thu do nhân vật còn mang tính hình học đơn giản, thiếu animation spritesheet thực tế, lính chồng chéo, và FPS chưa tối ưu.
+
+## Giai đoạn 02.2: Real Sprite Quality Lab (ĐÃ HOÀN THÀNH & SẴN SÀNG NGHIỆM THU)
+- [x] Đọc và đối chiếu các yêu cầu đặc tả bắt buộc
+- [x] Khảo sát các bộ sprite theo yêu cầu (SmallScaleInt, Sova Digital, OpenGameArt)
+- [x] Viết file đặc tả chi tiết `docs/visual/PHASE_02_2_SPEC.md`
+- [x] Tải và lưu trữ 138 asset sprite PNG thực tế vào `apps/game-client/public/assets/`
+- [x] Tạo `SpriteAssetLoader.ts`, `CharacterAnimationRegistry.ts`, `CharacterRenderer.ts`, `SpriteScaleConfig.ts`
+- [x] Xây dựng màn `QualityLabScene` cô lập trên route `/quality-lab`:
+  - [x] 1 Zombie Walker với animation thật (idle, walk, attack, hit, death) qua Phaser Animation Manager
+  - [x] 1 Survivor Soldier với animation thật (idle, walk, shoot, reload, feet animation)
+  - [x] 1 Tháp súng xoay và nòng súng có hiệu ứng recoil/muzzle flash
+  - [x] 1 Tuyến phòng thủ highway đêm với rào chắn barricade, sandbags, ammo crates và đèn rọi floodlights
+  - [x] Hệ thống đạn tracer bay, nảy số sát thương, phản ứng hit và xác chết tồn lưu trên mặt đường kèm vũng máu
+  - [x] Thanh Dev Control Panel đầy đủ các nút tương tác
+- [x] Khảo sát khả năng nhận diện trên di động 360×640 với 3 độ phóng đại Scale A (32px), Scale B (40px), Scale C (48px)
+- [x] Điều tra hiệu năng FPS thực tế trên Chrome có GPU Acceleration: Đo đạt chuẩn 60 FPS, p50: 16.70ms, p95: 16.80ms
+- [x] Tạo đầy đủ 9 sản phẩm nghiệm thu bắt buộc:
+  - [x] Screenshot Quality Lab 1080×1920 (`quality_lab_1080x1920.png`)
+  - [x] Screenshot Quality Lab 360×640 (`quality_lab_360x640.png`)
+  - [x] Contact Sheet nhân vật thật (`character_contact_sheet_real.png`)
+  - [x] Video Clip 10–20 giây ghi hình thực tế (`quality_lab_demo.webm`)
+  - [x] Ảnh so sánh Scale A, B, C (`scale_a_360x640.png`, `scale_b_360x640.png`, `scale_c_360x640.png`)
+  - [x] Kê khai Asset Manifest & License (`ASSET_MANIFEST.md`, `manifest.json`)
+  - [x] Báo cáo hiệu năng FPS chi tiết (`FPS_BENCHMARK_REPORT.md`)
+  - [x] Kiểm thử tự động: Strict Typecheck PASS 100%, Unit Test 12/12 PASS, Vite Build thành công
+  - [x] Tạo Git commit hoàn thiện Phase 02.2
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine

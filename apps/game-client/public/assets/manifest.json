@@ -1,0 +1,1110 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-11-07T06:20:47.501Z",
+  "assets": [
+    {
+      "key": "zombie_idle_0",
+      "path": "assets/characters/zombie/idle/idle_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "65544a6192676522268d51d4234ce3d69f7c50a9ccef01055aecaeaa5eafc478"
+    },
+    {
+      "key": "zombie_idle_1",
+      "path": "assets/characters/zombie/idle/idle_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "434c2f2f82a9d53eb553766b9d46afb45247e73c051828e968573099a31b6b0d"
+    },
+    {
+      "key": "zombie_idle_2",
+      "path": "assets/characters/zombie/idle/idle_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f940c055d3f06625da86671989b6da178d7ed1214eb98dc394a6ff218536e532"
+    },
+    {
+      "key": "zombie_idle_3",
+      "path": "assets/characters/zombie/idle/idle_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "1ba91c3937b58ad3846db430776de17ff8a17cc5229c9249abc2611c7dc84e12"
+    },
+    {
+      "key": "zombie_idle_4",
+      "path": "assets/characters/zombie/idle/idle_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f09ff46cc9eedf3e727b85a5c9c8ab6cd3c3c3e163cb3bd47b7aa1d391476ed7"
+    },
+    {
+      "key": "zombie_idle_5",
+      "path": "assets/characters/zombie/idle/idle_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "95a1feb48bc39b6d0cd65d0df548a98ece9801bf9259907a07b1f91f44b797a1"
+    },
+    {
+      "key": "zombie_idle_6",
+      "path": "assets/characters/zombie/idle/idle_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f288b1d7367a2dc547e8e7609124f6216c1e78a58ec8db7cf99f8ee29cdc6e1f"
+    },
+    {
+      "key": "zombie_idle_7",
+      "path": "assets/characters/zombie/idle/idle_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "74e06fb0fe9c3275d81b8ad224913774c6995c86d84b78f2faf8a6ed3dadf2f3"
+    },
+    {
+      "key": "zombie_idle_8",
+      "path": "assets/characters/zombie/idle/idle_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "d4aa1d608001d716f5b105db628a7971ad2c7350d11b62666f2829439a28bc68"
+    },
+    {
+      "key": "zombie_idle_9",
+      "path": "assets/characters/zombie/idle/idle_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "e759a51c49cca51bbf42fdaae974c83257770e5808349ccd4221f99f0f9e3064"
+    },
+    {
+      "key": "zombie_idle_10",
+      "path": "assets/characters/zombie/idle/idle_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "87322614a2fe01f666df40320ad3115b0b79577ec5d130a24ba44eb52cd8b86f"
+    },
+    {
+      "key": "zombie_idle_11",
+      "path": "assets/characters/zombie/idle/idle_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "be9d0cf03b552c0e44464ab9124e8c221e73b5c4e96a16b8e0d7de70b4ec7cff"
+    },
+    {
+      "key": "zombie_idle_12",
+      "path": "assets/characters/zombie/idle/idle_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "ada5c43b8482fe87d918c7466c00d309bfb9dae7b46f447e11191ce620224433"
+    },
+    {
+      "key": "zombie_idle_13",
+      "path": "assets/characters/zombie/idle/idle_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "c809c8c0c3bb3188974e836581b0c8fedfec2131bbc07d6aa3fd1161537ea89a"
+    },
+    {
+      "key": "zombie_idle_14",
+      "path": "assets/characters/zombie/idle/idle_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "67e228060f26d7697c5cb24e088255573bc3c4fe4d36b7c705234043627e3eaa"
+    },
+    {
+      "key": "zombie_idle_15",
+      "path": "assets/characters/zombie/idle/idle_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f0e838b2ebbd62f1dd6b8029edb773cf185aeedb0631f035d7c50717c9ef42e3"
+    },
+    {
+      "key": "zombie_idle_16",
+      "path": "assets/characters/zombie/idle/idle_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "65544a6192676522268d51d4234ce3d69f7c50a9ccef01055aecaeaa5eafc478"
+    },
+    {
+      "key": "zombie_move_0",
+      "path": "assets/characters/zombie/move/move_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "63e870e78d5c2f73f1b9c50ef7cea93e91e1b366699be752a51094179914773a"
+    },
+    {
+      "key": "zombie_move_1",
+      "path": "assets/characters/zombie/move/move_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "a4d921073d0fda63e60262bf8c77b0e65b577c77245a872d69814846b576fa87"
+    },
+    {
+      "key": "zombie_move_2",
+      "path": "assets/characters/zombie/move/move_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "db9827c9284f779b6c7cbec8c61d3092806a7f3bc0c5a0a3140f13d17dec7442"
+    },
+    {
+      "key": "zombie_move_3",
+      "path": "assets/characters/zombie/move/move_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "34368708e8c7282403de10a0084012666cf3bd96f6f91afc79436d41087f0ae6"
+    },
+    {
+      "key": "zombie_move_4",
+      "path": "assets/characters/zombie/move/move_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "3f50e87ceb2bc4bc44fe98842abd99db9b1fbf232edc227c7c474f0a9087e012"
+    },
+    {
+      "key": "zombie_move_5",
+      "path": "assets/characters/zombie/move/move_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "d90b8c3520c2ebe6583786a1dc4df1e3870136754805ee830d23063b9e185f40"
+    },
+    {
+      "key": "zombie_move_6",
+      "path": "assets/characters/zombie/move/move_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "8f9416fa76e74e3829cdc4972ada0f121ac0789128e4e5b182e736f2dfb8ec06"
+    },
+    {
+      "key": "zombie_move_7",
+      "path": "assets/characters/zombie/move/move_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "bfd31ba889a8d66fde66cf79178903901ad42efdb6c9e8bbeb0f269137753ca9"
+    },
+    {
+      "key": "zombie_move_8",
+      "path": "assets/characters/zombie/move/move_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f51c21afe6a91a97ef62175242128a07fcd3860df444d4c718303211aa748ccb"
+    },
+    {
+      "key": "zombie_move_9",
+      "path": "assets/characters/zombie/move/move_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "8db96a8cb6a159aa97bf812554325eec0a754ef66f30af1e943c7660969e8457"
+    },
+    {
+      "key": "zombie_move_10",
+      "path": "assets/characters/zombie/move/move_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "2b8b485b3f22bb3f2aee22ae8573416750108cc0a4d727b32c32daafd73368ab"
+    },
+    {
+      "key": "zombie_move_11",
+      "path": "assets/characters/zombie/move/move_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "17dfbf95626c02c1517775e7b11fcc198de1e972565be16cb59502b534a6e2c1"
+    },
+    {
+      "key": "zombie_move_12",
+      "path": "assets/characters/zombie/move/move_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "b54e3a85960548c9e3a04e0ebb509cbd8f1cb50150c7124d620b2c8405f2f8df"
+    },
+    {
+      "key": "zombie_move_13",
+      "path": "assets/characters/zombie/move/move_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "d96f1f7d74c5f8daca122ef49099048af16069a36e1df02b048bfa9f52534792"
+    },
+    {
+      "key": "zombie_move_14",
+      "path": "assets/characters/zombie/move/move_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "08572af8a5011bf0c15188896921b07f6c47439472aae7b6b382c4040ccb8f1d"
+    },
+    {
+      "key": "zombie_move_15",
+      "path": "assets/characters/zombie/move/move_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "bcf6b055f4a022569e10e80f9a8ea3392f6e361411a1e917774073413afff19c"
+    },
+    {
+      "key": "zombie_move_16",
+      "path": "assets/characters/zombie/move/move_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "63e870e78d5c2f73f1b9c50ef7cea93e91e1b366699be752a51094179914773a"
+    },
+    {
+      "key": "zombie_attack_0",
+      "path": "assets/characters/zombie/attack/attack_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "46396550b3458d802c4db374e28acc32510bac23347ddc411680806a0c791202"
+    },
+    {
+      "key": "zombie_attack_1",
+      "path": "assets/characters/zombie/attack/attack_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "e82993ab89ba85ff5638b008e9ef01cb97a3b626b16706e45b31bdfefa8e7678"
+    },
+    {
+      "key": "zombie_attack_2",
+      "path": "assets/characters/zombie/attack/attack_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "0aade7f70df8575947987fc5ad4c59ea5099b3837a579c0d3d944fbb41083acf"
+    },
+    {
+      "key": "zombie_attack_3",
+      "path": "assets/characters/zombie/attack/attack_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "82f6175c45d144003e8059c1f0f314488514f42c8a2ceaaaaa83c91e7f0b421f"
+    },
+    {
+      "key": "zombie_attack_4",
+      "path": "assets/characters/zombie/attack/attack_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "d18e61f1c0f66d1e623867fd4099c7deb6519b69247d3270c791b93df31708a9"
+    },
+    {
+      "key": "zombie_attack_5",
+      "path": "assets/characters/zombie/attack/attack_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "ee4555d9c4792954793ff13881861caeec3fb414594de8f4e0d8f90ab787ba60"
+    },
+    {
+      "key": "zombie_attack_6",
+      "path": "assets/characters/zombie/attack/attack_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "168422fde9058687370d37275d1b174e97283f3966ea11ba5c0fa78983aa7f8d"
+    },
+    {
+      "key": "zombie_attack_7",
+      "path": "assets/characters/zombie/attack/attack_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "2f3f8a57bbafafdeccd0dd68a27d2864cb2d9ce3af07abcf1c818b520f1d0f7d"
+    },
+    {
+      "key": "zombie_attack_8",
+      "path": "assets/characters/zombie/attack/attack_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "46396550b3458d802c4db374e28acc32510bac23347ddc411680806a0c791202"
+    },
+    {
+      "key": "zombie_corpse_0",
+      "path": "assets/characters/zombie/corpse/corpse_0.png",
+      "author": "Riley Gombart / OpenGameArt Top Down Zombie Community",
+      "source": "https://opengameart.org/content/animated-top-down-zombie",
+      "license": "CC0 1.0 Universal",
+      "sha256": "5a86f1f797f2dde22d9a1c9524259c24a21c84d08131e54c7cd9afa753c06783"
+    },
+    {
+      "key": "survivor_idle_0",
+      "path": "assets/characters/survivor/idle/idle_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "4e90e41df7b85389377864579f5d52109fee8c17fe5b7f302f1e86f5c236a728"
+    },
+    {
+      "key": "survivor_idle_1",
+      "path": "assets/characters/survivor/idle/idle_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "2efddaea0988d92267e34228ddaa4d5753179aafbbfe7f8708a5bf4d1bec9839"
+    },
+    {
+      "key": "survivor_idle_2",
+      "path": "assets/characters/survivor/idle/idle_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "21d37e2a818081de45847a36140e4ad263605c26f225724210c40761bc23bc39"
+    },
+    {
+      "key": "survivor_idle_3",
+      "path": "assets/characters/survivor/idle/idle_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d0a094ef4f8bc7d1fc7c8d3a830a95699e96df4e89ee641383b8af864586536b"
+    },
+    {
+      "key": "survivor_idle_4",
+      "path": "assets/characters/survivor/idle/idle_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "5b972236ea0272c50b8bb65e27c64988bff95d2f10f28218349c8905e84081f8"
+    },
+    {
+      "key": "survivor_idle_5",
+      "path": "assets/characters/survivor/idle/idle_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "1fb52e8bea9a68e06d20eada877423cbb964fb12c6a5a9682032b9af41197e2c"
+    },
+    {
+      "key": "survivor_idle_6",
+      "path": "assets/characters/survivor/idle/idle_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "572c4b6d7c49edfd4ac9768487115f11ee869031e8df0ea73c007e3370c43a4c"
+    },
+    {
+      "key": "survivor_idle_7",
+      "path": "assets/characters/survivor/idle/idle_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "85199d7969bcdf38c3501cb06443122c67c6d3cf2893ac94503242254d28e0be"
+    },
+    {
+      "key": "survivor_idle_8",
+      "path": "assets/characters/survivor/idle/idle_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "a7e156e7a862ca3dfa00f94c5e889c2c5bf49dae20d4848047fabffca608e8f3"
+    },
+    {
+      "key": "survivor_idle_9",
+      "path": "assets/characters/survivor/idle/idle_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "66a0a0e1312d83c9556711f50ff25e4052df384c014e7f0e3226e619befd6109"
+    },
+    {
+      "key": "survivor_idle_10",
+      "path": "assets/characters/survivor/idle/idle_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "90b4d036f9e9290347a27cc2efe27aa5abd53ad03a2dba4679bbbca2a995f028"
+    },
+    {
+      "key": "survivor_idle_11",
+      "path": "assets/characters/survivor/idle/idle_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "66a0a0e1312d83c9556711f50ff25e4052df384c014e7f0e3226e619befd6109"
+    },
+    {
+      "key": "survivor_idle_12",
+      "path": "assets/characters/survivor/idle/idle_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "a7e156e7a862ca3dfa00f94c5e889c2c5bf49dae20d4848047fabffca608e8f3"
+    },
+    {
+      "key": "survivor_idle_13",
+      "path": "assets/characters/survivor/idle/idle_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "85199d7969bcdf38c3501cb06443122c67c6d3cf2893ac94503242254d28e0be"
+    },
+    {
+      "key": "survivor_idle_14",
+      "path": "assets/characters/survivor/idle/idle_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "572c4b6d7c49edfd4ac9768487115f11ee869031e8df0ea73c007e3370c43a4c"
+    },
+    {
+      "key": "survivor_idle_15",
+      "path": "assets/characters/survivor/idle/idle_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "1fb52e8bea9a68e06d20eada877423cbb964fb12c6a5a9682032b9af41197e2c"
+    },
+    {
+      "key": "survivor_idle_16",
+      "path": "assets/characters/survivor/idle/idle_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "5b972236ea0272c50b8bb65e27c64988bff95d2f10f28218349c8905e84081f8"
+    },
+    {
+      "key": "survivor_idle_17",
+      "path": "assets/characters/survivor/idle/idle_17.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d0a094ef4f8bc7d1fc7c8d3a830a95699e96df4e89ee641383b8af864586536b"
+    },
+    {
+      "key": "survivor_idle_18",
+      "path": "assets/characters/survivor/idle/idle_18.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "21d37e2a818081de45847a36140e4ad263605c26f225724210c40761bc23bc39"
+    },
+    {
+      "key": "survivor_idle_19",
+      "path": "assets/characters/survivor/idle/idle_19.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "2efddaea0988d92267e34228ddaa4d5753179aafbbfe7f8708a5bf4d1bec9839"
+    },
+    {
+      "key": "survivor_move_0",
+      "path": "assets/characters/survivor/move/move_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "911378b4aa2516f560547a26f613ca19f9cd28d0c3ce0c442f5591d423210cac"
+    },
+    {
+      "key": "survivor_move_1",
+      "path": "assets/characters/survivor/move/move_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "7e8127f9b186e31a1e563601eb9071e2d98ab2f547a24f85f1ba0659a3df65db"
+    },
+    {
+      "key": "survivor_move_2",
+      "path": "assets/characters/survivor/move/move_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "a595100d4d09d033836eddd7f3a0b38e2467222cc06d8d08c38eef976c0fdd46"
+    },
+    {
+      "key": "survivor_move_3",
+      "path": "assets/characters/survivor/move/move_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fd96ab9ba39a235b3921e89ad253193f7714818926c67a827445a695b4f72b12"
+    },
+    {
+      "key": "survivor_move_4",
+      "path": "assets/characters/survivor/move/move_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "8bb4ae59b6e28d7492d37527a4bf6d7461d4bd2a4cd80628c0774948146abd1c"
+    },
+    {
+      "key": "survivor_move_5",
+      "path": "assets/characters/survivor/move/move_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "837af27ac4de195ab74eb8b47e910d48d35e72bf337e538f8a398c6aab542260"
+    },
+    {
+      "key": "survivor_move_6",
+      "path": "assets/characters/survivor/move/move_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fa09d31c62b56e110d45f115c571090e6f2e656f951f793cd6f745131e63a337"
+    },
+    {
+      "key": "survivor_move_7",
+      "path": "assets/characters/survivor/move/move_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d3d37bdc361af8a823fc59b1116f51d378367eff751a851d08809f6682be15b8"
+    },
+    {
+      "key": "survivor_move_8",
+      "path": "assets/characters/survivor/move/move_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "2cf6dd1c699f2597fb09e7ba34ec66c0444dc011ad0b2ec175ce49859bc47891"
+    },
+    {
+      "key": "survivor_move_9",
+      "path": "assets/characters/survivor/move/move_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fe6c4a0d98b5139c3585094349334c78964f14e20c50368433781ec1e7ceabc2"
+    },
+    {
+      "key": "survivor_move_10",
+      "path": "assets/characters/survivor/move/move_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "e69721514955b675bc9f3c1048195497827053d74444829e53d0cf7c8e7db9c3"
+    },
+    {
+      "key": "survivor_move_11",
+      "path": "assets/characters/survivor/move/move_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fe6c4a0d98b5139c3585094349334c78964f14e20c50368433781ec1e7ceabc2"
+    },
+    {
+      "key": "survivor_move_12",
+      "path": "assets/characters/survivor/move/move_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "2cf6dd1c699f2597fb09e7ba34ec66c0444dc011ad0b2ec175ce49859bc47891"
+    },
+    {
+      "key": "survivor_move_13",
+      "path": "assets/characters/survivor/move/move_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d3d37bdc361af8a823fc59b1116f51d378367eff751a851d08809f6682be15b8"
+    },
+    {
+      "key": "survivor_move_14",
+      "path": "assets/characters/survivor/move/move_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fa09d31c62b56e110d45f115c571090e6f2e656f951f793cd6f745131e63a337"
+    },
+    {
+      "key": "survivor_move_15",
+      "path": "assets/characters/survivor/move/move_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "837af27ac4de195ab74eb8b47e910d48d35e72bf337e538f8a398c6aab542260"
+    },
+    {
+      "key": "survivor_move_16",
+      "path": "assets/characters/survivor/move/move_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "8bb4ae59b6e28d7492d37527a4bf6d7461d4bd2a4cd80628c0774948146abd1c"
+    },
+    {
+      "key": "survivor_move_17",
+      "path": "assets/characters/survivor/move/move_17.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fd96ab9ba39a235b3921e89ad253193f7714818926c67a827445a695b4f72b12"
+    },
+    {
+      "key": "survivor_move_18",
+      "path": "assets/characters/survivor/move/move_18.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "a595100d4d09d033836eddd7f3a0b38e2467222cc06d8d08c38eef976c0fdd46"
+    },
+    {
+      "key": "survivor_move_19",
+      "path": "assets/characters/survivor/move/move_19.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "7e8127f9b186e31a1e563601eb9071e2d98ab2f547a24f85f1ba0659a3df65db"
+    },
+    {
+      "key": "survivor_shoot_0",
+      "path": "assets/characters/survivor/shoot/shoot_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "07d98e0b844c59e4dde1b57e5ccdbfebe06b7ce51e3e6e9f338a3b68d4d14a17"
+    },
+    {
+      "key": "survivor_shoot_1",
+      "path": "assets/characters/survivor/shoot/shoot_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "38c39da776a7b8eb8e7771312b689c2375b53aab8ca4df0db0b02b5830cdbb54"
+    },
+    {
+      "key": "survivor_shoot_2",
+      "path": "assets/characters/survivor/shoot/shoot_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "0599ce314de5ea7dde295abf7712cfef44f97572dc52551eee3b13894edfb78e"
+    },
+    {
+      "key": "survivor_reload_0",
+      "path": "assets/characters/survivor/reload/reload_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "5a43a06339b53bc5acb693aaef098e1fe4a35a7fb66c7e0229db385d77cf8d1d"
+    },
+    {
+      "key": "survivor_reload_1",
+      "path": "assets/characters/survivor/reload/reload_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "6095222e2b0bc5839530491d2620a33bc3af175ff38377465cea71ee0627e25b"
+    },
+    {
+      "key": "survivor_reload_2",
+      "path": "assets/characters/survivor/reload/reload_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "5929a094f23f424830bc216ae4dc018d35ab5e2f0f86a8ecee6a2e18cf6215f7"
+    },
+    {
+      "key": "survivor_reload_3",
+      "path": "assets/characters/survivor/reload/reload_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d9b16be114f14dac4864dc70ced55a5fac97c2e4f1aa5b251e05a3797899982b"
+    },
+    {
+      "key": "survivor_reload_4",
+      "path": "assets/characters/survivor/reload/reload_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "321036c7b70fd8558378ac4f10b9622eab9c62ba3ed9efbd2b8a2c00f14fce36"
+    },
+    {
+      "key": "survivor_reload_5",
+      "path": "assets/characters/survivor/reload/reload_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "9c37e4dd97c825ef65a729c6b8de27c99e418fdae98ecf41b4765f6dbd7a5ad3"
+    },
+    {
+      "key": "survivor_reload_6",
+      "path": "assets/characters/survivor/reload/reload_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "1f5bf9c387e2675edaf7a7d6224a37deb460c2e5698e28387c572b77f626fa3a"
+    },
+    {
+      "key": "survivor_reload_7",
+      "path": "assets/characters/survivor/reload/reload_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "0fff71ec1c03bb60c194c6b7df42520cffcfd1189ac665f3a896c98ee7d5a7d2"
+    },
+    {
+      "key": "survivor_reload_8",
+      "path": "assets/characters/survivor/reload/reload_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "0ec6540442228eee19711933236683b29ce35c7021581be22a09f70967e8b6cb"
+    },
+    {
+      "key": "survivor_reload_9",
+      "path": "assets/characters/survivor/reload/reload_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "90ed1df3fe0b89ee8ad723a1cdcb47eafda4734c0f2dcd7e5a20fb1a2f04e382"
+    },
+    {
+      "key": "survivor_reload_10",
+      "path": "assets/characters/survivor/reload/reload_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "86c9fd4e152e6a3225198e0c68e7b18e5a329edafc77d4c6dfe7ff3f49d76cff"
+    },
+    {
+      "key": "survivor_reload_11",
+      "path": "assets/characters/survivor/reload/reload_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "2959b21505eea842ecceea45f0ab70f745d06ef4db7d9839da5f550beecbbc62"
+    },
+    {
+      "key": "survivor_reload_12",
+      "path": "assets/characters/survivor/reload/reload_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "aa3df03bb379d12701aa95028a647890adb5803c1e71a8dc6ccfbd7d0236dc30"
+    },
+    {
+      "key": "survivor_reload_13",
+      "path": "assets/characters/survivor/reload/reload_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "d92bf1ce6038b943d923b0317b5f1c7678ced8320f56a8010feafdead3486134"
+    },
+    {
+      "key": "survivor_reload_14",
+      "path": "assets/characters/survivor/reload/reload_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "4fb3b89da88fc123eaefbcb7b9e76ee025ce532c5f3ab61cbbfdf78bd2811482"
+    },
+    {
+      "key": "survivor_reload_15",
+      "path": "assets/characters/survivor/reload/reload_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "5118cf6994276274af7a4269a5eb6e6c57f379ee75cfb8bf49035ef3040d2427"
+    },
+    {
+      "key": "survivor_reload_16",
+      "path": "assets/characters/survivor/reload/reload_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "337b74a0f07a481bacca492b07215e80a0903962e4a2932f37cc5fd515aed1d6"
+    },
+    {
+      "key": "survivor_reload_17",
+      "path": "assets/characters/survivor/reload/reload_17.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "53c6ee82e225f95fa69e7a6aa55e43d217ddd5148ffc1d51c6b9dfe8085a06c2"
+    },
+    {
+      "key": "survivor_reload_18",
+      "path": "assets/characters/survivor/reload/reload_18.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "1be4f8bd3ad2d3146384ba9e1c58445c55878d5112bc6a32433c80d1c85783b8"
+    },
+    {
+      "key": "survivor_reload_19",
+      "path": "assets/characters/survivor/reload/reload_19.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "c74a283fb6858239a7bca91c75dcac9cb6da4658afd4a04134324d6e719ae38b"
+    },
+    {
+      "key": "survivor_feet_walk_0",
+      "path": "assets/characters/survivor/feet/feet_walk_0.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "32c3bbd75d1d8268e3989d153af02ca50bb58c0171f76ce8cfebdaaf85528042"
+    },
+    {
+      "key": "survivor_feet_walk_1",
+      "path": "assets/characters/survivor/feet/feet_walk_1.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "60170289208f772be150a381e383954de66e31b2c3a8372399e5c8f2109df95f"
+    },
+    {
+      "key": "survivor_feet_walk_2",
+      "path": "assets/characters/survivor/feet/feet_walk_2.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fed7802bf4c51e23af31f1210f5a2a3d95f53b8a58457bfd21454070bf9de462"
+    },
+    {
+      "key": "survivor_feet_walk_3",
+      "path": "assets/characters/survivor/feet/feet_walk_3.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "ab9a4e3f4447ba2f0ac2e40339959b1ac88c0f739c5a611c10bde3a7b20f13f7"
+    },
+    {
+      "key": "survivor_feet_walk_4",
+      "path": "assets/characters/survivor/feet/feet_walk_4.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "4b715c0599d2f3339fefa357a38ffb0dd927cc3a0ad2615c21d27b356d9033af"
+    },
+    {
+      "key": "survivor_feet_walk_5",
+      "path": "assets/characters/survivor/feet/feet_walk_5.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "dddd14a3a72958a38373d6dd77cf4041753f0ec4bd40943211f13e13eb40324a"
+    },
+    {
+      "key": "survivor_feet_walk_6",
+      "path": "assets/characters/survivor/feet/feet_walk_6.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "19637fcba14efd72e04a666e95357da6020bbca9935cda73f115b15094bcb2f0"
+    },
+    {
+      "key": "survivor_feet_walk_7",
+      "path": "assets/characters/survivor/feet/feet_walk_7.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "0a9c95d3f6644ab2dac7fe17cfbd17077d4155af74ccf1d806bdd0ec5f4bffe0"
+    },
+    {
+      "key": "survivor_feet_walk_8",
+      "path": "assets/characters/survivor/feet/feet_walk_8.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "22dff07a761eb0a84ba1d36906b9d8eaf4cbc8e282986b9329915d3d9b48a8e8"
+    },
+    {
+      "key": "survivor_feet_walk_9",
+      "path": "assets/characters/survivor/feet/feet_walk_9.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "013f24184944fa5a1c96dd4ae480645d3a78ecf8aca1223c28656459b4dce2aa"
+    },
+    {
+      "key": "survivor_feet_walk_10",
+      "path": "assets/characters/survivor/feet/feet_walk_10.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "e26eabae9e965d99b2d851bbb01f797db3002542ba7e2ea98f96d83591dfa802"
+    },
+    {
+      "key": "survivor_feet_walk_11",
+      "path": "assets/characters/survivor/feet/feet_walk_11.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "013f24184944fa5a1c96dd4ae480645d3a78ecf8aca1223c28656459b4dce2aa"
+    },
+    {
+      "key": "survivor_feet_walk_12",
+      "path": "assets/characters/survivor/feet/feet_walk_12.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "e835154d90e6548e41cf3cf985df715a96e9c5c5f09d45f8943385fc8a5c51e0"
+    },
+    {
+      "key": "survivor_feet_walk_13",
+      "path": "assets/characters/survivor/feet/feet_walk_13.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "0a9c95d3f6644ab2dac7fe17cfbd17077d4155af74ccf1d806bdd0ec5f4bffe0"
+    },
+    {
+      "key": "survivor_feet_walk_14",
+      "path": "assets/characters/survivor/feet/feet_walk_14.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "19637fcba14efd72e04a666e95357da6020bbca9935cda73f115b15094bcb2f0"
+    },
+    {
+      "key": "survivor_feet_walk_15",
+      "path": "assets/characters/survivor/feet/feet_walk_15.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "dddd14a3a72958a38373d6dd77cf4041753f0ec4bd40943211f13e13eb40324a"
+    },
+    {
+      "key": "survivor_feet_walk_16",
+      "path": "assets/characters/survivor/feet/feet_walk_16.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "4b715c0599d2f3339fefa357a38ffb0dd927cc3a0ad2615c21d27b356d9033af"
+    },
+    {
+      "key": "survivor_feet_walk_17",
+      "path": "assets/characters/survivor/feet/feet_walk_17.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "ab9a4e3f4447ba2f0ac2e40339959b1ac88c0f739c5a611c10bde3a7b20f13f7"
+    },
+    {
+      "key": "survivor_feet_walk_18",
+      "path": "assets/characters/survivor/feet/feet_walk_18.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "fed7802bf4c51e23af31f1210f5a2a3d95f53b8a58457bfd21454070bf9de462"
+    },
+    {
+      "key": "survivor_feet_walk_19",
+      "path": "assets/characters/survivor/feet/feet_walk_19.png",
+      "author": "Riley Gombart",
+      "source": "https://opengameart.org/content/animated-top-down-survivor-player",
+      "license": "CC-BY 3.0",
+      "sha256": "60170289208f772be150a381e383954de66e31b2c3a8372399e5c8f2109df95f"
+    },
+    {
+      "key": "turret_base",
+      "path": "assets/weapons/turret_base.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "30dec3e05d3e6f40b0ce6d6b3b301ee0f0316b29952a5dee2ad6670c9874f864"
+    },
+    {
+      "key": "turret_gun_dual",
+      "path": "assets/weapons/turret_gun_dual.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "49c47017f1bf8eac45c57c3993e3cf0ae5cbef02e98b0df67a9ba1492f183e0f"
+    },
+    {
+      "key": "turret_gun_single",
+      "path": "assets/weapons/turret_gun_single.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "69cac47bd89a414a1cfaeac4d53d7785f36512cf6c318e8a6325eae01be1d453"
+    },
+    {
+      "key": "bullet_tracer",
+      "path": "assets/weapons/bullet_tracer.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "d630e51a9deb579253cf74a65233695649e0f6bcda67690ff7bddf40ff1933f9"
+    },
+    {
+      "key": "muzzle_flash",
+      "path": "assets/vfx/muzzle_flash.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "ede41776d8d35983c352b8829c7b3094046cdc94005487ca399a5b996fd3e0e6"
+    },
+    {
+      "key": "barricade_barrier",
+      "path": "assets/environment/barricade_barrier.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "5617b8c97b1084bdb66b09d50c454f38ead2c819937f64ac034a067e9f0ed86d"
+    },
+    {
+      "key": "sandbags",
+      "path": "assets/environment/sandbags.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "14dfc56c2e1cb9118d5c837b91db2b0bba12d588314af8049979543bc00de061"
+    },
+    {
+      "key": "ammo_crate",
+      "path": "assets/environment/ammo_crate.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "5e131601a0a7322ab970f72c840ecaea5e3ac9abdb2045f45aca5728b54b8d75"
+    },
+    {
+      "key": "road_asphalt",
+      "path": "assets/environment/road_asphalt.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "56ba18ef8055954fa509928fc71fda206089724cbc191961f570e5cca5e03f61"
+    },
+    {
+      "key": "road_line",
+      "path": "assets/environment/road_line.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "f4f8925c0c684e27a27b9dece88aee1ccf85eb9e215b052cb7c0b8cb3c9bb432"
+    },
+    {
+      "key": "hit_explosion",
+      "path": "assets/vfx/hit_explosion.png",
+      "author": "Kenney Vleugels (Kenney.nl)",
+      "source": "https://kenney.nl/assets/tower-defense-top-down",
+      "license": "CC0 1.0 Universal",
+      "sha256": "6c2e46eee86e20b426ce36790cc3ea4bdc48564dec147afb1582ae244baa5d41"
+    }
+  ]
+}
