@@ -172,62 +172,49 @@
   - [x] Git commit trên branch `feat/phase02-visual-refinement`.
 
 ## Giai đoạn 02.5: Asset-First Art Production & LIVE Gameplay Polish (ĐÃ HOÀN THÀNH - CHỜ REVIEW & CHỈ THỊ)
-- [x] **1. Asset-First Art Production & Audit (Task 1):**
-  - [x] Kiểm kê 100% asset hiện tại vào `docs/visual/ART_ASSET_AUDIT.md` (Production-ready, Needs modification, Placeholder, Missing, Style mismatch).
-  - [x] Cập nhật `docs/visual/ASSET_LICENSE_MANIFEST.md` đầy đủ: Source URL, Author, License, File gốc, Kích thước, Asset ID, Vai trò trong game.
-  - [x] Tạo/Tích hợp 12 sprite thành phần thực tế cho Fortress với alpha transparency và phong cách semi-realistic survival:
-    - `fortress_wall_left.png`
-    - `fortress_wall_right.png`
-    - `fortress_main_gate.png`
-    - `fortress_gate_damaged.png`
-    - `fortress_turret_platform.png`
-    - `fortress_sandbags.png`
-    - `fortress_barricade.png`
-    - `fortress_ammo_storage.png`
-    - `fortress_command_center.png`
-    - `fortress_spotlight.png`
-    - `fortress_floor.png`
-    - `fortress_damage_vfx.png`
-  - [x] Tuyệt đối không dùng Phaser Graphics để giả lập thành trì trong runtime.
-- [x] **2. Tái Cấu Trúc FortressRenderer & Trang Thử Nghiệm (/fortress-lab) (Task 2):**
-  - [x] Viết lại `FortressRenderer.ts` lắp ráp hoàn toàn từ 12 asset sprite thực tế.
-  - [x] Cổng thép dập gân (Heavy Blast Gate), pít-tông thủy lực, khối tường bê tông cốt thép, đài chỉ huy, bệ pháo xoay.
-  - [x] Hiển thị trực quan và sắc nét ở cả 1080×1920 và 360×640.
-  - [x] Xuất ảnh `fortress_art_final.png` (1080×1920) và preview 360×640.
-- [x] **3. Kiến Trúc 2 Layout Hoàn Toàn Khác Biệt (Task 3):**
-  - [x] **Layout A — Highway Last Stand**:
-    - Đường cao tốc 3 làn tuyến tính, xe cảnh sát & humvee bỏ hoang hai bên lề, rào chắn giao thông, thành trì chặn ngang cuối đường.
-  - [x] **Layout B — Fortified Bastion**:
-    - Bản đồ hoàn toàn độc lập (Không dùng chung đường cao tốc Layout A)!
-    - Sân tiền đồn / quảng trường căn cứ dã chiến (nền bê tông/đá phiến quân sự), tường thành kiên cố bao quanh 3 hướng, 3 cửa phễu đón quái, ụ pháo đặt tại các góc thành, sở chỉ huy boong-ke ở trung tâm.
-  - [x] Bảng so sánh chi tiết ưu nhược điểm của 2 layout cho livestream TikTok LIVE.
-  - [x] Xuất ảnh `layout_A_highway.png`, `layout_B_bastion.png` và `layout_comparison_mobile.png`.
-- [x] **4. Xác Minh và Kiểm Chứng Authoritative Zombie Death (10 ➔ 9) (Task 4):**
-  - [x] Chuẩn hóa deterministic replay: Snapshot A (10 alive) ➔ Visual Hit ➔ Snapshot B (target zombie HP=0, DEAD) ➔ Death animation & blood decal ➔ Snapshot C (9 alive).
-  - [x] Đồng bộ HUD: Cập nhật lập tức `Kẻ Địch: 9 Zombie` khi có sự kiện chết từ server.
-  - [x] Ghi event log chi tiết kèm timestamp và Zombie ID.
-  - [x] Xuất video độc lập `zombie_authoritative_death.webm` thể hiện rõ quá trình chuyển đổi số lượng kẻ địch.
-- [x] **5. Nâng Cấp Hiệu Ứng Phản Hồi Gift "Tên Lửa Tổng Lực" (Task 5):**
-  - [x] Kịch bản gift hoàn chỉnh:
-    - Viewer gửi gift ➔ Banner vinh danh ngắn (2.5s).
-    - Vùng mục tiêu xuất hiện hồng tâm ngắm bắn radar (targeting reticle).
-    - Tên lửa chiến thuật lao xuống theo đường chéo kèm khói lửa phản lực.
-    - Hoạt ảnh nổ diện rộng (high-impact explosion + shockwave blast wave).
-    - Rung màn hình (camera shake nhẹ, có kiểm soát).
-    - Zombie chịu tác động giật lùi, nổ văng và hiển thị số sát thương.
-    - Khôi phục chiến trường sạch sẽ.
-  - [x] Xuất video demo độc lập `gift_missile_animation.webm`.
-- [x] **6. Chuẩn Hóa Logic Đồng Hồ (Timer) & LIVE UI Sạch (Task 6):**
-  - [x] Sửa logic Timer: Nếu đếm ngược (Wave Countdown), giảm đều theo `remainingSeconds` (e.g. 02:00 ➔ 01:59). Nếu thời gian trôi qua, gắn nhãn rõ ràng `THỜI GIAN TRẬN ĐẤU`.
-  - [x] Viết unit tests kiểm tra pause, resume, reconnect và hiển thị timer.
-  - [x] Loại bỏ toàn bộ debug text (`FPS`, `p95`, `SAFE ZONE`) trên production overlay.
-  - [x] Tối ưu độ tương phản và phân cấp thị giác trên màn hình điện thoại 360×640.
-- [x] **7. Kiểm Thử Tự Động, Đo Hiệu Năng 60s & Xuất Toàn Bộ Sản Phẩm Nghiệm Thu (Task 7):**
-  - [x] Chạy typecheck và 100% unit tests pass.
-  - [x] Ghi hình video gameplay hoàn chỉnh `battlefield_02_5_gameplay.webm` (>= 60 giây).
-  - [x] Chạy benchmark 60 giây wall-clock cho 10, 30, 50 entities.
-  - [x] Tạo `docs/visual/PHASE_02_5_VISUAL_QA.md` chi tiết.
-  - [x] Dừng lại chờ người dùng nghiệm thu, tuyệt đối KHÔNG tự ý chuyển sang Phase 03.
+- [x] **1. Asset-First Art Production & Audit (Task 1)**
+- [x] **2. Tái Cấu Trúc FortressRenderer & Trang Thử Nghiệm (/fortress-lab) (Task 2)**
+- [x] **3. Kiến Trúc 2 Layout Hoàn Toàn Khác Biệt (Task 3)**
+- [x] **4. Xác Minh và Kiểm Chứng Authoritative Zombie Death (10 ➔ 9) (Task 4)**
+- [x] **5. Nâng Cấp Hiệu Ứng Phản Hồi Gift "Tên Lửa Tổng Lực" (Task 5)**
+- [x] **6. Chuẩn Hóa Logic Đồng Hồ (Timer) & LIVE UI Sạch (Task 6)**
+- [x] **7. Kiểm Thử Tự Động, Đo Hiệu Năng 60s & Xuất Toàn Bộ Sản Phẩm Nghiệm Thu (Task 7)**
+
+## ART APPROVAL GATE: Fortress Bastion Concept Art & Asset Reconciliation (ĐANG THỰC HIỆN)
+> [!IMPORTANT]
+> **Quy định nghiêm ngặt từ User**:
+> - KHÔNG sửa mã nguồn gameplay hay `BattlefieldScene.ts` tại giai đoạn này.
+> - KHÔNG tự ý chuyển sang Phase 03.
+> - Chọn Layout B: Fortified Bastion làm Art Direction chính.
+> - Tạo Concept Art chất lượng cao (Semi-realistic illustrated top-down survival, đồng bộ mỹ thuật với sprite Riley Gombart).
+> - Trình bày Concept Art và tài liệu đối chiếu cho User duyệt trước khi slice sprite hoặc code tích hợp.
+
+- [ ] **1. Asset Audit & Discrepancy Reconciliation:**
+  - [ ] Đối chiếu `ART_ASSET_AUDIT.md`, `ASSET_LICENSE_MANIFEST.md`, `generate-fortress-assets.ts`, `FortressRenderer.ts`, và thư mục asset.
+  - [ ] Giải trình rõ ràng sự chênh lệch 14 vs 12 PNG (12 Fortress environment assets + 2 VFX assets: missile & reticle).
+  - [ ] Phân loại minh bạch 100% asset: Script-generated procedural PNG vs External CC0/CC-BY illustrated asset vs Artist/Concept vs Placeholder.
+- [ ] **2. Sản xuất Concept Art High-Fidelity — Layout B: Fortified Bastion:**
+  - [ ] Phong cách: Semi-realistic top-down military zombie survival, đồng bộ phong cách, góc nhìn và ánh sáng với Walker/Survivor của Riley Gombart.
+  - [ ] Cấu trúc thành trì Layout B:
+    - Sân tiền đồn / quảng trường căn cứ dã chiến (nền bê tông/đá phiến quân sự).
+    - Cổng thép hạng nặng (Heavy Blast Gate) dập gân kim loại, sọc cảnh báo vàng đen, pít-tông thủy lực.
+    - Tường thành bê tông cốt thép khối dày, có lỗ châu mai và bóng đổ thực tế.
+    - 2 tháp canh (Watchtowers / Corner Bastions) ở hai góc tiền tiêu.
+    - 3 bệ ụ súng phòng thủ (Alpha, Bravo, Charlie) nâng cao.
+    - Chướng ngại vật: bao cát, rào cản dây thép gai, răng rồng dã chiến (dragon's teeth).
+    - Khu hậu cần (kho đạn dược, nhiên liệu) và boong-ke chỉ huy kiên cố phía sau.
+- [ ] **3. Xuất 2 Bức Ảnh Concept Nghệ Thuật Chính (+ Bản Xem Trước Mobile 360×640):**
+  - [ ] **Image 1 — Fortress Bastion Concept Art (1080×1920 & 360×640)**: Thành trì đứng độc lập, không zombie, không lính, không HUD.
+  - [ ] **Image 2 — Full Combat Bastion Concept Art (1080×1920 & 360×640)**:
+    - 8–10 Zombie Walker tiến công qua 3 cửa phễu.
+    - 3 Soldier đại diện phòng thủ bắn trả.
+    - 3 Ụ pháo khai hỏa giật nòng kèm tia lửa muzzle flash và đường đạn tracer.
+    - Zombie nhận sát thương kèm vết máu và hiệu ứng nổ.
+    - Gift Skill Airstrike / Cruise Missile bùng nổ hoành tráng (reticle, tên lửa, vụ nổ shockwave).
+    - UI HUD tối giản, sắc nét, đúng chuẩn hiển thị TikTok LIVE sạch sẽ.
+- [ ] **4. Cập nhật Artifact Viewer & Báo Cáo Trình Duyệt:**
+  - [ ] Cập nhật `player.html` hoặc artifact gallery để user dễ dàng quan sát trên desktop & mobile preview.
+  - [ ] Báo cáo đầy đủ, kèm link `file:///` và dừng lại chờ User duyệt mỹ thuật trước khi chuyển bước.
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
