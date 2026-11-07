@@ -62,7 +62,7 @@ if (typeof window !== 'undefined') {
         isOverlayMode: isOverlay,
       });
 
-      if (!isOverlay && mockSource) {
+      if (!isOverlay && mockSource && (urlParams.get('debug') === '1' || window.location.pathname.startsWith('/dev'))) {
         createDevControlPanel(mockSource);
       }
     }

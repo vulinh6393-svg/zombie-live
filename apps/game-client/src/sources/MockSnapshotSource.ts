@@ -39,7 +39,6 @@ export class MockSnapshotSource implements GameSnapshotSource {
 
   subscribe(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
-    // Immediately send initial snapshot if connected
     if (this.connected) {
       listener(this.generateSnapshot());
     }
@@ -58,31 +57,31 @@ export class MockSnapshotSource implements GameSnapshotSource {
   }
 
   private generateSnapshot(): ExtendedMatchSnapshot {
-    const timeRatio = (this.tickCount % 600) / 600;
     const elapsedSeconds = Math.floor(this.tickCount / 10);
 
     const towers: TowerSnapshot[] = [
-      { id: 'tower-1', type: 'machinegun', name: 'Súng Máy Trái', x: 260, y: 1530, level: 2 },
-      { id: 'tower-2', type: 'plasma', name: 'Pháo Năng Lượng', x: 540, y: 1480, level: 3 },
-      { id: 'tower-3', type: 'tesla', name: 'Tháp Điện Phải', x: 820, y: 1530, level: 2 },
+      { id: 'turret_alpha', type: 'machinegun', name: 'Ụ Pháo Alpha', x: 260, y: 1450, level: 2 },
+      { id: 'turret_bravo', type: 'plasma', name: 'Ụ Pháo Bravo', x: 540, y: 1430, level: 3 },
+      { id: 'turret_charlie', type: 'tesla', name: 'Ụ Pháo Charlie', x: 820, y: 1450, level: 2 },
     ];
 
     const mvpPlayers = [
-      { name: 'ChiếnBinh01', points: 1420, avatarColor: 0x00f5d4 },
-      { name: 'XạThủPro', points: 1180, avatarColor: 0x00bbf9 },
-      { name: 'HộVệThành', points: 950, avatarColor: 0xff5400 },
-      { name: 'BácSĩZombie', points: 720, avatarColor: 0xfee440 },
+      { name: 'XạThủAlpha', points: 1540, avatarColor: 0x00f5d4 },
+      { name: 'HộVệBravo', points: 1320, avatarColor: 0xfee440 },
+      { name: 'BắnTỉaCharlie', points: 1080, avatarColor: 0xf72585 },
+      { name: 'YTáChiếnTrường', points: 860, avatarColor: 0x00bbf9 },
     ];
 
+    // BOSS SCENARIO
     if (this.currentScenario === 'boss') {
-      const bossMaxHp = 12000;
-      const bossHp = Math.max(1000, bossMaxHp - (this.tickCount * 25) % bossMaxHp);
-      const bossY = 480 + Math.sin(this.tickCount * 0.05) * 40;
+      const bossMaxHp = 15000;
+      const bossHp = Math.max(1200, bossMaxHp - (this.tickCount * 45) % bossMaxHp);
+      const bossY = 550 + Math.sin(this.tickCount * 0.04) * 35;
 
       const zombies: ZombieSnapshot[] = [
         {
           id: 'boss-king',
-          type: 'zombie_king',
+          type: 'boss',
           name: 'ZOMBIE VUA (BOSS)',
           x: 540,
           y: bossY,
@@ -91,9 +90,9 @@ export class MockSnapshotSource implements GameSnapshotSource {
           lane: 2,
           isBoss: true,
         },
-        // Escort minions
-        { id: 'z-escort-1', type: 'shadow', name: 'Zombie Bóng Tối', x: 300, y: bossY + 80, hp: 120, maxHp: 120, lane: 1 },
-        { id: 'z-escort-2', type: 'shocker', name: 'Zombie Điện', x: 780, y: bossY + 80, hp: 160, maxHp: 160, lane: 3 },
+        // Escorts
+        { id: 'z-escort-1', type: 'walker', name: 'Hộ Vệ Alpha', x: 260, y: bossY + 120, hp: 180, maxHp: 180, lane: 1 },
+        { id: 'z-escort-2', type: 'walker', name: 'Hộ Vệ Charlie', x: 820, y: bossY + 120, hp: 180, maxHp: 180, lane: 3 },
       ];
 
       return {
@@ -102,9 +101,9 @@ export class MockSnapshotSource implements GameSnapshotSource {
         tick: this.tickCount,
         elapsedSeconds: 240 + (elapsedSeconds % 40),
         phase: 'BOSS',
-        baseHp: 6800,
+        baseHp: 6500,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(40),
+        soldiers: this.generateSoldiers(12),
         zombies,
         towers,
         activePlayerCount: 40,
@@ -113,7 +112,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
         result: 'IN_PROGRESS',
         giftSkillActive: {
           skillId: 'airstrike',
-          name: 'KHÔNG KÍCH TÊN LỬA',
+          name: 'TÊN LỬA TỔNG LỰC',
           remainingSeconds: 4,
           senderName: 'VIP_Gamer99',
         },
@@ -121,38 +120,38 @@ export class MockSnapshotSource implements GameSnapshotSource {
       };
     }
 
+    // VICTORY SCENARIO
     if (this.currentScenario === 'victory') {
       return {
         matchId: 'mock-match-win',
         seed: 42,
         tick: this.tickCount,
-        elapsedSeconds: 285,
+        elapsedSeconds: 300,
         phase: 'RESULTS',
-        baseHp: 7500,
+        baseHp: 7800,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(25),
+        soldiers: this.generateSoldiers(12),
         zombies: [],
         towers,
         activePlayerCount: 38,
-        bossHp: 0,
-        maxBossHp: 12000,
         result: 'VICTORY',
         mvpPlayers,
       };
     }
 
+    // DEFEAT SCENARIO
     if (this.currentScenario === 'defeat') {
       return {
         matchId: 'mock-match-loss',
         seed: 42,
         tick: this.tickCount,
-        elapsedSeconds: 220,
+        elapsedSeconds: 215,
         phase: 'RESULTS',
         baseHp: 0,
         maxBaseHp: 10000,
         soldiers: [],
         zombies: [
-          { id: 'z-brute-end', type: 'brute', name: 'Zombie Khổng Lồ', x: 540, y: 1580, hp: 650, maxHp: 700, lane: 2 },
+          { id: 'z-defeat-1', type: 'walker', name: 'Zombie Tràn Căn Cứ', x: 540, y: 1460, hp: 150, maxHp: 200, lane: 2 },
         ],
         towers,
         activePlayerCount: 15,
@@ -161,52 +160,48 @@ export class MockSnapshotSource implements GameSnapshotSource {
       };
     }
 
-    // Default scenarios: wave1, wave3, wave4 showcasing distinct zombies
+    // STANDARD BATTLEFIELD WAVES: 10+ real walker zombies marching in 3 lanes
     const zombies: ZombieSnapshot[] = [];
-    const zombieTypes = this.currentScenario === 'wave1'
-      ? ['walker']
-      : this.currentScenario === 'wave3'
-      ? ['walker', 'runner', 'armored', 'spitter', 'healer']
-      : ['armored', 'brute', 'shocker', 'summoner', 'shadow'];
-
     const lanes = [260, 540, 820];
-    zombieTypes.forEach((type, idx) => {
-      const lane = (idx % 3);
+    const totalZombies = this.currentScenario === 'wave1' ? 6 : 10;
+
+    for (let i = 0; i < totalZombies; i++) {
+      const lane = i % 3;
       const laneX = lanes[lane];
-      // march down slowly from y=300 to y=1400
-      const startY = 320 + idx * 180;
-      const currentY = ((startY + this.tickCount * 3.5) % 1150) + 320;
+      // March down from y: 320 towards y: 1250 (defense line)
+      const speed = 2.4;
+      const initialOffset = i * 95;
+      const currentY = ((initialOffset + this.tickCount * speed) % 950) + 320;
+
       zombies.push({
-        id: `z-${type}-${idx}`,
-        type,
-        name: this.getZombieVietnameseName(type),
-        x: laneX + (Math.sin(this.tickCount * 0.1 + idx) * 35),
+        id: `walker_lane_${lane}_${i}`,
+        type: 'walker',
+        name: `Zombie #${i + 1}`,
+        x: laneX + Math.sin(this.tickCount * 0.08 + i) * 28,
         y: currentY,
-        hp: Math.max(20, 150 - idx * 20),
-        maxHp: 200,
+        hp: Math.max(10, 100 - ((this.tickCount * 4 + i * 20) % 90)),
+        maxHp: 100,
         lane: lane + 1,
       });
-    });
-
-    const soldierCount = this.currentScenario === 'wave1' ? 12 : this.currentScenario === 'wave3' ? 24 : 36;
+    }
 
     return {
       matchId: 'mock-match-ongoing',
       seed: 42,
       tick: this.tickCount,
-      elapsedSeconds: (elapsedSeconds % 200) + 20,
-      phase: this.currentScenario === 'wave1' ? 'WAVE_1' : this.currentScenario === 'wave3' ? 'WAVE_3' : 'WAVE_4',
-      baseHp: Math.max(3000, 10000 - this.tickCount * 5),
+      elapsedSeconds: (elapsedSeconds % 180) + 30,
+      phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
+      baseHp: Math.max(2500, 10000 - Math.floor(this.tickCount * 2.5)),
       maxBaseHp: 10000,
-      soldiers: this.generateSoldiers(soldierCount),
+      soldiers: this.generateSoldiers(12),
       zombies,
       towers,
-      activePlayerCount: soldierCount + 5,
+      activePlayerCount: 40,
       result: 'IN_PROGRESS',
-      giftSkillActive: this.tickCount % 80 < 30 ? {
-        skillId: 'reinforcements',
-        name: 'VIỆN BINH ĐẶC NHIỆM',
-        remainingSeconds: Math.ceil((30 - (this.tickCount % 80)) / 10),
+      giftSkillActive: (this.tickCount % 120 < 35) ? {
+        skillId: 'orbital_laser',
+        name: 'TÊN LỬA TỔNG LỰC',
+        remainingSeconds: Math.ceil((35 - (this.tickCount % 120)) / 10),
         senderName: 'FanCung07',
       } : undefined,
       mvpPlayers,
@@ -215,42 +210,34 @@ export class MockSnapshotSource implements GameSnapshotSource {
 
   private generateSoldiers(count: number): SoldierSnapshot[] {
     const soldiers: SoldierSnapshot[] = [];
-    const cols = 8;
-    const startX = 220;
-    const stepX = 90;
-    const startY = 1660;
-    const stepY = 45;
+    const squads = [
+      { id: 'alpha', cx: 260, cy: 1380 },
+      { id: 'bravo', cx: 540, cy: 1360 },
+      { id: 'charlie', cx: 820, cy: 1380 },
+    ];
 
-    for (let i = 0; i < count; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      soldiers.push({
-        id: `soldier-${i + 1}`,
-        userId: `user-mock-${i + 1}`,
-        name: `Lính #${i + 1}`,
-        x: startX + col * stepX + (row % 2 ? 25 : 0),
-        y: startY + row * stepY,
-        hp: 100,
-        maxHp: 100,
-        targetZombieId: `z-target-${(i % 5)}`,
-      });
+    const offsets = [
+      { dx: -35, dy: 10 },
+      { dx: 35, dy: 10 },
+      { dx: -18, dy: -25 },
+      { dx: 18, dy: -25 },
+    ];
+
+    let idx = 0;
+    for (const sq of squads) {
+      for (let i = 0; i < 4; i++) {
+        idx++;
+        soldiers.push({
+          id: `soldier_${sq.id}_${i}`,
+          userId: `user_${sq.id}_${i}`,
+          name: i === 0 ? `${sq.id.toUpperCase()} Đội Trưởng` : `Chiến Binh #${idx}`,
+          x: sq.cx + offsets[i].dx,
+          y: sq.cy + offsets[i].dy,
+          hp: 100,
+          maxHp: 100,
+        });
+      }
     }
     return soldiers;
-  }
-
-  private getZombieVietnameseName(type: string): string {
-    const names: Record<string, string> = {
-      walker: 'Zombie Thường',
-      runner: 'Zombie Chạy',
-      armored: 'Zombie Giáp',
-      spitter: 'Zombie Độc',
-      healer: 'Zombie Hồi Máu',
-      brute: 'Zombie Khổng Lồ',
-      shocker: 'Zombie Điện',
-      summoner: 'Zombie Triệu Hồi',
-      shadow: 'Zombie Bóng Tối',
-      zombie_king: 'Zombie Vua',
-    };
-    return names[type] || 'Zombie';
   }
 }

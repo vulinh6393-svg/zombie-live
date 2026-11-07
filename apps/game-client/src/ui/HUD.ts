@@ -9,17 +9,18 @@ export class HUD {
   private waveText: Phaser.GameObjects.Text;
   private timerText: Phaser.GameObjects.Text;
   private baseHpText: Phaser.GameObjects.Text;
-  private baseHpBar: Phaser.GameObjects.Graphics;
+  private baseHpBarFill: Phaser.GameObjects.Graphics;
   private entityCountText: Phaser.GameObjects.Text;
 
   // Boss components
   private bossContainer: Phaser.GameObjects.Container;
-  private bossHpBar: Phaser.GameObjects.Graphics;
+  private bossHpBarFill: Phaser.GameObjects.Graphics;
   private bossHpText: Phaser.GameObjects.Text;
 
   // Gift Alert
   private giftAlertContainer: Phaser.GameObjects.Container;
   private giftAlertText: Phaser.GameObjects.Text;
+  private giftAlertSubtext: Phaser.GameObjects.Text;
   private giftAlertTween: Phaser.Tweens.Tween | null = null;
 
   // MVP Leaderboard
@@ -35,128 +36,141 @@ export class HUD {
     this.scene = scene;
     const width = 1080;
 
-    // --- 1. Top HUD Header ---
+    // --- 1. Top HUD Header (0% - 10% Safe Zone, y: 30 - 170) ---
     const topBg = scene.add.graphics();
     topBg.fillStyle(0x0a1128, 0.92);
-    topBg.fillRoundedRect(30, 40, width - 60, 150, 16);
-    topBg.lineStyle(2, 0x00f5d4, 0.8);
-    topBg.strokeRoundedRect(30, 40, width - 60, 150, 16);
+    topBg.fillRoundedRect(30, 35, width - 60, 140, 16);
+    topBg.lineStyle(2, 0x00f5d4, 0.85);
+    topBg.strokeRoundedRect(30, 35, width - 60, 140, 16);
 
-    this.waveText = scene.add.text(60, 60, 'ĐỢT: CHUẨN BỊ', {
+    this.waveText = scene.add.text(55, 50, 'ĐỢT: CHUẨN BỊ', {
       fontFamily: 'Arial Black',
-      fontSize: '28px',
+      fontSize: '24px',
       color: '#00f5d4',
     });
 
-    this.timerText = scene.add.text(width - 60, 60, '05:00', {
+    this.timerText = scene.add.text(width - 55, 50, '05:00', {
       fontFamily: 'Arial Black',
-      fontSize: '28px',
+      fontSize: '24px',
       color: '#fee440',
     }).setOrigin(1, 0);
 
-    // Base HP Bar
-    this.baseHpBar = scene.add.graphics();
-    this.baseHpText = scene.add.text(width / 2, 115, 'MÁU CĂN CỨ: 10,000 / 10,000 HP', {
+    // Base HP Bar Background & Fill
+    const baseHpBarBg = scene.add.graphics();
+    baseHpBarBg.fillStyle(0x161a22, 0.9);
+    baseHpBarBg.fillRoundedRect(width / 2 - 250, 90, 500, 24, 12);
+    baseHpBarBg.lineStyle(1.5, 0x3e4451, 1);
+    baseHpBarBg.strokeRoundedRect(width / 2 - 250, 90, 500, 24, 12);
+
+    this.baseHpBarFill = scene.add.graphics();
+
+    this.baseHpText = scene.add.text(width / 2, 102, 'MÁU THÀNH TRÌ: 10,000 / 10,000 HP (100%)', {
       fontFamily: 'Arial Black',
-      fontSize: '20px',
+      fontSize: '14px',
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    this.entityCountText = scene.add.text(width / 2, 155, 'Lính: 0 | Zombie: 0', {
+    this.entityCountText = scene.add.text(width / 2, 145, 'Quân Đội: 12 Lính (3 Squads) | Kẻ Địch: 0 Zombie', {
       fontFamily: 'Arial',
-      fontSize: '18px',
+      fontSize: '15px',
       color: '#adb5bd',
     }).setOrigin(0.5);
 
-    // --- 2. Boss HP Bar (Hidden by default) ---
-    this.bossContainer = scene.add.container(0, 210);
+    // --- 2. Boss HP Bar (Hidden by default, y: 185) ---
+    this.bossContainer = scene.add.container(0, 185).setDepth(40);
     const bossBg = scene.add.graphics();
-    bossBg.fillStyle(0x3a0ca3, 0.9);
-    bossBg.fillRoundedRect(80, 0, width - 160, 75, 12);
-    bossBg.lineStyle(3, 0xf72585, 1);
-    bossBg.strokeRoundedRect(80, 0, width - 160, 75, 12);
+    bossBg.fillStyle(0x2d0047, 0.95);
+    bossBg.fillRoundedRect(80, 0, width - 160, 65, 12);
+    bossBg.lineStyle(2, 0xf72585, 1);
+    bossBg.strokeRoundedRect(80, 0, width - 160, 65, 12);
 
-    const bossTitle = scene.add.text(width / 2, 16, '⚠️ ZOMBIE VUA (BOSS PHASE) ⚠️', {
+    const bossTitle = scene.add.text(width / 2, 16, '⚠️ ZOMBIE KING (TRÙM CUỐI TẤN CÔNG) ⚠️', {
       fontFamily: 'Arial Black',
-      fontSize: '20px',
+      fontSize: '18px',
       color: '#f72585',
     }).setOrigin(0.5);
 
-    this.bossHpBar = scene.add.graphics();
-    this.bossHpText = scene.add.text(width / 2, 50, '12,000 / 12,000 HP', {
+    this.bossHpBarFill = scene.add.graphics();
+    this.bossHpText = scene.add.text(width / 2, 45, '12,000 / 12,000 HP', {
       fontFamily: 'Arial Black',
-      fontSize: '17px',
+      fontSize: '15px',
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    this.bossContainer.add([bossBg, bossTitle, this.bossHpBar, this.bossHpText]);
+    this.bossContainer.add([bossBg, bossTitle, this.bossHpBarFill, this.bossHpText]);
     this.bossContainer.setVisible(false);
 
-    // --- 3. Gift Alert Banner ---
-    this.giftAlertContainer = scene.add.container(width / 2, 330);
+    // --- 3. Gift Alert Banner (Positioned safely at y: 260, not blocking center combat) ---
+    this.giftAlertContainer = scene.add.container(width / 2, 260).setDepth(50);
     const giftBg = scene.add.graphics();
-    giftBg.fillStyle(0xff5400, 0.95);
-    giftBg.fillRoundedRect(-260, -30, 520, 60, 30);
-    giftBg.lineStyle(3, 0xfee440, 1);
-    giftBg.strokeRoundedRect(-260, -30, 520, 60, 30);
+    giftBg.fillStyle(0x0a1128, 0.95);
+    giftBg.fillRoundedRect(-240, -32, 480, 64, 16);
+    giftBg.lineStyle(2.5, 0xfee440, 1);
+    giftBg.strokeRoundedRect(-240, -32, 480, 64, 16);
 
-    this.giftAlertText = scene.add.text(0, 0, '🎁 QUÀ TẶNG: KÍCH HOẠT KỸ NĂNG', {
+    this.giftAlertText = scene.add.text(0, -10, '🎁 TIẾP VIỆN QUÀ TẶNG TIKTOK!', {
       fontFamily: 'Arial Black',
-      fontSize: '22px',
-      color: '#ffffff',
+      fontSize: '18px',
+      color: '#fee440',
     }).setOrigin(0.5);
 
-    this.giftAlertContainer.add([giftBg, this.giftAlertText]);
+    this.giftAlertSubtext = scene.add.text(0, 14, '@MinhGamer đã tặng Tên Lửa Phòng Thủ', {
+      fontFamily: 'Arial',
+      fontSize: '14px',
+      color: '#00f5d4',
+    }).setOrigin(0.5);
+
+    this.giftAlertContainer.add([giftBg, this.giftAlertText, this.giftAlertSubtext]);
     this.giftAlertContainer.setVisible(false);
 
-    // --- 4. MVP Mini Leaderboard (Top Right) ---
-    this.mvpContainer = scene.add.container(width - 290, 320);
+    // --- 4. MVP Mini Leaderboard (Top Right, x: width - 260, y: 190) ---
+    this.mvpContainer = scene.add.container(width - 250, 190).setDepth(35);
     const mvpBg = scene.add.graphics();
-    mvpBg.fillStyle(0x001f54, 0.85);
-    mvpBg.fillRoundedRect(0, 0, 250, 160, 12);
-    mvpBg.lineStyle(1, 0x00bbf9, 0.8);
-    mvpBg.strokeRoundedRect(0, 0, 250, 160, 12);
+    mvpBg.fillStyle(0x001f54, 0.88);
+    mvpBg.fillRoundedRect(0, 0, 220, 145, 12);
+    mvpBg.lineStyle(1.5, 0x00bbf9, 0.85);
+    mvpBg.strokeRoundedRect(0, 0, 220, 145, 12);
 
-    const mvpTitle = scene.add.text(125, 14, '🏆 BẢNG MVP TRẬN', {
+    const mvpTitle = scene.add.text(110, 14, '🏆 TOP ĐỒNG ĐỘI', {
       fontFamily: 'Arial Black',
-      fontSize: '16px',
+      fontSize: '14px',
       color: '#00f5d4',
     }).setOrigin(0.5);
 
     this.mvpContainer.add([mvpBg, mvpTitle]);
     for (let i = 0; i < 4; i++) {
-      const line = scene.add.text(20, 42 + i * 28, `${i + 1}. ...`, {
+      const line = scene.add.text(15, 38 + i * 25, `${i + 1}. ...`, {
         fontFamily: 'Arial',
-        fontSize: '15px',
+        fontSize: '13px',
         color: '#ffffff',
       });
       this.mvpLines.push(line);
       this.mvpContainer.add(line);
     }
 
-    // --- 5. Bottom Instructions (Safe for TikTok UI) ---
+    // --- 5. Bottom Instructions (y: 1780 - 1880) ---
     const bottomBg = scene.add.graphics();
     bottomBg.fillStyle(0x0a1128, 0.95);
-    bottomBg.fillRoundedRect(30, 1780, width - 60, 100, 16);
-    bottomBg.lineStyle(2, 0x00bbf9, 0.8);
-    bottomBg.strokeRoundedRect(30, 1780, width - 60, 100, 16);
+    bottomBg.fillRoundedRect(30, 1780, width - 60, 95, 16);
+    bottomBg.lineStyle(2, 0x00bbf9, 0.85);
+    bottomBg.strokeRoundedRect(30, 1780, width - 60, 95, 16);
 
-    const commentTitle = scene.add.text(width / 2, 1805, '💬 BÌNH LUẬN ĐỂ THAM GIA PHÒNG THỦ', {
+    const commentTitle = scene.add.text(width / 2, 1805, '💬 BÌNH LUẬN "JOIN" ĐỂ GIA NHẬP QUÂN ĐỘI TIỂU ĐỘI', {
       fontFamily: 'Arial Black',
-      fontSize: '22px',
+      fontSize: '19px',
       color: '#00f5d4',
     }).setOrigin(0.5);
 
-    const commandList = scene.add.text(width / 2, 1845, 'JOIN: Vào trận | BẮN: Bắn tỉa | SỬA: Hồi máu căn cứ | CỨU: Tiếp tế', {
+    const commandList = scene.add.text(width / 2, 1845, 'Alpha: Làn Trái | Bravo: Làn Giữa | Charlie: Làn Phải | 🎁 Tặng Quà Kích Hoạt Kỹ Năng', {
       fontFamily: 'Arial',
-      fontSize: '19px',
+      fontSize: '16px',
       color: '#f8f9fa',
     }).setOrigin(0.5);
 
     // --- 6. Outcome Banner (Victory / Defeat) ---
-    this.outcomeContainer = scene.add.container(width / 2, 900);
+    this.outcomeContainer = scene.add.container(width / 2, 900).setDepth(150);
     const outcomeBg = scene.add.graphics();
-    outcomeBg.fillStyle(0x000000, 0.9);
+    outcomeBg.fillStyle(0x000000, 0.92);
     outcomeBg.fillRoundedRect(-380, -120, 760, 240, 24);
     outcomeBg.lineStyle(4, 0xfee440, 1);
     outcomeBg.strokeRoundedRect(-380, -120, 760, 240, 24);
@@ -181,7 +195,8 @@ export class HUD {
       topBg,
       this.waveText,
       this.timerText,
-      this.baseHpBar,
+      baseHpBarBg,
+      this.baseHpBarFill,
       this.baseHpText,
       this.entityCountText,
       this.bossContainer,
@@ -191,7 +206,7 @@ export class HUD {
       commentTitle,
       commandList,
       this.outcomeContainer,
-    ]);
+    ]).setDepth(50);
   }
 
   update(snapshot: ExtendedMatchSnapshot): void {
@@ -199,107 +214,113 @@ export class HUD {
     const phaseLabel = this.getPhaseLabel(snapshot.phase);
     this.waveText.setText(`ĐỢT: ${phaseLabel}`);
 
-    const totalSeconds = 300;
-    const remaining = Math.max(0, totalSeconds - snapshot.elapsedSeconds);
-    const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
-    const secs = (remaining % 60).toString().padStart(2, '0');
-    this.timerText.setText(`${mins}:${secs}`);
+    const remainingSec = Math.max(0, 300 - snapshot.elapsedSeconds);
+    const mins = Math.floor(remainingSec / 60);
+    const secs = remainingSec % 60;
+    this.timerText.setText(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
     // 2. Base HP Bar
-    this.baseHpBar.clear();
-    const barWidth = 980;
-    const barHeight = 16;
-    const barX = 50;
-    const barY = 95;
+    this.updateBaseHp(snapshot.baseHp, snapshot.maxBaseHp);
 
-    this.baseHpBar.fillStyle(0x1a2639, 1);
-    this.baseHpBar.fillRect(barX, barY, barWidth, barHeight);
+    // 3. Entity Count
+    const soldierCount = snapshot.soldiers ? snapshot.soldiers.length : 12;
+    const zombieCount = snapshot.zombies ? snapshot.zombies.length : 0;
+    this.entityCountText.setText(`Quân Đội: ${soldierCount} Lính | Kẻ Địch: ${zombieCount} Zombie`);
 
-    const ratio = Math.max(0, Math.min(1, snapshot.baseHp / snapshot.maxBaseHp));
-    const color = ratio > 0.5 ? 0x00f5d4 : ratio > 0.25 ? 0xfee440 : 0xd90429;
-    this.baseHpBar.fillStyle(color, 1);
-    this.baseHpBar.fillRect(barX, barY, barWidth * ratio, barHeight);
-
-    this.baseHpText.setText(`MÁU CĂN CỨ: ${snapshot.baseHp.toLocaleString()} / ${snapshot.maxBaseHp.toLocaleString()} HP`);
-    this.entityCountText.setText(`Lính: ${snapshot.soldiers.length} / 40 | Zombie: ${snapshot.zombies.length} | Người xem: ${snapshot.activePlayerCount}`);
-
-    // 3. Boss Bar
-    if (snapshot.bossHp !== undefined && snapshot.maxBossHp && snapshot.bossHp > 0) {
+    // 4. Boss HP Bar
+    if (snapshot.phase === 'BOSS' && snapshot.bossHp && snapshot.maxBossHp) {
       this.bossContainer.setVisible(true);
-      this.bossHpBar.clear();
-      const bRatio = Math.max(0, Math.min(1, snapshot.bossHp / snapshot.maxBossHp));
-      this.bossHpBar.fillStyle(0x1a2639, 1);
-      this.bossHpBar.fillRect(100, 36, 880, 14);
-      this.bossHpBar.fillStyle(0xf72585, 1);
-      this.bossHpBar.fillRect(100, 36, 880 * bRatio, 14);
-      this.bossHpText.setText(`${snapshot.bossHp.toLocaleString()} / ${snapshot.maxBossHp.toLocaleString()} HP`);
+      const ratio = Math.max(0, snapshot.bossHp / snapshot.maxBossHp);
+      this.bossHpBarFill.clear();
+      this.bossHpBarFill.fillStyle(0xf72585, 1);
+      this.bossHpBarFill.fillRoundedRect(95, 36, (1080 - 190) * ratio, 20, 10);
+      this.bossHpText.setText(`${snapshot.bossHp.toLocaleString()} / ${snapshot.maxBossHp.toLocaleString()} HP (${Math.round(ratio * 100)}%)`);
     } else {
       this.bossContainer.setVisible(false);
     }
 
-    // 4. Gift Alert
+    // 5. Gift Skill Alert
     if (snapshot.giftSkillActive) {
       this.showGiftAlert(snapshot.giftSkillActive.name, snapshot.giftSkillActive.senderName);
     }
 
-    // 5. MVP Leaderboard
+    // 6. MVP Players
     if (snapshot.mvpPlayers && snapshot.mvpPlayers.length > 0) {
-      this.mvpContainer.setVisible(true);
-      snapshot.mvpPlayers.slice(0, 4).forEach((mvp, idx) => {
-        if (this.mvpLines[idx]) {
-          this.mvpLines[idx].setText(`${idx + 1}. ${mvp.name} - ${mvp.points} đ`);
+      for (let i = 0; i < this.mvpLines.length; i++) {
+        const p = snapshot.mvpPlayers[i];
+        if (p) {
+          this.mvpLines[i].setText(`${i + 1}. ${p.name}: ${p.points}đ`);
         }
-      });
+      }
     }
 
-    // 6. Outcome
+    // 7. Match Outcome
     if (snapshot.result === 'VICTORY') {
-      this.outcomeContainer.setVisible(true);
       this.outcomeTitle.setText('🏆 CHIẾN THẮNG! 🏆');
       this.outcomeTitle.setColor('#00f5d4');
-      this.outcomeSubtitle.setText('Thành trì đã được bảo vệ thành công!');
-    } else if (snapshot.result === 'DEFEAT') {
+      this.outcomeSubtitle.setText('Thành trì được bảo vệ thành công!');
       this.outcomeContainer.setVisible(true);
-      this.outcomeTitle.setText('💀 THẤT THỦ! 💀');
-      this.outcomeTitle.setColor('#d90429');
-      this.outcomeSubtitle.setText('Căn cứ đã bị zombie tàn phá!');
+    } else if (snapshot.result === 'DEFEAT') {
+      this.outcomeTitle.setText('☠️ THẤT THỦ! ☠️');
+      this.outcomeTitle.setColor('#ff0055');
+      this.outcomeSubtitle.setText('Căn cứ đã bị zombie phá hủy!');
+      this.outcomeContainer.setVisible(true);
     } else {
       this.outcomeContainer.setVisible(false);
     }
   }
 
-  showGiftAlert(skillName: string, sender?: string): void {
-    if (this.giftAlertContainer.visible) return;
-    const text = sender ? `🎁 ${sender} TẶNG: ${skillName}!` : `🎁 KÍCH HOẠT: ${skillName}!`;
-    this.giftAlertText.setText(text);
-    this.giftAlertContainer.setVisible(true).setAlpha(0).setScale(0.8);
+  public showGiftAlert(skillName: string, senderName: string = 'Viewer VIP'): void {
+    this.giftAlertText.setText(`🎁 KỸ NĂNG: ${skillName.toUpperCase()}`);
+    this.giftAlertSubtext.setText(`@${senderName} đã kích hoạt chi viện hỏa lực!`);
+    this.giftAlertContainer.setVisible(true);
+    this.giftAlertContainer.setAlpha(1);
 
     if (this.giftAlertTween) this.giftAlertTween.stop();
-
     this.giftAlertTween = this.scene.tweens.add({
       targets: this.giftAlertContainer,
-      alpha: 1,
-      scale: 1,
-      duration: 200,
-      hold: 2500,
+      scaleX: 1.05,
+      scaleY: 1.05,
       yoyo: true,
-      onComplete: () => {
-        this.giftAlertContainer.setVisible(false);
-      },
+      duration: 200,
+      repeat: 2,
+    });
+
+    this.scene.time.delayedCall(3000, () => {
+      this.scene.tweens.add({
+        targets: this.giftAlertContainer,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => this.giftAlertContainer.setVisible(false),
+      });
     });
   }
 
+  private updateBaseHp(hp: number, maxHp: number): void {
+    const width = 1080;
+    const ratio = Math.max(0, hp / maxHp);
+    const barWidth = 500;
+    const barX = width / 2 - 250;
+
+    this.baseHpBarFill.clear();
+    const color = ratio > 0.5 ? 0x00f5d4 : ratio > 0.25 ? 0xfee440 : 0xff0055;
+    this.baseHpBarFill.fillStyle(color, 1);
+    this.baseHpBarFill.fillRoundedRect(barX, 90, barWidth * ratio, 24, 12);
+
+    const percent = Math.round(ratio * 100);
+    this.baseHpText.setText(`MÁU THÀNH TRÌ: ${hp.toLocaleString()} / ${maxHp.toLocaleString()} HP (${percent}%)`);
+  }
+
   private getPhaseLabel(phase: string): string {
-    const map: Record<string, string> = {
-      PREPARING: 'CHUẨN BỊ',
-      WAVE_1: 'ĐỢT 1',
-      WAVE_2: 'ĐỢT 2',
-      WAVE_3: 'ĐỢT 3',
-      WAVE_4: 'ĐỢT 4',
-      BOSS: 'TRÙM CUỐI (BOSS)',
-      RESULTS: 'KẾT QUẢ',
-      PAUSED: 'TẠM DỪNG',
-    };
-    return map[phase] || phase;
+    switch (phase) {
+      case 'PREPARING': return 'CHUẨN BỊ (30s)';
+      case 'WAVE_1': return 'ĐỢT 1 — TRINH SÁT';
+      case 'WAVE_2': return 'ĐỢT 2 — CÀN QUÉT';
+      case 'WAVE_3': return 'ĐỢT 3 — TỔNG LỰC';
+      case 'WAVE_4': return 'ĐỢT 4 — ĐỘT PHÁ';
+      case 'BOSS': return 'TRÙM CUỐI (ZOMBIE KING)';
+      case 'RESULTS': return 'KẾT THÚC';
+      default: return 'CHIẾN ĐẤU';
+    }
   }
 }
