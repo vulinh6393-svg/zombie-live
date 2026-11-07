@@ -45,7 +45,12 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
 let gameInstance: Phaser.Game | null = null;
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('DOMContentLoaded', async () => {
+    // Ensure all custom Vietnamese web fonts are loaded into browser cache before Phaser canvas renders
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
     gameInstance = new Phaser.Game(phaserGameConfig);
 
     if (isQualityLab) {

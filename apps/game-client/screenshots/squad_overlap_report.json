@@ -1,0 +1,217 @@
+{
+  "evaluatedAt": "2026-11-07T09:30:16.411Z",
+  "optionA": {
+    "formationMode": "A",
+    "totalSoldiersRendered": 9,
+    "totalMembersJoined": 40,
+    "overlapCount": 0,
+    "zeroOverlapVerified": true,
+    "soldierBounds": [
+      {
+        "id": "alpha_soldier_0",
+        "minX": 220,
+        "maxX": 300,
+        "minY": 1228,
+        "maxY": 1342,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "alpha_soldier_1",
+        "minX": 135,
+        "maxX": 215,
+        "minY": 1318,
+        "maxY": 1432,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "alpha_soldier_2",
+        "minX": 305,
+        "maxX": 385,
+        "minY": 1318,
+        "maxY": 1432,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "bravo_soldier_0",
+        "minX": 500,
+        "maxX": 580,
+        "minY": 1208,
+        "maxY": 1322,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "bravo_soldier_1",
+        "minX": 415,
+        "maxX": 495,
+        "minY": 1298,
+        "maxY": 1412,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "bravo_soldier_2",
+        "minX": 585,
+        "maxX": 665,
+        "minY": 1298,
+        "maxY": 1412,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "charlie_soldier_0",
+        "minX": 780,
+        "maxX": 860,
+        "minY": 1228,
+        "maxY": 1342,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      },
+      {
+        "id": "charlie_soldier_1",
+        "minX": 695,
+        "maxX": 775,
+        "minY": 1318,
+        "maxY": 1432,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      },
+      {
+        "id": "charlie_soldier_2",
+        "minX": 865,
+        "maxX": 945,
+        "minY": 1318,
+        "maxY": 1432,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      }
+    ],
+    "intersectionPairs": []
+  },
+  "optionB_Recommended": {
+    "formationMode": "B",
+    "totalSoldiersRendered": 6,
+    "totalMembersJoined": 40,
+    "overlapCount": 0,
+    "zeroOverlapVerified": true,
+    "soldierBounds": [
+      {
+        "id": "alpha_soldier_0",
+        "minX": 155,
+        "maxX": 235,
+        "minY": 1273,
+        "maxY": 1387,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "alpha_soldier_1",
+        "minX": 285,
+        "maxX": 365,
+        "minY": 1303,
+        "maxY": 1417,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "bravo_soldier_0",
+        "minX": 435,
+        "maxX": 515,
+        "minY": 1253,
+        "maxY": 1367,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "bravo_soldier_1",
+        "minX": 565,
+        "maxX": 645,
+        "minY": 1283,
+        "maxY": 1397,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "charlie_soldier_0",
+        "minX": 715,
+        "maxX": 795,
+        "minY": 1273,
+        "maxY": 1387,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      },
+      {
+        "id": "charlie_soldier_1",
+        "minX": 845,
+        "maxX": 925,
+        "minY": 1303,
+        "maxY": 1417,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      }
+    ],
+    "intersectionPairs": []
+  },
+  "optionC": {
+    "formationMode": "C",
+    "totalSoldiersRendered": 3,
+    "totalMembersJoined": 40,
+    "overlapCount": 0,
+    "zeroOverlapVerified": true,
+    "soldierBounds": [
+      {
+        "id": "alpha_soldier_0",
+        "minX": 220,
+        "maxX": 300,
+        "minY": 1283,
+        "maxY": 1397,
+        "width": 80,
+        "height": 114,
+        "squadId": "alpha"
+      },
+      {
+        "id": "bravo_soldier_0",
+        "minX": 500,
+        "maxX": 580,
+        "minY": 1263,
+        "maxY": 1377,
+        "width": 80,
+        "height": 114,
+        "squadId": "bravo"
+      },
+      {
+        "id": "charlie_soldier_0",
+        "minX": 780,
+        "maxX": 860,
+        "minY": 1283,
+        "maxY": 1397,
+        "width": 80,
+        "height": 114,
+        "squadId": "charlie"
+      }
+    ],
+    "intersectionPairs": []
+  },
+  "conclusion": {
+    "recommendedMode": "B",
+    "reason": "Option B (2 lính tiền vệ/lane) đạt tỷ lệ Zero Overlap tuyệt đối (0 cặp giao nhau), khoảng cách thoáng đãng >50px giữa bounding box, dễ nhận diện nhất trên màn hình điện thoại 360x640."
+  }
+}

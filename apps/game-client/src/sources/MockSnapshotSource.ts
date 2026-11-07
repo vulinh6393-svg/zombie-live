@@ -105,7 +105,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
         phase: 'BOSS',
         baseHp: 6500,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(12),
+        soldiers: this.generateSoldiers(6),
         zombies,
         towers,
         activePlayerCount: 40,
@@ -132,7 +132,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
         phase: 'RESULTS',
         baseHp: 7800,
         maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(12),
+        soldiers: this.generateSoldiers(6),
         zombies: [],
         towers,
         activePlayerCount: 38,
@@ -195,7 +195,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
       phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
       baseHp: this.currentBaseHp,
       maxBaseHp: 10000,
-      soldiers: this.generateSoldiers(12),
+      soldiers: this.generateSoldiers(6),
       zombies,
       towers,
       activePlayerCount: 40,
@@ -221,29 +221,27 @@ export class MockSnapshotSource implements GameSnapshotSource {
     }, 3000);
   }
 
-  private generateSoldiers(count: number): SoldierSnapshot[] {
+  private generateSoldiers(count: number = 6): SoldierSnapshot[] {
     const soldiers: SoldierSnapshot[] = [];
     const squads = [
-      { id: 'alpha', cx: 260, cy: 1380 },
-      { id: 'bravo', cx: 540, cy: 1360 },
-      { id: 'charlie', cx: 820, cy: 1380 },
+      { id: 'alpha', cx: 260, cy: 1340 },
+      { id: 'bravo', cx: 540, cy: 1320 },
+      { id: 'charlie', cx: 820, cy: 1340 },
     ];
 
     const offsets = [
-      { dx: -35, dy: 10 },
-      { dx: 35, dy: 10 },
-      { dx: -18, dy: -25 },
-      { dx: 18, dy: -25 },
+      { dx: -65, dy: -10, role: 'Tiền Vệ' },
+      { dx: 65, dy: 20, role: 'Hậu Cần' },
     ];
 
     let idx = 0;
     for (const sq of squads) {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < offsets.length; i++) {
         idx++;
         soldiers.push({
           id: `soldier_${sq.id}_${i}`,
           userId: `user_${sq.id}_${i}`,
-          name: i === 0 ? `${sq.id.toUpperCase()} Đội Trưởng` : `Chiến Binh #${idx}`,
+          name: `${sq.id.toUpperCase()} ${offsets[i].role}`,
           x: sq.cx + offsets[i].dx,
           y: sq.cy + offsets[i].dy,
           hp: 100,

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "e2e:quality-lab": "tsx e2e/run-quality-lab-e2e.ts",
     "e2e:battlefield": "tsx e2e/run-battlefield-e2e.ts",
-    "e2e:recovery": "tsx e2e/run-recovery-e2e.ts"
+    "e2e:recovery": "tsx e2e/run-recovery-e2e.ts",
+    "e2e:phase02-3-2": "tsx e2e/run-phase02-3-2-e2e.ts"
   },
   "dependencies": {
     "@zombie-live/shared": "workspace:*",

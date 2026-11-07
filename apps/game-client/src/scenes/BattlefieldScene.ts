@@ -1,61 +1,62 @@
 import Phaser from 'phaser';
-import { SpriteAssetLoader } from '../assets/SpriteAssetLoader.js';
-import { CharacterAnimationRegistry } from '../assets/CharacterAnimationRegistry.js';
 import { GameSnapshotSource } from '../sources/GameSnapshotSource.js';
 import { ExtendedMatchSnapshot, ZombieSnapshot } from '../types.js';
 import { ZombieRenderer } from '../entities/ZombieRenderer.js';
 import { TowerRenderer } from '../entities/TowerRenderer.js';
-import { SquadVisualizer } from '../entities/SquadVisualizer.js';
+import { SquadVisualizer, FormationMode } from '../entities/SquadVisualizer.js';
 import { ProjectilePool } from '../entities/ProjectilePool.js';
 import { DamageNumberPool } from '../entities/DamageNumberPool.js';
 import { HUD } from '../ui/HUD.js';
 import { TikTokSafeZone } from '../ui/TikTokSafeZone.js';
+import { SpriteAssetLoader } from '../assets/SpriteAssetLoader.js';
+import { CharacterAnimationRegistry } from '../assets/CharacterAnimationRegistry.js';
 import { DEFAULT_SCALE_TIER } from '../config/SpriteScaleConfig.js';
+import { GAME_FONTS } from '../config/FontConfig.js';
 
 export interface BattlefieldSceneConfig {
-  snapshotSource: GameSnapshotSource;
+  snapshotSource?: GameSnapshotSource;
   isOverlayMode?: boolean;
 }
 
 export class BattlefieldScene extends Phaser.Scene {
-  private snapshotSource!: GameSnapshotSource;
+  private snapshotSource?: GameSnapshotSource;
+  private unsubscribeSnapshot?: () => void;
   private isOverlayMode: boolean = false;
 
-  // Entities & Squads
+  // Visual Entities & Pools
   private squadVisualizer!: SquadVisualizer;
   private zombies: Map<string, ZombieRenderer> = new Map();
   private towers: Map<string, TowerRenderer> = new Map();
-
-  // Pools & UI
   private projectilePool!: ProjectilePool;
   private damagePool!: DamageNumberPool;
   private hud!: HUD;
   private tiktokSafeZone!: TikTokSafeZone;
 
-  // Fortress & Map elements
+  // Environment & Fortress
   private baseWallGraphics!: Phaser.GameObjects.Graphics;
-  private lastBaseHp: number = 9850;
+  private lastBaseHp: number = 10000;
   private lastBaseHitTime: number = 0;
 
-  // Combat firing loop
+  // Real-time Firing Simulation Timers
   private fireTimer: number = 0;
 
-  // FPS & Diagnostics
-  private currentFps: number = 60;
+  // Performance Telemetry
   private fpsText?: Phaser.GameObjects.Text;
   private frameTimes: number[] = [];
   private lastFrameTime: number = 0;
-  private unsubscribeSnapshot?: () => void;
+  private currentFps: number = 60;
+
+  // QA & Diagnostic flags
+  private debugEntities: boolean = false;
+  private currentFormationMode: FormationMode = 'B';
 
   constructor() {
-    super('BattlefieldScene');
+    super({ key: 'BattlefieldScene' });
   }
 
   init(data: BattlefieldSceneConfig) {
-    if (data.snapshotSource) {
-      this.snapshotSource = data.snapshotSource;
-      this.isOverlayMode = Boolean(data.isOverlayMode);
-    }
+    this.snapshotSource = data.snapshotSource;
+    this.isOverlayMode = !!data.isOverlayMode;
   }
 
   preload() {
@@ -65,15 +66,23 @@ export class BattlefieldScene extends Phaser.Scene {
   create() {
     CharacterAnimationRegistry.registerAll(this);
 
-    // 1. Draw 9:16 Natural Battlefield Highway & Military Fortress
+    const urlParams = new URLSearchParams(window.location.search);
+    this.debugEntities = urlParams.get('debugEntities') === '1' || urlParams.get('debug') === '1';
+
+    const reqFormation = urlParams.get('formation');
+    if (reqFormation === 'A' || reqFormation === 'B' || reqFormation === 'C') {
+      this.currentFormationMode = reqFormation;
+    }
+
+    // 1. Draw 9:16 Natural Highway & Architectural Military Fortress
     this.createBattlefieldMap();
 
     // 2. Object Pools
     this.projectilePool = new ProjectilePool(this, 60);
     this.damagePool = new DamageNumberPool(this, 50);
 
-    // 3. Initialize 3 Tactical Squads (Alpha, Bravo, Charlie - 3 distinct soldiers each, zero overlap)
-    this.squadVisualizer = new SquadVisualizer(this);
+    // 3. Initialize 3 Tactical Squads (Alpha, Bravo, Charlie with guaranteed zero overlap)
+    this.squadVisualizer = new SquadVisualizer(this, this.currentFormationMode, this.debugEntities);
 
     // 4. Spawn 3 Sentry Turrets on reinforced circular pads
     this.createFortressTurrets();
@@ -83,23 +92,22 @@ export class BattlefieldScene extends Phaser.Scene {
 
     // 6. TikTok Safe Zone Simulation Overlay
     this.tiktokSafeZone = new TikTokSafeZone(this);
-    const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('tiktok') === '1') {
       this.tiktokSafeZone.setVisible(true);
     }
 
-    // 7. Benchmark HUD (only on development mode, never on /overlay)
+    // 7. Telemetry HUD (Development mode only)
     if (!this.isOverlayMode) {
-      this.fpsText = this.add.text(35, 185, 'FPS: 60 | Natural View (Zero Red Haze)', {
-        fontFamily: 'Courier',
-        fontSize: '15px',
+      this.fpsText = this.add.text(35, 250, 'FPS: 60 | Entities: 0 | p95: 16.6ms', {
+        fontFamily: GAME_FONTS.MONO,
+        fontSize: '13px',
         color: '#00f5d4',
-        backgroundColor: '#000000aa',
+        backgroundColor: '#0a1128dd',
         padding: { x: 8, y: 4 },
-      }).setDepth(110);
+      }).setDepth(130);
     }
 
-    // 8. Expose automation & QA API to window
+    // 8. Expose QA & Automation API to window
     this.setupWindowBattlefieldAPI();
 
     // 9. Connect Snapshot Source
@@ -121,7 +129,10 @@ export class BattlefieldScene extends Phaser.Scene {
 
     if (this.fpsText && !this.isOverlayMode) {
       const p95 = this.calculateP95FrameTime();
-      this.fpsText.setText(`FPS: ${this.currentFps} | Entities: ${this.squadVisualizer.getAllSoldiers().length + this.zombies.size} | p95: ${p95.toFixed(1)}ms`);
+      const liveZombies = Array.from(this.zombies.values()).filter((z) => !z.isDead).length;
+      this.fpsText.setText(
+        `FPS: ${this.currentFps} | Lính: ${this.squadVisualizer.getAllSoldiers().length} | Zombie: ${liveZombies} | p95: ${p95.toFixed(1)}ms`
+      );
     }
 
     // Update Squads
@@ -132,7 +143,7 @@ export class BattlefieldScene extends Phaser.Scene {
       zombie.update(delta);
     }
 
-    // Visual Combat Loop
+    // Visual Combat Loop (Purely visual effects, never modifies entity HP on client!)
     this.fireTimer += delta;
     if (this.fireTimer >= 320) {
       this.fireTimer = 0;
@@ -141,136 +152,162 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // NATURAL 9:16 HIGHWAY BATTLEFIELD & MILITARY FORTRESS
+  // 9:16 HIGHWAY BATTLEFIELD & ARCHITECTURAL FORTRESS REDESIGN
   // =========================================================================
   private createBattlefieldMap(): void {
     const width = 1080;
     const height = 1920;
 
-    // 1. Dark dirt ground (Zone outside highway)
+    // 1. Dark dirt ground background (Depth 0)
     const ground = this.add.graphics().setDepth(0);
     ground.fillStyle(0x0c0f15, 1);
     ground.fillRect(0, 0, width, height);
 
-    // 2. Wide Asphalt Highway Bed (Center 800px width from x: 140 to 940)
+    // 2. Wide Asphalt Highway Bed (Center 800px width from x: 140 to 940, y: 220 to 1340)
     const roadX = 140;
     const roadW = 800;
-    const roadGraphics = this.add.graphics().setDepth(1);
+    const roadGraphics = this.add.graphics().setDepth(2);
 
     // Dark asphalt texture
-    roadGraphics.fillStyle(0x1e222b, 1);
-    roadGraphics.fillRect(roadX, 190, roadW, 1310);
+    roadGraphics.fillStyle(0x181c24, 1);
+    roadGraphics.fillRect(roadX, 220, roadW, 1120);
 
     // Concrete shoulders & curbs
-    roadGraphics.fillStyle(0x323742, 1);
-    roadGraphics.fillRect(roadX - 14, 190, 14, 1310);
-    roadGraphics.fillRect(roadX + roadW, 190, 14, 1310);
+    roadGraphics.fillStyle(0x2a2f3a, 1);
+    roadGraphics.fillRect(roadX - 16, 220, 16, 1120);
+    roadGraphics.fillRect(roadX + roadW, 220, 16, 1120);
 
-    // White outer lane boundary lines
+    // White outer shoulder line
     roadGraphics.fillStyle(0xffffff, 0.4);
-    roadGraphics.fillRect(roadX + 12, 190, 4, 1310);
-    roadGraphics.fillRect(roadX + roadW - 16, 190, 4, 1310);
+    roadGraphics.fillRect(roadX + 10, 220, 4, 1120);
+    roadGraphics.fillRect(roadX + roadW - 14, 220, 4, 1120);
 
     // 3. Lane Dividers for 3 Tactical Lanes (Left: 260, Center: 540, Right: 820)
-    // Double solid yellow center divider for center lane
-    roadGraphics.fillStyle(0xebaf25, 0.85);
-    roadGraphics.fillRect(540 - 5, 190, 4, 1100);
-    roadGraphics.fillRect(540 + 2, 190, 4, 1100);
+    // Double solid yellow center line
+    roadGraphics.fillStyle(0xebaf25, 0.9);
+    roadGraphics.fillRect(540 - 5, 220, 4, 1080);
+    roadGraphics.fillRect(540 + 2, 220, 4, 1080);
 
     // White dashed dividers between lanes at x: 400 and x: 680
     roadGraphics.fillStyle(0xffffff, 0.5);
-    for (let y = 200; y < 1280; y += 75) {
-      roadGraphics.fillRect(398, y, 4, 45);
-      roadGraphics.fillRect(678, y, 4, 45);
+    for (let y = 230; y < 1300; y += 70) {
+      roadGraphics.fillRect(398, y, 4, 40);
+      roadGraphics.fillRect(678, y, 4, 40);
     }
 
-    // Asphalt cracks & oil marks (natural combat wear)
-    const cracks = this.add.graphics().setDepth(2);
-    cracks.lineStyle(2, 0x12141a, 0.85);
+    // Asphalt cracks & oil marks (natural wear)
+    const cracks = this.add.graphics().setDepth(3);
+    cracks.lineStyle(2, 0x101217, 0.9);
     cracks.beginPath();
-    cracks.moveTo(250, 620); cracks.lineTo(290, 650); cracks.lineTo(330, 635);
-    cracks.moveTo(510, 840); cracks.lineTo(550, 870); cracks.lineTo(580, 855);
-    cracks.moveTo(790, 710); cracks.lineTo(830, 735); cracks.lineTo(870, 720);
+    cracks.moveTo(250, 520); cracks.lineTo(290, 550); cracks.lineTo(330, 535);
+    cracks.moveTo(510, 740); cracks.lineTo(550, 770); cracks.lineTo(580, 755);
+    cracks.moveTo(790, 610); cracks.lineTo(830, 635); cracks.lineTo(870, 620);
     cracks.strokePath();
 
-    cracks.fillStyle(0x13151b, 0.65);
-    cracks.fillEllipse(540, 930, 90, 45);
-    cracks.fillEllipse(260, 1070, 65, 30);
-    cracks.fillEllipse(820, 1120, 70, 35);
+    cracks.fillStyle(0x111318, 0.7);
+    cracks.fillEllipse(540, 830, 95, 45);
+    cracks.fillEllipse(260, 970, 70, 32);
+    cracks.fillEllipse(820, 1020, 75, 36);
 
-    // 4. Soft Tactical Spotlights (Lighting the combat zone with warm ambient glow)
-    const spotlights = this.add.graphics().setDepth(2);
-    spotlights.fillStyle(0xffeed1, 0.07);
-    spotlights.fillCircle(540, 960, 260);
-    spotlights.fillCircle(260, 1050, 180);
-    spotlights.fillCircle(820, 1050, 180);
+    // 4. Directional Tactical Spotlight Beams (Pointing upwards illuminating incoming zombies)
+    const spotlights = this.add.graphics().setDepth(4);
+    spotlights.fillStyle(0xffeed1, 0.08);
+    // Spotlights emanating from the 3 turret positions towards the horde
+    spotlights.beginPath();
+    spotlights.moveTo(260, 1370); spotlights.lineTo(150, 500); spotlights.lineTo(370, 500); spotlights.closePath();
+    spotlights.moveTo(540, 1350); spotlights.lineTo(410, 450); spotlights.lineTo(670, 450); spotlights.closePath();
+    spotlights.moveTo(820, 1370); spotlights.lineTo(710, 500); spotlights.lineTo(930, 500); spotlights.closePath();
+    spotlights.fillPath();
     spotlights.setBlendMode(Phaser.BlendModes.ADD);
 
-    // 5. ZONE 3: MILITARY FORTRESS DEFENSE COMPOUND (y: 1260 to 1650)
-    // Front barricade obstacle line at y: 1280 across all 3 lanes
-    const barricades = [260, 540, 820];
-    for (const bx of barricades) {
-      // Wood/metal traffic barriers
-      this.add.image(bx - 55, 1285, 'barricade_barrier').setScale(0.85).setDepth(3);
-      this.add.image(bx + 55, 1285, 'barricade_barrier').setScale(0.85).setDepth(3);
+    // 5. DEFENSE PERIMETER (y: 1220 to 1270)
+    // Continuous tactical defensive line: barricades, sandbags & ammo crates
+    const laneCenters = [260, 540, 820];
+    for (const bx of laneCenters) {
+      // Wood/metal traffic barrier horses
+      this.add.image(bx - 60, 1235, 'barricade_barrier').setScale(0.9).setDepth(8);
+      this.add.image(bx + 60, 1235, 'barricade_barrier').setScale(0.9).setDepth(8);
 
-      // Sandbag fortifications
-      this.add.image(bx - 40, 1315, 'sandbags').setScale(0.95).setDepth(4);
-      this.add.image(bx + 40, 1315, 'sandbags').setScale(0.95).setDepth(4);
+      // Stacked sandbag fortifications
+      this.add.image(bx - 35, 1260, 'sandbags').setScale(1.0).setDepth(9);
+      this.add.image(bx + 35, 1260, 'sandbags').setScale(1.0).setDepth(9);
 
-      // Ammo crates
-      this.add.image(bx - 85, 1325, 'ammo_crate').setScale(0.8).setDepth(4);
-      this.add.image(bx + 85, 1325, 'ammo_crate').setScale(0.8).setDepth(4);
+      // Munitions crates
+      this.add.image(bx - 95, 1270, 'ammo_crate').setScale(0.85).setDepth(9);
+      this.add.image(bx + 95, 1270, 'ammo_crate').setScale(0.85).setDepth(9);
     }
 
-    // Main Concrete Wall & Blast Gate (y: 1480 to 1540 across width)
-    this.baseWallGraphics = this.add.graphics().setDepth(5);
+    // 6. MAIN REINFORCED CONCRETE FORTRESS WALL (y: 1380 to 1450)
+    this.baseWallGraphics = this.add.graphics().setDepth(20);
     this.drawFortressWall(9850, 10000);
 
-    // Central Blast Gate Structure (at x: 540, y: 1510)
-    const blastGate = this.add.graphics().setDepth(6);
-    blastGate.fillStyle(0x161c28, 1);
-    blastGate.fillRoundedRect(540 - 75, 1485, 150, 50, 8);
-    blastGate.lineStyle(2, 0xfee440, 1);
-    blastGate.strokeRoundedRect(540 - 75, 1485, 150, 50, 8);
+    // 7. CENTRAL HEAVY BLAST GATE (x: 540, y: 1380 to 1445)
+    const blastGate = this.add.graphics().setDepth(21);
+    // Heavy steel frame with bevel
+    blastGate.fillStyle(0x0e131d, 1);
+    blastGate.fillRoundedRect(540 - 90, 1385, 180, 58, 8);
+    blastGate.lineStyle(3, 0xfee440, 1);
+    blastGate.strokeRoundedRect(540 - 90, 1385, 180, 58, 8);
 
-    // Hazard caution stripes on gate
-    blastGate.fillStyle(0xfee440, 0.9);
-    for (let gx = 540 - 65; gx <= 540 + 45; gx += 25) {
+    // Yellow / Black hazard caution stripes
+    blastGate.fillStyle(0xfee440, 0.95);
+    for (let gx = 540 - 80; gx <= 540 + 60; gx += 26) {
       blastGate.beginPath();
-      blastGate.moveTo(gx, 1530);
-      blastGate.lineTo(gx + 12, 1490);
-      blastGate.lineTo(gx + 20, 1490);
-      blastGate.lineTo(gx + 8, 1530);
+      blastGate.moveTo(gx, 1438);
+      blastGate.lineTo(gx + 14, 1390);
+      blastGate.lineTo(gx + 22, 1390);
+      blastGate.lineTo(gx + 8, 1438);
       blastGate.fillPath();
     }
 
-    this.add.text(540, 1510, '⚡ CỔNG THÀNH TRÌ ⚡', {
-      fontFamily: 'Arial Black',
-      fontSize: '11px',
+    this.add.text(540, 1414, '⚡ CỔNG THÀNH TRÌ #01 ⚡', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '12px',
+      fontStyle: 'bold',
       color: '#00f5d4',
       backgroundColor: '#0a1128ee',
-      padding: { x: 6, y: 2 },
-    }).setOrigin(0.5).setDepth(7);
+      padding: { x: 8, y: 3 },
+    }).setOrigin(0.5).setDepth(23);
 
-    // Rear Staging Platform (y: 1550 to 1750)
-    const staging = this.add.graphics().setDepth(2);
-    staging.fillStyle(0x111622, 0.96);
-    staging.fillRoundedRect(40, 1550, width - 80, 200, 14);
-    staging.lineStyle(2, 0x00f5d4, 0.5);
-    staging.strokeRoundedRect(40, 1550, width - 80, 200, 14);
+    // 8. LOGISTICS, COMMAND DEPOT & STAGING YARD (y: 1450 to 1750)
+    const staging = this.add.graphics().setDepth(5);
+    // Concrete industrial floor
+    staging.fillStyle(0x131722, 0.98);
+    staging.fillRoundedRect(35, 1450, width - 70, 240, 12);
+    staging.lineStyle(2, 0x334155, 0.8);
+    staging.strokeRoundedRect(35, 1450, width - 70, 240, 12);
 
-    this.add.text(width / 2, 1572, '🛡️ KHU VỰC TẬP KẾT QUÂN ĐỘI & TUYẾN PHÒNG THỦ CHÍNH', {
-      fontFamily: 'Arial Black',
-      fontSize: '14px',
+    // Logistics markings & supply containers
+    staging.lineStyle(1.5, 0x00f5d4, 0.4);
+    staging.strokeRect(60, 1475, 220, 80);
+    staging.strokeRect(width - 280, 1475, 220, 80);
+
+    this.add.text(170, 1515, '📦 KHO TIẾP VẬN ALPHA', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#64748b',
+    }).setOrigin(0.5).setDepth(6);
+
+    this.add.text(width - 170, 1515, '📦 KHO TIẾP VẬN CHARLIE', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#64748b',
+    }).setOrigin(0.5).setDepth(6);
+
+    this.add.text(width / 2, 1550, '🛡️ SỞ CHỈ HUY & TUYẾN DỰ BỊ THÀNH TRÌ', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '13px',
+      fontStyle: 'bold',
       color: '#00f5d4',
-    }).setOrigin(0.5).setDepth(3);
+    }).setOrigin(0.5).setDepth(6);
 
-    // Dark perimeter vignette
-    const vignette = this.add.graphics().setDepth(12);
-    vignette.fillStyle(0x040609, 0.65);
-    vignette.fillRect(0, 0, roadX - 14, height);
-    vignette.fillRect(roadX + roadW + 14, 0, width - (roadX + roadW + 14), height);
+    // Dark perimeter vignette for focus
+    const vignette = this.add.graphics().setDepth(26);
+    vignette.fillStyle(0x040609, 0.7);
+    vignette.fillRect(0, 0, roadX - 16, height);
+    vignette.fillRect(roadX + roadW + 16, 0, width - (roadX + roadW + 16), height);
   }
 
   private drawFortressWall(hp: number, maxHp: number): void {
@@ -278,44 +315,47 @@ export class BattlefieldScene extends Phaser.Scene {
     this.baseWallGraphics.clear();
 
     const ratio = Math.max(0, hp / maxHp);
-    const wallColor = ratio > 0.4 ? 0x272e3d : 0x481822;
+    const wallColor = ratio > 0.4 ? 0x222938 : 0x481822;
     const borderColor = ratio > 0.4 ? 0x00f5d4 : 0xff0055;
 
-    // Fortress wall body
-    this.baseWallGraphics.fillStyle(wallColor, 1);
-    this.baseWallGraphics.fillRoundedRect(50, 1480, width - 100, 60, 10);
-    this.baseWallGraphics.lineStyle(3, borderColor, 0.9);
-    this.baseWallGraphics.strokeRoundedRect(50, 1480, width - 100, 60, 10);
+    // Concrete drop shadow
+    this.baseWallGraphics.fillStyle(0x080b10, 0.85);
+    this.baseWallGraphics.fillRect(40, 1445, width - 80, 15);
 
-    // Embrasures / crenels along the wall
-    this.baseWallGraphics.fillStyle(0x161a24, 1);
-    for (let x = 80; x < width - 80; x += 60) {
-      this.baseWallGraphics.fillRect(x, 1485, 30, 12);
+    // Main wall body (depth 20)
+    this.baseWallGraphics.fillStyle(wallColor, 1);
+    this.baseWallGraphics.fillRoundedRect(40, 1380, width - 80, 65, 8);
+    this.baseWallGraphics.lineStyle(3, borderColor, 0.95);
+    this.baseWallGraphics.strokeRoundedRect(40, 1380, width - 80, 65, 8);
+
+    // Wall top edge parapet highlight
+    this.baseWallGraphics.fillStyle(0x3e4a62, 1);
+    this.baseWallGraphics.fillRect(44, 1382, width - 88, 12);
+
+    // Embrasures / firing ports along wall
+    this.baseWallGraphics.fillStyle(0x0e131d, 1);
+    for (let x = 70; x < width - 70; x += 65) {
+      if (x > 430 && x < 650) continue; // Clear around central blast gate
+      this.baseWallGraphics.fillRect(x, 1398, 28, 14);
     }
   }
 
   private createFortressTurrets(): void {
     const turretPositions = [
-      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1465, level: 1 },
-      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1445, level: 1 },
-      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1465, level: 1 },
+      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1400, level: 1 },
+      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1375, level: 1 },
+      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1400, level: 1 },
     ];
 
     for (const t of turretPositions) {
-      // Circular reinforced concrete pad under each turret
-      const pad = this.add.graphics().setDepth(5);
-      pad.fillStyle(0x2d3545, 1);
-      pad.fillCircle(t.x, t.y, 42);
-      pad.lineStyle(2, 0x00f5d4, 0.8);
-      pad.strokeCircle(t.x, t.y, 42);
-
       const tower = new TowerRenderer(this, t);
       this.towers.set(t.id, tower);
     }
   }
 
   // =========================================================================
-  // REAL-TIME COMBAT SIMULATION & AUTHORITATIVE FIRING
+  // REAL-TIME COMBAT VISUAL SIMULATION (Server Authoritative)
+  // NEVER modifies target HP or triggers client death on its own!
   // =========================================================================
   private simulateVisualCombat(): void {
     if (this.zombies.size === 0) return;
@@ -324,7 +364,7 @@ export class BattlefieldScene extends Phaser.Scene {
     const activeZombies = Array.from(this.zombies.values()).filter((z) => !z.isDead);
     if (activeZombies.length === 0) return;
 
-    // Squad Soldiers fire at closest zombies
+    // 1. Squad Soldiers fire at closest zombies
     const shootersCount = Math.min(3, allSoldiers.length);
     for (let i = 0; i < shootersCount; i++) {
       const soldier = allSoldiers[Phaser.Math.Between(0, allSoldiers.length - 1)];
@@ -333,39 +373,31 @@ export class BattlefieldScene extends Phaser.Scene {
         soldier.aimAt(target.getX(), target.getY());
         const { flashX, flashY } = soldier.fireMuzzleFlash();
 
-        // Projectile flight
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 150);
+        // Projectile tracer flight
+        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 140);
 
-        this.time.delayedCall(150, () => {
+        this.time.delayedCall(140, () => {
           if (!target.isDead) {
             target.triggerHitFlash();
             const dmg = Phaser.Math.Between(25, 45);
             this.damagePool.showDamage(target.getX(), target.getY(), dmg, dmg > 38);
-            target.hp -= dmg;
-            if (target.hp <= 0) {
-              target.triggerDeath();
-            }
           }
         });
       }
     }
 
-    // Turrets fire dual supporting bursts
+    // 2. Turrets fire dual bursts at closest zombies
     for (const turret of this.towers.values()) {
       const target = this.getClosestZombie(turret.getX(), turret.getY());
       if (target) {
         turret.aimAt(target.getX(), target.getY());
         const { flashX, flashY } = turret.fireMuzzleFlash();
 
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 130);
-        this.time.delayedCall(130, () => {
+        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 120);
+        this.time.delayedCall(120, () => {
           if (!target.isDead) {
             target.triggerHitFlash();
             this.damagePool.showDamage(target.getX(), target.getY(), 55, true);
-            target.hp -= 55;
-            if (target.hp <= 0) {
-              target.triggerDeath();
-            }
           }
         });
       }
@@ -387,10 +419,10 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // SNAPSHOT SYNC
+  // SNAPSHOT SYNCHRONIZATION
   // =========================================================================
   private handleSnapshot(snapshot: ExtendedMatchSnapshot): void {
-    // 1. Sync Zombies (100% Real Sprites)
+    // 1. Sync Zombies (100% Real Sprites with authoritative life state)
     const incomingZombieIds = new Set(snapshot.zombies.map((z) => z.id));
     for (const [id, renderer] of this.zombies.entries()) {
       if (!incomingZombieIds.has(id)) {
@@ -404,12 +436,12 @@ export class BattlefieldScene extends Phaser.Scene {
       if (existing) {
         existing.updateSnapshot(z);
       } else {
-        const renderer = new ZombieRenderer(this, z, DEFAULT_SCALE_TIER);
+        const renderer = new ZombieRenderer(this, z, DEFAULT_SCALE_TIER, this.debugEntities);
         this.zombies.set(z.id, renderer);
       }
     }
 
-    // 2. Check Base HP Reaction (Localized only, strictly throttled)
+    // 2. Base HP Reaction (Localized only, strictly throttled)
     const now = this.time.now;
     if (snapshot.baseHp < this.lastBaseHp && now - this.lastBaseHitTime > 3000) {
       this.lastBaseHitTime = now;
@@ -423,54 +455,45 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // LOCALIZED BASE HIT REACTION (P0 Fix: Never covers full screen in red!)
-  public triggerBaseHitReaction(): void {
-    // 1. Micro-shake on camera (120ms, subtle impact feeling)
-    this.cameras.main.shake(120, 0.004);
+  private triggerBaseHitReaction(): void {
+    // Localized spark burst and border flicker along wall at y: 1380
+    const spark = this.add.graphics().setDepth(35);
+    spark.fillStyle(0xff3333, 0.85);
+    spark.fillRoundedRect(50, 1380, 1080 - 100, 65, 8);
+    spark.lineStyle(4, 0xff0055, 1);
+    spark.strokeRoundedRect(50, 1380, 1080 - 100, 65, 8);
 
-    // 2. Localized spark burst along the fortress wall
-    const sparkX = 540 + Phaser.Math.Between(-150, 150);
-    const spark = this.add.image(sparkX, 1490, 'hit_explosion').setScale(1.2).setDepth(25);
-    this.time.delayedCall(100, () => spark.destroy());
-
-    // 3. Localized warning flash ON THE WALL ONLY (y: 1480, height: 60)
-    const wallFlash = this.add.graphics().setDepth(20);
-    wallFlash.fillStyle(0xff2200, 0.4);
-    wallFlash.fillRoundedRect(50, 1480, 1080 - 100, 60, 10);
+    this.cameras.main.shake(150, 0.005);
 
     this.tweens.add({
-      targets: wallFlash,
+      targets: spark,
       alpha: 0,
-      duration: 200,
-      onComplete: () => wallFlash.destroy(),
+      duration: 220,
+      ease: 'Cubic.easeOut',
+      onComplete: () => spark.destroy(),
     });
   }
 
-  // =========================================================================
-  // GIFT SKILL VISUAL EFFECT (Airstrike / Orbital Laser)
-  // =========================================================================
-  public triggerGiftSkillVFX(skillName: string = 'Tên Lửa Tổng Lực'): void {
-    this.hud.showGiftAlert(skillName, 'Viewer VIP');
+  // GIFT SKILL ORBITAL STRIKE VFX
+  private triggerGiftSkillVFX(skillName: string = 'Tên Lửa Tổng Lực'): void {
+    this.hud.showGiftAlert(skillName, 'VIP_Gamer99');
 
-    // Orbital beam strike down the center lane (clear boundary, auto-cleanup)
     const laser = this.add.graphics().setDepth(45);
-    laser.fillStyle(0x00f5d4, 0.7);
-    laser.fillRect(540 - 20, 200, 40, 1080);
-    laser.lineStyle(3, 0xffffff, 1);
-    laser.strokeRect(540 - 20, 200, 40, 1080);
+    laser.fillStyle(0x00f5d4, 0.85);
+    laser.fillRect(540 - 20, 220, 40, 1160);
+    laser.fillStyle(0xffffff, 1);
+    laser.fillRect(540 - 8, 220, 16, 1160);
 
-    // Screen shockwave
-    this.cameras.main.shake(250, 0.008);
+    this.cameras.main.shake(300, 0.012);
 
     this.tweens.add({
       targets: laser,
       alpha: 0,
-      scaleX: 2.0,
       duration: 500,
-      ease: 'Cubic.Out',
+      ease: 'Quad.easeOut',
       onComplete: () => laser.destroy(),
     });
 
-    // Explosions along the lane
     for (let y = 350; y <= 1100; y += 180) {
       this.time.delayedCall(Phaser.Math.Between(40, 200), () => {
         const boom = this.add.image(540 + Phaser.Math.Between(-50, 50), y, 'hit_explosion').setScale(1.8).setDepth(48);
@@ -480,7 +503,7 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // WINDOW AUTOMATION & BENCHMARK API
+  // WINDOW AUTOMATION & QA BENCHMARK API
   // =========================================================================
   private setupWindowBattlefieldAPI(): void {
     (window as any).battlefield = {
@@ -493,12 +516,12 @@ export class BattlefieldScene extends Phaser.Scene {
             type: 'walker',
             name: `Zombie #${i + 1}`,
             x: lanesX[lane] + Phaser.Math.Between(-35, 35),
-            y: 360 + i * 65,
+            y: 340 + i * 65,
             hp: 100,
             maxHp: 100,
             lane: lane + 1,
           };
-          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER);
+          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
           this.zombies.set(zSnapshot.id, z);
         }
       },
@@ -512,14 +535,53 @@ export class BattlefieldScene extends Phaser.Scene {
             type: 'walker',
             name: `Swarm #${i + 1}`,
             x: lanesX[lane] + Phaser.Math.Between(-45, 45),
-            y: 320 + i * 45,
+            y: 300 + i * 45,
             hp: 100,
             maxHp: 100,
             lane: lane + 1,
           };
-          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER);
+          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
           this.zombies.set(zSnapshot.id, z);
         }
+      },
+
+      setFormationMode: (mode: FormationMode) => {
+        this.currentFormationMode = mode;
+        this.squadVisualizer.setFormationMode(mode);
+        return this.squadVisualizer.generateOverlapReport();
+      },
+
+      getSquadOverlapReport: () => {
+        return this.squadVisualizer.generateOverlapReport();
+      },
+
+      getEntitiesDiagnostic: () => {
+        const liveWalkerZombies = Array.from(this.zombies.values()).map((z) => z.getDiagnosticInfo());
+        const liveSoldiers = this.squadVisualizer.getAllSoldiers().map((s) => s.getVisualBounds());
+        return {
+          totalZombiesInMap: this.zombies.size,
+          liveZombiesCount: liveWalkerZombies.filter((z) => !z.isDead).length,
+          deadZombiesCount: liveWalkerZombies.filter((z) => z.isDead).length,
+          liveWalkerZombies,
+          soldiersRenderedCount: liveSoldiers.length,
+          soldiers: liveSoldiers,
+          overlapReport: this.squadVisualizer.generateOverlapReport(),
+        };
+      },
+
+      triggerZombieDeath: (zombieId?: string) => {
+        let target: ZombieRenderer | undefined;
+        if (zombieId) {
+          target = this.zombies.get(zombieId);
+        } else {
+          target = Array.from(this.zombies.values()).find((z) => !z.isDead);
+        }
+        if (target) {
+          target.isPermadeath = true;
+          target.triggerDeath();
+          return { killedId: target.id, success: true };
+        }
+        return { success: false, message: 'No live zombie found' };
       },
 
       triggerViewerJoin: (viewerName: string = 'HungGamer', squadId: 'alpha' | 'bravo' | 'charlie' = 'bravo') => {
@@ -548,7 +610,7 @@ export class BattlefieldScene extends Phaser.Scene {
         actualFps: Math.round(this.game.loop.actualFps),
         p95FrameTime: this.calculateP95FrameTime(),
         soldierCount: this.squadVisualizer.getAllSoldiers().length,
-        zombieCount: this.zombies.size,
+        zombieCount: Array.from(this.zombies.values()).filter((z) => !z.isDead).length,
       }),
     };
   }

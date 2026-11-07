@@ -24,15 +24,17 @@ export class BootScene extends Phaser.Scene {
 
     // Header HUD
     this.add.text(width / 2, 80, 'ZOMBIE ĐẠI CHIẾN', {
-      fontFamily: 'Arial Black',
+      fontFamily: "'Montserrat', 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif",
       fontSize: '48px',
+      fontStyle: 'bold',
       color: '#00f5d4',
       align: 'center',
     }).setOrigin(0.5);
 
     this.add.text(width / 2, 140, 'THÀNH TRÌ CUỐI CÙNG — PHASE 01', {
-      fontFamily: 'Arial',
+      fontFamily: "'Be Vietnam Pro', 'Montserrat', Arial, sans-serif",
       fontSize: '26px',
+      fontStyle: 'bold',
       color: '#ffffff',
       align: 'center',
     }).setOrigin(0.5);
@@ -45,14 +47,15 @@ export class BootScene extends Phaser.Scene {
     baseGraphics.strokeRoundedRect(40, height - 320, width - 80, 260, 20);
 
     this.add.text(width / 2, height - 250, '🛡️ CĂN CỨ PHÒNG THỦ (BASE: 10,000 HP)', {
-      fontFamily: 'Arial Black',
+      fontFamily: "'Montserrat', 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif",
       fontSize: '32px',
+      fontStyle: 'bold',
       color: '#00bbf9',
       align: 'center',
     }).setOrigin(0.5);
 
     this.add.text(width / 2, height - 190, 'Lệnh chuẩn bị: JOIN | BẮN | SỬA | CỨU', {
-      fontFamily: 'Arial',
+      fontFamily: "'Be Vietnam Pro', Arial, sans-serif",
       fontSize: '24px',
       color: '#f8f9fa',
       align: 'center',
@@ -64,8 +67,9 @@ export class BootScene extends Phaser.Scene {
     badge.fillRoundedRect(width / 2 - 180, 220, 360, 50, 12);
 
     this.add.text(width / 2, 245, 'MOCK MODE • SERVER 20 HZ', {
-      fontFamily: 'Arial Black',
+      fontFamily: "'Montserrat', 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif",
       fontSize: '20px',
+      fontStyle: 'bold',
       color: '#ffffff',
       align: 'center',
     }).setOrigin(0.5);

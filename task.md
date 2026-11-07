@@ -72,6 +72,53 @@
   - [x] `docs/visual/BATTLEFIELD_PERFORMANCE_02_3_1.md`
   - [x] Git commit trên branch `feat/phase02-visual-refinement`
 
+## Giai đoạn 02.3.2: Character Visibility, Formation & Battlefield Recovery (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **1. Khắc Phục Triệt Để Zombie Rendering (P0.1):**
+  - [x] Truy vết nguyên nhân gốc rễ: Client `simulateVisualCombat()` đã tự ý trừ máu và gọi `triggerDeath()`, biến zombie thành decal máu đỏ (`0x660000`) sau 1–2s.
+  - [x] Loại bỏ hoàn toàn client damage / client death; việc sống/chết của Zombie 100% do Server/Snapshot quy định.
+  - [x] Nâng depth container của Zombie lên Layer 12 (cao hơn mặt đường depth 2 và decal máu depth 6).
+  - [x] Bổ sung chế độ `?debugEntities=1` vẽ bounding box xanh lá cây và xuất diagnostic API.
+  - [x] Xác nhận: 10/10 zombie sống hiển thị sprite Walker đầy đủ hoạt ảnh bước đi trên đường cao tốc.
+- [x] **2. Loại Bỏ Triệt Để Squad Overlap Bằng Visual Bounds Thực Tế (P0.2):**
+  - [x] Đo đạc chính xác Visual Bounding Box (AABB) của Soldier sau khi xoay -90° (ngang 80px, dọc 114px).
+  - [x] Thiết kế 3 phương án đội hình: A (3 lính/lane Deep-V), B (2 lính/lane Tactical Pair - Khuyên dùng), C (1 lính đại diện/lane).
+  - [x] Xuất báo cáo toán học `squad_overlap_report.json`: Xác nhận **Phương án B đạt Zero Overlap tuyệt đối (0 cặp giao nhau, khoảng cách thoáng >50px)**.
+- [x] **3. Tái Thiết Kế Kiến Trúc Thành Trì & Bố Cục Chiến Trường (P0.3):**
+  - [x] Nén bớt vùng đường cao tốc trống trải, tập trung toàn bộ giao tranh vào trung tâm màn hình (y: 420–1250).
+  - [x] Xây dựng tuyến rào chắn quân sự đa tầng: rào cản sọc cam trắng, bao cát dã chiến, hòm đạn.
+  - [x] Tường thành bê tông cốt thép dày 65px có gờ highlight trên, bóng đổ chân tường và lỗ châu mai.
+  - [x] Cổng thép Blast Gate cơ giới có sọc vàng-đen cảnh báo nguy hiểm.
+  - [x] 3 bệ súng Sentry Turret gắn đinh tán thép, nòng súng kép giật nòng uy lực.
+  - [x] Khu hậu cần tiếp vận và sở chỉ huy dự bị phía sau tường thành tạo chiều sâu không gian.
+- [x] **4. Thống Kê Quân Số & HUD Minh Bạch:**
+  - [x] Phân biệt rõ ràng: `Lực Lượng Chi Viện: 40 Người (3 Đội) | Trực Chiến: 6 Lính | Kẻ Địch: 10 Zombie`.
+  - [x] Badge từng squad ghi rõ: `ALPHA: 12 CHI VIỆN (2 TRỰC CHIẾN)`.
+- [x] **5. Tối Ưu Lớp Phủ TikTok Safe Zone:**
+  - [x] Di dời Top HUD Header xuống y: 125 (hoàn toàn không bị Profile Pill hay Viewers Badge che).
+  - [x] Khung bình luận TikTok chuyển xuống y: 1580 (nằm ở khu hậu cần/mép dưới, không che tường thành, lính hay vùng giao tranh).
+- [x] **6. Khắc Phục Triệt Để Lỗi Font Chữ Tiếng Việt (Typography):**
+  - [x] Tích hợp Google Fonts quốc tế: `Montserrat` (700/800/900) và `Be Vietnam Pro` (700/800).
+  - [x] Preload font và await `document.fonts.ready` trước khi Phaser canvas khởi chạy.
+  - [x] Cấu hình tập trung `GAME_FONTS` trong `FontConfig.ts` thay thế toàn bộ `Arial Black`.
+- [x] **7. Đo Kiểm Hiệu Năng Đầy Đủ 60 Giây / Tier (Task 6):**
+  - [x] Tier 1 (10 Entities): 60.5s | 3602 Frames | 59.5 FPS | p95: 16.7ms | >33ms: 0 | Heap: 23.4MB -> 23.4MB.
+  - [x] Tier 2 (30 Entities): 60.1s | 3601 Frames | 59.9 FPS | p95: 16.8ms | >33ms: 0 | Heap: 20.7MB -> 20.7MB.
+  - [x] Tier 3 (50 Entities): 60.1s | 3602 Frames | 59.9 FPS | p95: 16.8ms | >33ms: 0 | Heap: 23.4MB -> 23.4MB.
+  - [x] Chạy liên tục >180 giây không rò rỉ bộ nhớ, 0 lỗi WebGL.
+- [x] **8. Xuất Đầy Đủ 11 Sản Phẩm Nghiệm Thu:**
+  - [x] `zombie_alive_10_entities.png`
+  - [x] `zombie_death_transition.png`
+  - [x] `squad_formation_A_B_C.png`
+  - [x] `squad_overlap_report.json`
+  - [x] `fortress_redesign_1080x1920.png`
+  - [x] `fortress_redesign_360x640.png`
+  - [x] `tiktok_safezone_before_after.png`
+  - [x] `battlefield_full_combat.png`
+  - [x] `battlefield_fixed_02_3_2.webm` (48s, 22.4MB)
+  - [x] `docs/visual/BATTLEFIELD_QA_02_3_2.md`
+  - [x] `docs/visual/BATTLEFIELD_PERFORMANCE_02_3_2.md`
+  - [x] Cập nhật trang xem video trực tiếp `player.html` trong Artifacts.
+
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions

@@ -57,9 +57,10 @@ export class CharacterRenderer {
     // Health Bar & Nameplate
     this.hpBarBg = scene.add.graphics();
     this.hpBarFill = scene.add.graphics();
-    this.nameText = scene.add.text(0, -65, name || (type === 'walker' ? 'Walker' : 'Survivor'), {
-      fontFamily: 'Arial Black',
+    this.nameText = scene.add.text(0, -65, name || (type === 'survivor' ? 'Survivor' : 'Walker'), {
+      fontFamily: "'Montserrat', 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif",
       fontSize: '15px',
+      fontStyle: 'bold',
       color: type === 'survivor' ? '#00f5d4' : '#ff5400',
       stroke: '#000000',
       strokeThickness: 3,

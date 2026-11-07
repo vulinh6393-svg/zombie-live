@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ZombieSnapshot } from '../types.js';
 import { DEFAULT_SCALE_TIER, ScaleTier } from '../config/SpriteScaleConfig.js';
+import { GAME_FONTS } from '../config/FontConfig.js';
 
 export type ZombieVisualState = 'idle' | 'walk' | 'attack' | 'death';
 
@@ -14,6 +15,7 @@ export class ZombieRenderer {
   private hpBarBg: Phaser.GameObjects.Graphics;
   private hpBarFill: Phaser.GameObjects.Graphics;
   private nameText: Phaser.GameObjects.Text;
+  private debugBox?: Phaser.GameObjects.Graphics;
 
   private targetX: number;
   private targetY: number;
@@ -22,8 +24,9 @@ export class ZombieRenderer {
   public isDead: boolean = false;
   private scaleTier: ScaleTier = DEFAULT_SCALE_TIER;
   private currentState: ZombieVisualState = 'idle';
+  private debugEntities: boolean = false;
 
-  constructor(scene: Phaser.Scene, snapshot: ZombieSnapshot, scaleTier: ScaleTier = DEFAULT_SCALE_TIER) {
+  constructor(scene: Phaser.Scene, snapshot: ZombieSnapshot, scaleTier: ScaleTier = DEFAULT_SCALE_TIER, debugEntities: boolean = false) {
     this.scene = scene;
     this.id = snapshot.id;
     this.type = snapshot.type;
@@ -32,19 +35,22 @@ export class ZombieRenderer {
     this.hp = snapshot.hp;
     this.maxHp = snapshot.maxHp;
     this.scaleTier = scaleTier;
+    this.debugEntities = debugEntities;
 
-    this.container = scene.add.container(snapshot.x, snapshot.y);
+    // Layer 12: Well above road graphics (depth 1-5) and blood decals (depth 6)
+    this.container = scene.add.container(snapshot.x, snapshot.y).setDepth(12);
 
     // 1. Zombie Walker Real Sprite (Riley Gombart CC0)
     this.sprite = scene.add.sprite(0, 0, 'zombie_idle_0');
     this.sprite.setOrigin(0.5, 0.5);
 
-    // 2. HP Bar and Nameplate
+    // 2. HP Bar and Nameplate with Vietnamese typography support
     this.hpBarBg = scene.add.graphics();
     this.hpBarFill = scene.add.graphics();
     this.nameText = scene.add.text(0, -65, snapshot.name || 'Zombie Walker', {
-      fontFamily: 'Arial Black',
+      fontFamily: GAME_FONTS.TACTICAL,
       fontSize: '13px',
+      fontStyle: 'bold',
       color: '#ff5400',
       stroke: '#000000',
       strokeThickness: 3,
@@ -52,7 +58,12 @@ export class ZombieRenderer {
 
     this.container.add([this.sprite, this.hpBarBg, this.hpBarFill, this.nameText]);
 
-    // Apply scale & rotation (facing down toward base)
+    if (this.debugEntities) {
+      this.debugBox = scene.add.graphics();
+      this.container.add(this.debugBox);
+    }
+
+    // Apply scale & rotation (facing downward toward fortress)
     this.applyScale(this.scaleTier);
     this.setRotation(Math.PI / 2);
     this.drawHpBar();
@@ -74,15 +85,16 @@ export class ZombieRenderer {
     this.scaleTier = tier;
     let mult = tier.walkerScale;
 
-    // Subtle scale modifier for different types (in Mock/Production)
-    if (this.type === 'tank') mult *= 1.3;
+    // Scale modifier for special types
+    if (this.type === 'tank') mult *= 1.35;
     else if (this.type === 'runner') mult *= 0.85;
-    else if (this.type === 'boss') mult *= 1.6;
+    else if (this.type === 'boss') mult *= 1.7;
 
     this.sprite.setScale(mult);
     const yOffset = -mult * 105;
     this.nameText.setY(yOffset - 16);
     this.drawHpBar();
+    this.drawDebugBox();
   }
 
   public setRotation(angleRad: number): void {
@@ -123,7 +135,9 @@ export class ZombieRenderer {
       duration: 50,
       yoyo: true,
       onComplete: () => {
-        this.sprite.clearTint();
+        if (!this.isDead) {
+          this.sprite.clearTint();
+        }
       },
     });
   }
@@ -138,17 +152,22 @@ export class ZombieRenderer {
     this.sprite.stop();
     this.sprite.setTexture('zombie_corpse_0');
     this.sprite.setAlpha(0.9);
+    this.sprite.clearTint();
     this.nameText.setVisible(false);
     this.hpBarBg.setVisible(false);
     this.hpBarFill.setVisible(false);
+    if (this.debugBox) this.debugBox.clear();
 
-    // 2. Spawn permanent blood pool decal on asphalt
+    // Lower depth for corpse
+    this.container.setDepth(7);
+
+    // 2. Spawn permanent blood pool decal on asphalt (layer 6, below live entities)
     const blood = this.scene.add.graphics();
     blood.fillStyle(0x660000, 0.75);
     blood.fillEllipse(this.container.x, this.container.y, 45, 30);
     blood.fillStyle(0x3d0000, 0.9);
     blood.fillCircle(this.container.x + 6, this.container.y + 4, 18);
-    blood.setDepth(1);
+    blood.setDepth(6);
 
     // 3. Fade out corpse after 8 seconds
     this.scene.tweens.add({
@@ -163,8 +182,25 @@ export class ZombieRenderer {
     });
   }
 
+  public isPermadeath: boolean = false;
+
   public updateSnapshot(snapshot: ZombieSnapshot): void {
+    if (this.isPermadeath) return;
+
+    // If was marked dead but snapshot says it has HP > 0 (re-used ID in mock), resurrect cleanly
+    if (this.isDead && snapshot.hp > 0) {
+      this.isDead = false;
+      this.container.setAlpha(1);
+      this.container.setDepth(12);
+      this.sprite.setAlpha(1);
+      this.nameText.setVisible(true);
+      this.hpBarBg.setVisible(true);
+      this.hpBarFill.setVisible(true);
+      this.playState('walk');
+    }
+
     if (this.isDead) return;
+
     this.targetX = snapshot.x;
     this.targetY = snapshot.y;
 
@@ -175,6 +211,7 @@ export class ZombieRenderer {
     this.hp = snapshot.hp;
     this.maxHp = snapshot.maxHp;
     this.drawHpBar();
+    this.drawDebugBox();
 
     if (this.hp <= 0) {
       this.triggerDeath();
@@ -203,6 +240,46 @@ export class ZombieRenderer {
     return this.container.y;
   }
 
+  public getVisualBounds(): { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number } {
+    const mult = this.scaleTier.walkerScale;
+    const halfW = (130 * mult) / 2;
+    const halfH = (196 * mult) / 2;
+    return {
+      minX: this.container.x - halfW,
+      maxX: this.container.x + halfW,
+      minY: this.container.y - halfH,
+      maxY: this.container.y + halfH,
+      width: halfW * 2,
+      height: halfH * 2,
+    };
+  }
+
+  public getDiagnosticInfo(): {
+    id: string;
+    type: string;
+    hp: number;
+    maxHp: number;
+    isDead: boolean;
+    x: number;
+    y: number;
+    visible: boolean;
+    alpha: number;
+    texture: string;
+  } {
+    return {
+      id: this.id,
+      type: this.type,
+      hp: this.hp,
+      maxHp: this.maxHp,
+      isDead: this.isDead,
+      x: Math.round(this.container.x),
+      y: Math.round(this.container.y),
+      visible: this.container.visible,
+      alpha: this.container.alpha,
+      texture: this.sprite.texture.key,
+    };
+  }
+
   private drawHpBar(): void {
     this.hpBarBg.clear();
     this.hpBarFill.clear();
@@ -221,5 +298,15 @@ export class ZombieRenderer {
     const color = ratio > 0.4 ? 0xff5400 : 0xcc0000;
     this.hpBarFill.fillStyle(color, 1);
     this.hpBarFill.fillRect(barX, barY, barW * ratio, barH);
+  }
+
+  private drawDebugBox(): void {
+    if (!this.debugBox || this.isDead) return;
+    this.debugBox.clear();
+    const mult = this.scaleTier.walkerScale;
+    const w = 130 * mult;
+    const h = 196 * mult;
+    this.debugBox.lineStyle(2, 0x00ff00, 0.9);
+    this.debugBox.strokeRect(-w / 2, -h / 2, w, h);
   }
 }
