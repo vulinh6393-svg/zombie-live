@@ -180,41 +180,30 @@
 - [x] **6. Chuẩn Hóa Logic Đồng Hồ (Timer) & LIVE UI Sạch (Task 6)**
 - [x] **7. Kiểm Thử Tự Động, Đo Hiệu Năng 60s & Xuất Toàn Bộ Sản Phẩm Nghiệm Thu (Task 7)**
 
-## ART APPROVAL GATE: Fortress Bastion Concept Art & Asset Reconciliation (ĐANG THỰC HIỆN)
+## ART APPROVAL GATE: Fortress Bastion Concept Art & Feasibility Analysis (ĐANG ĐỐI CHIẾU & CHỜ DUYỆT)
 > [!IMPORTANT]
 > **Quy định nghiêm ngặt từ User**:
-> - KHÔNG sửa mã nguồn gameplay hay `BattlefieldScene.ts` tại giai đoạn này.
-> - KHÔNG tự ý chuyển sang Phase 03.
-> - Chọn Layout B: Fortified Bastion làm Art Direction chính.
-> - Tạo Concept Art chất lượng cao (Semi-realistic illustrated top-down survival, đồng bộ mỹ thuật với sprite Riley Gombart).
-> - Trình bày Concept Art và tài liệu đối chiếu cho User duyệt trước khi slice sprite hoặc code tích hợp.
+> - Đóng gói 4 file concept PNG vào `zombie_art_approval_concepts.zip`.
+> - Xuất bản tài liệu `docs/visual/ART_TO_SPRITE_FEASIBILITY.md` đánh giá tính khả thi kỹ thuật chi tiết.
+> - KHÔNG crop trực tiếp vật thể từ ảnh concept phẳng khi chưa có alpha sạch.
+> - KHÔNG sửa `BattlefieldScene.ts`, KHÔNG slice sprite và KHÔNG chuyển Phase 03.
+> - Dừng lại để Người dùng trực tiếp đánh giá và nghiệm thu mỹ thuật.
 
-- [ ] **1. Asset Audit & Discrepancy Reconciliation:**
-  - [ ] Đối chiếu `ART_ASSET_AUDIT.md`, `ASSET_LICENSE_MANIFEST.md`, `generate-fortress-assets.ts`, `FortressRenderer.ts`, và thư mục asset.
-  - [ ] Giải trình rõ ràng sự chênh lệch 14 vs 12 PNG (12 Fortress environment assets + 2 VFX assets: missile & reticle).
-  - [ ] Phân loại minh bạch 100% asset: Script-generated procedural PNG vs External CC0/CC-BY illustrated asset vs Artist/Concept vs Placeholder.
-- [ ] **2. Sản xuất Concept Art High-Fidelity — Layout B: Fortified Bastion:**
-  - [ ] Phong cách: Semi-realistic top-down military zombie survival, đồng bộ phong cách, góc nhìn và ánh sáng với Walker/Survivor của Riley Gombart.
-  - [ ] Cấu trúc thành trì Layout B:
-    - Sân tiền đồn / quảng trường căn cứ dã chiến (nền bê tông/đá phiến quân sự).
-    - Cổng thép hạng nặng (Heavy Blast Gate) dập gân kim loại, sọc cảnh báo vàng đen, pít-tông thủy lực.
-    - Tường thành bê tông cốt thép khối dày, có lỗ châu mai và bóng đổ thực tế.
-    - 2 tháp canh (Watchtowers / Corner Bastions) ở hai góc tiền tiêu.
-    - 3 bệ ụ súng phòng thủ (Alpha, Bravo, Charlie) nâng cao.
-    - Chướng ngại vật: bao cát, rào cản dây thép gai, răng rồng dã chiến (dragon's teeth).
-    - Khu hậu cần (kho đạn dược, nhiên liệu) và boong-ke chỉ huy kiên cố phía sau.
-- [ ] **3. Xuất 2 Bức Ảnh Concept Nghệ Thuật Chính (+ Bản Xem Trước Mobile 360×640):**
-  - [ ] **Image 1 — Fortress Bastion Concept Art (1080×1920 & 360×640)**: Thành trì đứng độc lập, không zombie, không lính, không HUD.
-  - [ ] **Image 2 — Full Combat Bastion Concept Art (1080×1920 & 360×640)**:
-    - 8–10 Zombie Walker tiến công qua 3 cửa phễu.
-    - 3 Soldier đại diện phòng thủ bắn trả.
-    - 3 Ụ pháo khai hỏa giật nòng kèm tia lửa muzzle flash và đường đạn tracer.
-    - Zombie nhận sát thương kèm vết máu và hiệu ứng nổ.
-    - Gift Skill Airstrike / Cruise Missile bùng nổ hoành tráng (reticle, tên lửa, vụ nổ shockwave).
-    - UI HUD tối giản, sắc nét, đúng chuẩn hiển thị TikTok LIVE sạch sẽ.
-- [ ] **4. Cập nhật Artifact Viewer & Báo Cáo Trình Duyệt:**
-  - [ ] Cập nhật `player.html` hoặc artifact gallery để user dễ dàng quan sát trên desktop & mobile preview.
-  - [ ] Báo cáo đầy đủ, kèm link `file:///` và dừng lại chờ User duyệt mỹ thuật trước khi chuyển bước.
+- [x] **1. Cung cấp 4 File PNG Gốc & Đóng Gói ZIP Nghiệm Thu:**
+  - [x] `fortress_concept_bastion_1080x1920.png`
+  - [x] `fortress_concept_bastion_360x640.png`
+  - [x] `combat_concept_bastion_1080x1920.png`
+  - [x] `combat_concept_bastion_360x640.png`
+  - [x] Đóng gói thành `zombie_art_approval_concepts.zip` (9.88MB) tại root và artifact dir.
+- [x] **2. Bổ Sung Tài Liệu Kỹ Thuật ART_TO_SPRITE_FEASIBILITY.md:**
+  - [x] Phân tích đối tượng có thể tách rời vs đối tượng dính nền, bóng đổ, ánh sáng.
+  - [x] Khẳng định hiện trạng Source Layer (Single-layer flattened raster, không có PSD đa lớp; khẳng định cấm crop trực tiếp).
+  - [x] Danh mục thành phần bắt buộc phải vẽ lại độc lập có kênh alpha sạch (12 sprite kiến trúc).
+  - [x] Danh mục animation & trạng thái hư hại (damage states) cần bổ sung.
+  - [x] Bảng kích thước (Dimensions) & Điểm neo (Origins) dự kiến trong Phaser.
+  - [x] Nguồn gốc và bản quyền thực tế của từng asset.
+- [x] **3. Cập nhật Artifact Viewer `player.html` với Link Tải Trực Tiếp File ZIP.**
+- [x] **4. Dừng lại chờ User nghiệm thu mỹ thuật (Không sửa code, không slice sprite, không chuyển Phase 03).**
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
