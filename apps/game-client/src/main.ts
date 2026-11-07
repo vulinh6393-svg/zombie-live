@@ -50,7 +50,10 @@ if (typeof window !== 'undefined') {
 
     if (isQualityLab) {
       gameInstance.scene.start('QualityLabScene');
-      createQualityLabControlPanel();
+      const showControls = urlParams.get('debug') === '1' || window.location.pathname.startsWith('/quality-lab/controls');
+      if (showControls) {
+        createQualityLabControlPanel();
+      }
     } else if (isContactSheet) {
       gameInstance.scene.start('ContactSheetScene');
     } else {
@@ -70,7 +73,7 @@ function createQualityLabControlPanel(): void {
   const panel = document.createElement('div');
   panel.id = 'quality-lab-controls';
   panel.style.position = 'fixed';
-  panel.style.bottom = '12px';
+  panel.style.top = '12px';
   panel.style.left = '50%';
   panel.style.transform = 'translateX(-50%)';
   panel.style.backgroundColor = 'rgba(10, 17, 40, 0.95)';
@@ -94,16 +97,18 @@ function createQualityLabControlPanel(): void {
   panel.appendChild(title);
 
   const actions: Array<{ label: string; color: string; fn: () => void }> = [
-    { label: 'Spawn Walker', color: '#00bbf9', fn: () => (window as any).qualityLab?.spawnWalker() },
-    { label: 'Walk', color: '#00bbf9', fn: () => (window as any).qualityLab?.walk() },
-    { label: 'Attack', color: '#f72585', fn: () => (window as any).qualityLab?.attack() },
-    { label: '💥 Shoot (Combat)', color: '#ff0055', fn: () => (window as any).qualityLab?.shoot() },
-    { label: 'Hit', color: '#fee440', fn: () => (window as any).qualityLab?.hit() },
-    { label: '☠️ Death', color: '#adb5bd', fn: () => (window as any).qualityLab?.death() },
+    { label: '▶️ Auto Loop', color: '#00f5d4', fn: () => (window as any).qualityLab?.resumeAutoLoop() },
+    { label: '⏸️ Pause', color: '#fee440', fn: () => (window as any).qualityLab?.pauseAutoLoop() },
+    { label: '💥 Shoot Burst', color: '#ff0055', fn: () => (window as any).qualityLab?.shoot() },
+    { label: 'Hit Flash', color: '#fee440', fn: () => (window as any).qualityLab?.hit() },
+    { label: '☠️ Death & Decal', color: '#adb5bd', fn: () => (window as any).qualityLab?.death() },
     { label: '🔄 Reset', color: '#7209b7', fn: () => (window as any).qualityLab?.reset() },
-    { label: 'Scale A (32px)', color: '#4cc9f0', fn: () => (window as any).qualityLab?.setScale('A') },
-    { label: 'Scale B (40px)', color: '#00f5d4', fn: () => (window as any).qualityLab?.setScale('B') },
-    { label: 'Scale C (48px)', color: '#f72585', fn: () => (window as any).qualityLab?.setScale('C') },
+    { label: 'Scale 36px', color: '#4cc9f0', fn: () => (window as any).qualityLab?.setScale('36px') },
+    { label: 'Scale 44px (Std)', color: '#00f5d4', fn: () => (window as any).qualityLab?.setScale('44px') },
+    { label: 'Scale 52px (Lg)', color: '#f72585', fn: () => (window as any).qualityLab?.setScale('52px') },
+    { label: 'Swarm: 1', color: '#00bbf9', fn: () => (window as any).qualityLab?.setBenchmarkEntities(1) },
+    { label: 'Swarm: 20', color: '#00bbf9', fn: () => (window as any).qualityLab?.setBenchmarkEntities(20) },
+    { label: 'Swarm: 50', color: '#f72585', fn: () => (window as any).qualityLab?.setBenchmarkEntities(50) },
   ];
 
   for (const act of actions) {

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ScalePreset, DEFAULT_SCALE_PRESET } from '../config/SpriteScaleConfig.js';
+import { ScaleTier, DEFAULT_SCALE_TIER } from '../config/SpriteScaleConfig.js';
 
 export type CharacterType = 'walker' | 'survivor';
 export type WalkerState = 'idle' | 'walk' | 'attack' | 'hit' | 'death';
@@ -19,7 +19,7 @@ export class CharacterRenderer {
 
   // State
   private currentState: WalkerState | SurvivorState = 'idle';
-  private scalePreset: ScalePreset = DEFAULT_SCALE_PRESET;
+  private scaleTier: ScaleTier = DEFAULT_SCALE_TIER;
   public hp: number = 100;
   public maxHp: number = 100;
   public isDead: boolean = false;
@@ -30,11 +30,11 @@ export class CharacterRenderer {
     y: number,
     type: CharacterType,
     name: string = '',
-    scalePreset: ScalePreset = DEFAULT_SCALE_PRESET
+    scaleTier: ScaleTier = DEFAULT_SCALE_TIER
   ) {
     this.scene = scene;
     this.type = type;
-    this.scalePreset = scalePreset;
+    this.scaleTier = scaleTier;
     this.container = scene.add.container(x, y);
 
     if (type === 'survivor') {
@@ -57,29 +57,34 @@ export class CharacterRenderer {
     // Health Bar & Nameplate
     this.hpBarBg = scene.add.graphics();
     this.hpBarFill = scene.add.graphics();
-    this.nameText = scene.add.text(0, -55, name || (type === 'walker' ? 'Walker' : 'Survivor'), {
-      fontFamily: 'Arial',
-      fontSize: '14px',
+    this.nameText = scene.add.text(0, -65, name || (type === 'walker' ? 'Walker' : 'Survivor'), {
+      fontFamily: 'Arial Black',
+      fontSize: '15px',
       color: type === 'survivor' ? '#00f5d4' : '#ff5400',
       stroke: '#000000',
       strokeThickness: 3,
     }).setOrigin(0.5);
 
     this.container.add([this.hpBarBg, this.hpBarFill, this.nameText]);
-    this.applyScale(this.scalePreset);
+    this.applyScale(this.scaleTier);
     this.updateHpBar();
 
     // Start with idle animation
     this.playState('idle');
   }
 
-  public applyScale(preset: ScalePreset): void {
-    this.scalePreset = preset;
-    const mult = preset.scaleMultiplier;
+  public applyScale(tier: ScaleTier): void {
+    this.scaleTier = tier;
+    const mult = this.type === 'walker' ? tier.walkerScale : tier.soldierScale;
     this.mainSprite.setScale(mult);
     if (this.feetSprite) {
-      this.feetSprite.setScale(mult * 1.05);
+      this.feetSprite.setScale(mult * 0.95);
     }
+
+    // Position HP bar & nameplate nicely above character head
+    const yOffset = this.type === 'walker' ? -mult * 105 : -mult * 90;
+    this.nameText.setY(yOffset - 18);
+    this.updateHpBar();
   }
 
   public setRotation(angleRad: number): void {
@@ -88,6 +93,10 @@ export class CharacterRenderer {
     if (this.feetSprite) {
       this.feetSprite.setRotation(angleRad);
     }
+  }
+
+  public getRotation(): number {
+    return this.mainSprite.rotation;
   }
 
   public playState(state: WalkerState | SurvivorState): void {
@@ -151,7 +160,7 @@ export class CharacterRenderer {
     this.mainSprite.setTint(0xff3333);
     this.scene.tweens.add({
       targets: this.mainSprite,
-      x: '+=6',
+      x: '+=8',
       duration: 60,
       yoyo: true,
       onComplete: () => {
@@ -177,16 +186,16 @@ export class CharacterRenderer {
     // 2. Add ground blood puddle under corpse
     const bloodDecal = this.scene.add.graphics();
     bloodDecal.fillStyle(0x7f0000, 0.7);
-    bloodDecal.fillCircle(this.container.x, this.container.y, 35);
+    bloodDecal.fillCircle(this.container.x, this.container.y, 45);
     bloodDecal.fillStyle(0x4a0000, 0.9);
-    bloodDecal.fillCircle(this.container.x + 8, this.container.y + 4, 22);
+    bloodDecal.fillCircle(this.container.x + 10, this.container.y + 6, 28);
     bloodDecal.setDepth(1);
 
-    // 3. Gradual fade out after 5 seconds
+    // 3. Gradual fade out after 6 seconds
     this.scene.tweens.add({
       targets: [this.container, bloodDecal],
       alpha: 0,
-      delay: 4000,
+      delay: 5000,
       duration: 1500,
       onComplete: () => {
         bloodDecal.destroy();
@@ -223,10 +232,11 @@ export class CharacterRenderer {
     this.hpBarFill.clear();
     if (this.isDead) return;
 
-    const barWidth = 60;
-    const barHeight = 6;
+    const mult = this.type === 'walker' ? this.scaleTier.walkerScale : this.scaleTier.soldierScale;
+    const barWidth = 70;
+    const barHeight = 8;
     const barX = -barWidth / 2;
-    const barY = -42;
+    const barY = this.type === 'walker' ? -mult * 105 : -mult * 90;
 
     this.hpBarBg.fillStyle(0x111111, 0.85);
     this.hpBarBg.fillRect(barX, barY, barWidth, barHeight);
