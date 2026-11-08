@@ -262,8 +262,8 @@
 - [x] Chụp ảnh Mobile Runtime 360×640 mật độ 9 Zombie + 3 Soldier + 3 Turret + Gift: `mobile_runtime_360x640.png`.
 - [x] Cập nhật kịch bản xác minh tự động `run-verification.js`.
 - [x] Đóng gói lại `zombie_art_gate_p0_fixed.zip` (14.7 MB tại cả Scratch và Artifact Brain).
-- [ ] Git commit và push lên GitHub (`vulinh6393-svg/zombie-live`).
-- [ ] Cung cấp đầy đủ đường link tải file và tài liệu trực tuyến để Người Dùng và ChatGPT review.
+- [x] Git commit và push lên GitHub (`vulinh6393-svg/zombie-live`).
+- [x] Cung cấp đầy đủ đường link tải file và tài liệu trực tuyến để Người Dùng và ChatGPT review.
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions
 - [ ] Giai đoạn 05: Database, profile, missions & leaderboards
