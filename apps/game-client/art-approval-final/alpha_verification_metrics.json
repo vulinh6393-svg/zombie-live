@@ -1,0 +1,67 @@
+{
+  "testDate": "2026-11-08T01:43:09.986Z",
+  "tool": "sharp v0.34+ & node.js v24",
+  "sprites": [
+    {
+      "name": "sample_bastion_wall.png",
+      "width": 420,
+      "height": 120,
+      "channels": 4,
+      "hasAlpha": true,
+      "alphaMin": 0,
+      "alphaMax": 255,
+      "alphaMean": "208.01",
+      "trimWidth": 404,
+      "trimHeight": 112,
+      "trimOffsetLeft": -8,
+      "trimOffsetTop": -8
+    },
+    {
+      "name": "sample_bastion_gate.png",
+      "width": 300,
+      "height": 150,
+      "channels": 4,
+      "hasAlpha": true,
+      "alphaMin": 0,
+      "alphaMax": 255,
+      "alphaMean": "224.12",
+      "trimWidth": 288,
+      "trimHeight": 144,
+      "trimOffsetLeft": -6,
+      "trimOffsetTop": -6
+    },
+    {
+      "name": "sample_bastion_turret_pad.png",
+      "width": 150,
+      "height": 150,
+      "channels": 4,
+      "hasAlpha": true,
+      "alphaMin": 0,
+      "alphaMax": 255,
+      "alphaMean": "142.80",
+      "trimWidth": 138,
+      "trimHeight": 128,
+      "trimOffsetLeft": -6,
+      "trimOffsetTop": -18
+    }
+  ],
+  "characterBounds": {
+    "survivor": {
+      "frame": "258x152",
+      "nonTransparentBody": "258x152",
+      "logicDisplayHeight": 132,
+      "mobileDisplayHeight": 44
+    },
+    "zombie": {
+      "frame": "218x286",
+      "nonTransparentBody": "182x203",
+      "logicDisplayHeight": 132,
+      "mobileDisplayHeight": 44
+    },
+    "bossKing": {
+      "logicDisplayHeight": 198,
+      "mobileDisplayHeight": 66
+    }
+  },
+  "verificationVerdict": "PASS_PRODUCTION_READY"
+}

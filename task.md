@@ -195,29 +195,43 @@
 > - Tạo mẫu thử nghiệm asset độc lập có alpha sạch `sample_isolated_assets.png`.
 > - KHÔNG sửa `BattlefieldScene.ts`, KHÔNG tạo toàn bộ texture atlas trước khi duyệt sample, KHÔNG chuyển Phase 03.
 
-- [x] **TASK 1 — Unified Master Environment & BASTION_MASTER_LAYOUT.md:**
-  - [x] Thống nhất hệ tọa độ chuẩn, phân khu chiến trường 3 lane, cổng chính, tường thành, 2 tháp canh, 3 bệ pháo, sở chỉ huy, kho đạn.
-  - [x] Sao chép/xuất bản `bastion_master_environment.png` (1080×1920).
-  - [x] Soạn thảo chi tiết `docs/visual/BASTION_MASTER_LAYOUT.md`.
-- [x] **TASK 2 — Rebuild Full Combat Reference (Thống nhất kiến trúc 100% với Master):**
-  - [x] Bản 1 (Combat Normal): `combat_normal_unified_1080x1920.png` & `combat_normal_unified_360x640.png` (8–10 zombie trên 3 lane, 3 Soldier, 3 Turret nổ súng, đạn tracer, hit reactions, HUD TikTok tối giản, KHÔNG tên lửa).
-  - [x] Bản 2 (Combat Gift Missile): `combat_gift_unified_1080x1920.png` & `combat_gift_unified_360x640.png` (Cùng khung cảnh, thêm hồng tâm radar, tên lửa lao xuống, nổ bộc phá & sóng xung kích shockwave).
-- [x] **TASK 3 — Correct Mobile Sprite Scale (Giải quyết lỗi P0 tỷ lệ hiển thị Mobile):**
-  - [x] Phân tích toán học: Canvas logic 1080×1920 hiển thị trên mobile 360×640 (tỉ lệ 1:3).
-  - [x] Quy đổi display height nhân vật trong canvas logic từ 44px ➔ ~132px (hoặc zoom camera) để trên mobile đạt chuẩn 40–44px sắc nét, nhận diện rõ lính/quái.
-  - [x] Tạo ảnh kiểm chứng `character_scale_comparison.png` ghép sprite thật Walker & Survivor lên nền concept để đối chiếu tương quan kích thước & góc nhìn.
-- [x] **TASK 4 — Correct Asset License Manifest & Nguồn Gốc Concept:**
-  - [x] Kiểm tra checksum & nguồn OpenGameArt: Xác nhận Zombie Walker là CC0, Survivor Player là CC-BY 3.0, phân biệt rõ với bộ OGA-BY 3.0.
-  - [x] Minh bạch công cụ tạo ảnh (Imagen 3 / AI image generation tool), điều khoản thương mại và provenance của concept.
-  - [x] Cập nhật `docs/visual/ASSET_LICENSE_MANIFEST.md`.
-- [x] **TASK 5 — Asset Isolation Feasibility & Mẫu Thử Nghiệm Alpha:**
-  - [x] Xây dựng giải pháp sản xuất asset độc lập có kênh alpha sạch (Clean Background Plate, Gate Frame, Left/Right Doors, Wall Segment, Watchtower, Turret Pad, Bunker, Spotlight).
-  - [x] Xuất ảnh kiểm chứng `sample_isolated_assets.png` (gồm 1 đoạn tường, 1 cổng cơ giới và 1 bệ pháo lục giác đặt trên nền caro alpha và ghép thử lên nền đất).
-- [x] **TASK 6 — Tổng Hợp Báo Cáo & Dừng Lại Chờ Review:**
-  - [x] Cập nhật `player.html` với toàn bộ hình ảnh mới và so sánh trực quan.
-  - [x] Đóng gói `zombie_art_approval_unified.zip` (16.8MB) chứa đủ 7 file nghiệm thu.
-  - [x] Xuất bản `docs/visual/ART_APPROVAL_FINAL_REPORT.md`.
-  - [x] DỪNG LẠI CHỜ USER NGHIỆM THU CUỐI CÙNG (Không sửa `BattlefieldScene.ts`, không tạo full atlas, không sang Phase 03).
+## FINAL ART VALIDATION: Real Alpha Sprites, Functional Mechanics & Pixel Integrity (ĐANG THỰC HIỆN)
+> [!IMPORTANT]
+> **Quy định nghiêm ngặt từ User**:
+> - Không tạo thêm concept mới. Không sửa gameplay engine hay `BattlefieldScene.ts`.
+> - Xuất 3 file sprite RGBA thực sự có alpha sạch (`sample_bastion_wall.png`, `sample_bastion_gate.png`, `sample_bastion_turret_pad.png`).
+> - Dùng Sharp đo kênh alpha, non-transparent bounding box và kích thước thực tế.
+> - Render trên 4 nền (đen, trắng, magenta `#ff00ff`, nền Fortress) và thử nghiệm ghép tường modular.
+> - Tạo Contact Sheet đối chiếu Master, Normal, Gift để xác nhận pixel alignment.
+> - Tạo bản thử nghiệm tương tác chức năng (Functional Asset Test: Cổng đóng/mở/hư hại, Turret xoay 90/180/270°, Occlusion lính/quái).
+> - Kiểm tra Mobile Visual QA 360×640 với visible bounds thực tế.
+> - Tập hợp thư mục `art-approval-final/` và đóng gói `zombie_art_approval_final.zip`.
+
+- [x] **TASK 1 — Deliverable Verification & Contact Sheet:**
+  - [x] Kiểm tra 7 file trong `zombie_art_approval_unified.zip`.
+  - [x] Xuất `master_combat_contact_sheet.png` (2240×1380) đối chiếu cạnh nhau: Master, Normal, Gift (chứng minh trùng khớp pixel hình học và trục tọa độ y: 720, 1250, 1340, 1410, 1740).
+- [x] **TASK 2 — Real Alpha Asset Verification (Bằng Sharp & 4 Nền):**
+  - [x] Xuất 3 sprite RGBA thật: `sample_bastion_wall.png` (420×120), `sample_bastion_gate.png` (300×150), `sample_bastion_turret_pad.png` (150×150).
+  - [x] Dùng thư viện Sharp đo đạc: 4 channels, `hasAlpha: true`, `alphaMin: 0`, `alphaMax: 255`, tính toán non-transparent bounding box (trim bounds).
+  - [x] Kết xuất `alpha_background_test.png` (test trên 4 nền: đen, trắng, magenta `#ff00ff`, nền Fortress).
+  - [x] Kết xuất `modular_wall_tiling_test.png` (ghép 3 đoạn tường 410px liền mạch dài 1200px không lộ vết).
+- [x] **TASK 3 — Functional Asset Test (Kiểm Chứng Tương Tác Cơ Học):**
+  - [x] Kết xuất `functional_asset_test.png`:
+    - Cổng thép: Đóng kín (Intact), Mở trượt 2 cánh (Sliding doors lộ thông đạo), Hư hại (Breached, tia lửa điện).
+    - Turret: Bệ cố định, nòng pháo kép xoay 90°, 180°, 270°.
+    - Occlusion: Lính đứng sau tường (nhô ngực lên lỗ châu mai, đúng depth), Lính đứng trước tường (đổ bóng lên sân), Zombie tấn công dán decal nứt vỡ.
+- [x] **TASK 4 — Mobile Visual QA (Đo Visible Bounds & Viewport 360×640):**
+  - [x] Dùng Sharp đo visible non-transparent bounds của Survivor (258×152) và Walker (182×203).
+  - [x] Quy đổi chuẩn 132px logic ➔ Đạt đúng 44.0px trên điện thoại 360×640.
+  - [x] Kết xuất `mobile_visual_qa_360x640.png` mô phỏng đầy đủ lớp phủ TikTok LIVE Safe Zone: Vùng giao tranh 100% thoáng đãng, không bị che khuất.
+- [x] **TASK 5 — Correct Art Documentation:**
+  - [x] Đồng bộ `BASTION_MASTER_LAYOUT.md`, `ASSET_LICENSE_MANIFEST.md`, `ART_APPROVAL_FINAL_REPORT.md`.
+  - [x] Phân loại minh bạch 100% asset: AI concept vs Original isolated sprite vs Licensed asset (Zombie CC0, Survivor CC-BY 3.0).
+- [x] **TASK 6 — Final Handoff & Package:**
+  - [x] Tập hợp thư mục `apps/game-client/art-approval-final/` chứa trọn bộ 19 mục sản phẩm.
+  - [x] Đóng gói `zombie_art_approval_final.zip` (28.05 MB) tại root và artifact dir.
+  - [x] Cập nhật `player.html` với đầy đủ 5 tab kiểm chứng và nút tải trực tiếp.
+  - [x] DỪNG LẠI CHỜ NGƯỜI DÙNG DUYỆT (Cam kết: Không sửa `BattlefieldScene.ts`, không tạo full atlas, không sang Phase 03).
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
