@@ -195,43 +195,53 @@
 > - Tạo mẫu thử nghiệm asset độc lập có alpha sạch `sample_isolated_assets.png`.
 > - KHÔNG sửa `BattlefieldScene.ts`, KHÔNG tạo toàn bộ texture atlas trước khi duyệt sample, KHÔNG chuyển Phase 03.
 
-## FINAL ART VALIDATION: Real Alpha Sprites, Functional Mechanics & Pixel Integrity (ĐANG THỰC HIỆN)
+## FINAL ART GATE P0 FIX: Master Geometry Alignment, Clean Plate, High-Fidelity Sprites & Phaser Runtime Lab (ĐANG THỰC HIỆN)
 > [!IMPORTANT]
-> **Quy định nghiêm ngặt từ User**:
-> - Không tạo thêm concept mới. Không sửa gameplay engine hay `BattlefieldScene.ts`.
-> - Xuất 3 file sprite RGBA thực sự có alpha sạch (`sample_bastion_wall.png`, `sample_bastion_gate.png`, `sample_bastion_turret_pad.png`).
-> - Dùng Sharp đo kênh alpha, non-transparent bounding box và kích thước thực tế.
-> - Render trên 4 nền (đen, trắng, magenta `#ff00ff`, nền Fortress) và thử nghiệm ghép tường modular.
-> - Tạo Contact Sheet đối chiếu Master, Normal, Gift để xác nhận pixel alignment.
-> - Tạo bản thử nghiệm tương tác chức năng (Functional Asset Test: Cổng đóng/mở/hư hại, Turret xoay 90/180/270°, Occlusion lính/quái).
-> - Kiểm tra Mobile Visual QA 360×640 với visible bounds thực tế.
-> - Tập hợp thư mục `art-approval-final/` và đóng gói `zombie_art_approval_final.zip`.
+> **Chỉ thị nghiêm ngặt từ User**:
+> - Không tạo concept mới. Không làm báo cáo mô tả dài dòng.
+> - Xử lý 6 lỗi P0 triệt để và cung cấp bằng chứng runtime:
+>   1. P0-01: Đo đạc chính xác pixel trên `bastion_master_environment.png` (1080x1920) để sửa sai lệch tọa độ cổng, tường, turret, zombie; xuất `bastion_geometry_verified.png`.
+>   2. P0-02: Xây dựng `bastion_clean_environment.png` (bóc tách các công trình động, vẽ tái tạo sàn/lối đi thông suốt, không dùng màu bệt).
+>   3. P0-03: Vẽ lại bộ sprite kiến trúc độc lập đạt chuẩn mỹ thuật tả thực đồng bộ Master: `bastion_wall_segment.png`, `bastion_gate_frame.png`, `bastion_gate_door_left.png`, `bastion_gate_door_right.png`, `bastion_turret_platform.png`, `wall_damage_overlay.png`; xuất `art_before_after.png`.
+>   4. P0-04: Tạo route riêng `/art-integration-lab` trong Phaser (không sửa `BattlefieldScene.ts`), chạy đầy đủ: Cổng đóng/mở/hư hại, Turret xoay 360°, Lính che khuất trước/sau tường, Zombie dừng tại collision boundary; quay video runtime `art_integration_lab.webm` (>= 15s).
+>   5. P0-05: Chạy Playwright với viewport thật 360x640, chụp ảnh runtime `mobile_runtime_360x640.png`, đo visible bounds và xác minh độ thoáng của UI/combat.
+>   6. P0-06: Đóng gói toàn bộ test scripts, metrics, mã nguồn lab và báo cáo vào `zombie_art_gate_p0_fixed.zip`.
+> - Tuyệt đối không sửa `BattlefieldScene.ts`, không tạo full atlas, không sang Phase 03.
 
-- [x] **TASK 1 — Deliverable Verification & Contact Sheet:**
-  - [x] Kiểm tra 7 file trong `zombie_art_approval_unified.zip`.
-  - [x] Xuất `master_combat_contact_sheet.png` (2240×1380) đối chiếu cạnh nhau: Master, Normal, Gift (chứng minh trùng khớp pixel hình học và trục tọa độ y: 720, 1250, 1340, 1410, 1740).
-- [x] **TASK 2 — Real Alpha Asset Verification (Bằng Sharp & 4 Nền):**
-  - [x] Xuất 3 sprite RGBA thật: `sample_bastion_wall.png` (420×120), `sample_bastion_gate.png` (300×150), `sample_bastion_turret_pad.png` (150×150).
-  - [x] Dùng thư viện Sharp đo đạc: 4 channels, `hasAlpha: true`, `alphaMin: 0`, `alphaMax: 255`, tính toán non-transparent bounding box (trim bounds).
-  - [x] Kết xuất `alpha_background_test.png` (test trên 4 nền: đen, trắng, magenta `#ff00ff`, nền Fortress).
-  - [x] Kết xuất `modular_wall_tiling_test.png` (ghép 3 đoạn tường 410px liền mạch dài 1200px không lộ vết).
-- [x] **TASK 3 — Functional Asset Test (Kiểm Chứng Tương Tác Cơ Học):**
-  - [x] Kết xuất `functional_asset_test.png`:
-    - Cổng thép: Đóng kín (Intact), Mở trượt 2 cánh (Sliding doors lộ thông đạo), Hư hại (Breached, tia lửa điện).
-    - Turret: Bệ cố định, nòng pháo kép xoay 90°, 180°, 270°.
-    - Occlusion: Lính đứng sau tường (nhô ngực lên lỗ châu mai, đúng depth), Lính đứng trước tường (đổ bóng lên sân), Zombie tấn công dán decal nứt vỡ.
-- [x] **TASK 4 — Mobile Visual QA (Đo Visible Bounds & Viewport 360×640):**
-  - [x] Dùng Sharp đo visible non-transparent bounds của Survivor (258×152) và Walker (182×203).
-  - [x] Quy đổi chuẩn 132px logic ➔ Đạt đúng 44.0px trên điện thoại 360×640.
-  - [x] Kết xuất `mobile_visual_qa_360x640.png` mô phỏng đầy đủ lớp phủ TikTok LIVE Safe Zone: Vùng giao tranh 100% thoáng đãng, không bị che khuất.
-- [x] **TASK 5 — Correct Art Documentation:**
-  - [x] Đồng bộ `BASTION_MASTER_LAYOUT.md`, `ASSET_LICENSE_MANIFEST.md`, `ART_APPROVAL_FINAL_REPORT.md`.
-  - [x] Phân loại minh bạch 100% asset: AI concept vs Original isolated sprite vs Licensed asset (Zombie CC0, Survivor CC-BY 3.0).
-- [x] **TASK 6 — Final Handoff & Package:**
-  - [x] Tập hợp thư mục `apps/game-client/art-approval-final/` chứa trọn bộ 19 mục sản phẩm.
-  - [x] Đóng gói `zombie_art_approval_final.zip` (28.05 MB) tại root và artifact dir.
-  - [x] Cập nhật `player.html` với đầy đủ 5 tab kiểm chứng và nút tải trực tiếp.
-  - [x] DỪNG LẠI CHỜ NGƯỜI DÙNG DUYỆT (Cam kết: Không sửa `BattlefieldScene.ts`, không tạo full atlas, không sang Phase 03).
+- [ ] **P0-01 — Master Geometry Measurement & Alignment:**
+  - [ ] Đo chính xác tọa độ pixel thực tế trên `bastion_master_environment.png` cho cổng, tường, tháp canh, 3 turret, boong-ke, zombie lanes.
+  - [ ] Cập nhật lại `BASTION_MASTER_LAYOUT.md` với số liệu pixel đo đạc thực tế.
+  - [ ] Xuất ảnh `bastion_geometry_verified.png` có lưới tọa độ, trục lane và bounding box va chạm.
+- [ ] **P0-02 — Clean Environment Plate Generation:**
+  - [ ] Tạo `bastion_clean_environment.png` loại bỏ các vật thể động (cổng, turret platform, vết nứt tường).
+  - [ ] Tái tạo bề mặt thông đạo và sàn bê tông dã chiến phía sau cổng bằng texture liền mạch.
+- [ ] **P0-03 — High-Fidelity Textured Sprites (Đồng bộ mỹ thuật Master):**
+  - [ ] Vẽ/kết xuất lại 6 sprite độc lập có texture bê tông/thép thời tiết, gờ 3D bevels, bóng đổ mềm và kênh alpha sạch:
+    - `bastion_wall_segment.png`
+    - `bastion_gate_frame.png`
+    - `bastion_gate_door_left.png`
+    - `bastion_gate_door_right.png`
+    - `bastion_turret_platform.png`
+    - `wall_damage_overlay.png`
+  - [ ] Xuất ảnh so sánh trực quan `art_before_after.png` (đối chiếu sprite cũ vs sprite mới).
+  - [ ] Chạy script Sharp đo đạc alpha, channels và bounding box thực tế.
+- [ ] **P0-04 — Phaser Art Integration Lab (/art-integration-lab) & Runtime Video:**
+  - [ ] Tạo scene `ArtIntegrationLabScene.ts` và đăng ký route `/art-integration-lab` trong client.
+  - [ ] Tích hợp sprite mới, clean background plate và các tween runtime:
+    - Cổng đóng ➔ Cổng mở trượt 2 cánh ➔ Cổng hư hại tia lửa.
+    - Turret xoay 360° theo mục tiêu.
+    - Lính di chuyển trước/sau tường (occlusion depth sorting).
+    - Zombie tiến công và dừng tại collision boundary.
+    - Wall damage decal kích hoạt.
+  - [ ] Quay video runtime `art_integration_lab.webm` (>= 15s) ghi trực tiếp từ Phaser WebGL.
+- [ ] **P0-05 — Mobile Runtime Visual QA (360×640):**
+  - [ ] Chụp màn hình runtime Playwright ở viewport thật 360×640: `mobile_runtime_360x640.png`.
+  - [ ] Đo lường visible non-transparent bounds và kiểm tra độ thoáng của TikTok Safe Zone.
+- [ ] **P0-06 — Packaging & Final Report:**
+  - [ ] Xuất bản `docs/visual/ART_GATE_P0_VERIFICATION.md` với đầy đủ ma trận trạng thái tách biệt.
+  - [ ] Đóng gói `zombie_art_gate_p0_fixed.zip`.
+  - [ ] Cập nhật `player.html`.
+  - [ ] Dừng lại chờ User nghiệm thu.
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine

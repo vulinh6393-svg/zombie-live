@@ -1,0 +1,50 @@
+[
+  {
+    "name": "bastion_wall_segment.png",
+    "width": 420,
+    "height": 130,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "412x122"
+  },
+  {
+    "name": "bastion_gate_frame.png",
+    "width": 300,
+    "height": 160,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "288x154"
+  },
+  {
+    "name": "bastion_gate_door_left.png",
+    "width": 115,
+    "height": 120,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "111x118"
+  },
+  {
+    "name": "bastion_gate_door_right.png",
+    "width": 115,
+    "height": 120,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "111x118"
+  },
+  {
+    "name": "bastion_turret_platform.png",
+    "width": 130,
+    "height": 130,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "118x111"
+  },
+  {
+    "name": "wall_damage_overlay.png",
+    "width": 200,
+    "height": 120,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "trimBounds": "143x117"
+  }
+]

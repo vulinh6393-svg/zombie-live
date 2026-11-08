@@ -3,13 +3,15 @@ import { BattlefieldScene } from './scenes/BattlefieldScene.js';
 import { ContactSheetScene } from './renderer/scenes/ContactSheetScene.js';
 import { QualityLabScene } from './renderer/scenes/QualityLabScene.js';
 import { FortressArtScene } from './scenes/FortressArtScene.js';
+import { ArtIntegrationLabScene } from './scenes/ArtIntegrationLabScene.js';
 import { MockSnapshotSource, MockScenario } from './sources/MockSnapshotSource.js';
 import { SocketSnapshotSource } from './sources/SocketSnapshotSource.js';
 import { GameSnapshotSource } from './sources/GameSnapshotSource.js';
 import { GAME_CONFIG } from './config.js';
 
-// Route check: /quality-lab vs /overlay vs /contact-sheet vs /fortress-lab vs / (development)
+// Route check: /quality-lab vs /overlay vs /contact-sheet vs /fortress-lab vs /art-integration-lab vs / (development)
 const urlParams = new URLSearchParams(window.location.search);
+const isArtLab = window.location.pathname.startsWith('/art-integration-lab') || urlParams.get('scene') === 'art-lab';
 const isQualityLab = window.location.pathname.startsWith('/quality-lab');
 const isFortressLab = window.location.pathname.startsWith('/fortress-lab') || urlParams.get('scene') === 'fortress';
 const isOverlay = window.location.pathname.startsWith('/overlay');
@@ -41,7 +43,7 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene, FortressArtScene],
+  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene, FortressArtScene, ArtIntegrationLabScene],
 };
 
 let gameInstance: Phaser.Game | null = null;
@@ -55,7 +57,9 @@ if (typeof window !== 'undefined') {
 
     gameInstance = new Phaser.Game(phaserGameConfig);
 
-    if (isFortressLab) {
+    if (isArtLab) {
+      gameInstance.scene.start('ArtIntegrationLabScene');
+    } else if (isFortressLab) {
       gameInstance.scene.start('FortressArtScene');
     } else if (isQualityLab) {
       gameInstance.scene.start('QualityLabScene');
