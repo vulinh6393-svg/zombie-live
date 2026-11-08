@@ -18,7 +18,7 @@ async function run() {
   const browser = await chromium.launch({ headless: true });
 
   // 1. RECORD RUNTIME VIDEO (1080x1920 logic canvas, 18 seconds)
-  console.log(' - Bắt đầu quay video Phaser WebGL tại /art-integration-lab (18s)...');
+  console.log(' - Bắt đầu quay video Phaser WebGL tại /art-integration-lab (18.5s)...');
   const videoContext = await browser.newContext({
     viewport: { width: 540, height: 960 },
     recordVideo: {
@@ -32,14 +32,14 @@ async function run() {
 
   // Wait for canvas to load and render
   await page.waitForSelector('canvas');
-  console.log(' - Canvas đã hiển thị, đang ghi hình 18 giây chu trình 4 trạng thái...');
+  console.log(' - Canvas đã hiển thị, đang ghi hình 18.5 giây chu trình 4 trạng thái (9 Zombie, 3 Lane Collision, Cổng mở, Gift)...');
 
-  // Record for 18 seconds to capture full 4-phase cycle:
-  // Phase 0: Gate Closed (4s)
-  // Phase 1: Gate Opens & Soldier moves behind wall (4s)
-  // Phase 2: Gate Damaged & Wall crack overlay (4s)
-  // Phase 3: Turret 360 rotation & Reset (4s)
-  await page.waitForTimeout(18000);
+  // Record for 18.5 seconds to capture all 4 phases:
+  // Phase 0: 9 Zombie tiến công & dừng tại Collision Boundary 3 Lane (0 - 4.5s)
+  // Phase 1: Cổng trượt 2 cánh & Zombie Bravo đột phá, Soldier Alpha nấp sau tường (4.5 - 9.0s)
+  // Phase 2: Tường nứt vỡ, 3 Pháo xoay bắn trả Muzzle Flash (9.0 - 13.5s)
+  // Phase 3: Gift Airstrike rực sáng quét sạch quái (13.5 - 18.0s)
+  await page.waitForTimeout(18500);
 
   // Close context to save video
   await videoContext.close();
@@ -47,7 +47,11 @@ async function run() {
   // Find the generated video file
   const videoFiles = fs.readdirSync(tempVideoDir).filter(f => f.endsWith('.webm'));
   if (videoFiles.length > 0) {
-    const latestVideo = path.join(tempVideoDir, videoFiles[videoFiles.length - 1]);
+    // Sort by mtime descending
+    videoFiles.sort((a, b) => {
+      return fs.statSync(path.join(tempVideoDir, b)).mtimeMs - fs.statSync(path.join(tempVideoDir, a)).mtimeMs;
+    });
+    const latestVideo = path.join(tempVideoDir, videoFiles[0]);
     const videoBuffer = fs.readFileSync(latestVideo);
 
     const targetNames = ['art_integration_lab.webm'];
@@ -55,12 +59,13 @@ async function run() {
       fs.writeFileSync(path.join(conceptDir, name), videoBuffer);
       fs.writeFileSync(path.join(finalDir, name), videoBuffer);
       fs.writeFileSync(path.join(brainDir, name), videoBuffer);
-      console.log(` [VIDEO] Đã lưu ${name} (${videoBuffer.length} bytes, duration: ~18s)`);
+      console.log(` [VIDEO] Đã lưu ${name} (${videoBuffer.length} bytes, duration: ~18.5s)`);
     }
   }
 
   // 2. CAPTURE REAL MOBILE VIEWPORT RUNTIME SCREENSHOT (360 x 640)
-  console.log(' - Chụp ảnh runtime Playwright ở viewport thật 360x640...');
+  // Capture with 9 Zombie, 3 Soldier, 3 Turret, HUD, and Gift Event Active!
+  console.log(' - Chụp ảnh runtime Playwright ở viewport thật 360x640 (mật độ 9 Zombie, 3 Soldier, 3 Turret, HUD và Gift)...');
   const mobileContext = await browser.newContext({
     viewport: { width: 360, height: 640 },
     deviceScaleFactor: 2,
@@ -70,7 +75,11 @@ async function run() {
   const mobilePage = await mobileContext.newPage();
   await mobilePage.goto('http://localhost:5173/art-integration-lab', { waitUntil: 'networkidle' });
   await mobilePage.waitForSelector('canvas');
-  await mobilePage.waitForTimeout(3000); // Wait 3s into the scene
+
+  // Wait until Phase 3 (around 14.5s) where Gift Airstrike is active, or wait 3s for dense 9-zombie formation
+  // Let's capture at 14.5s to capture the Gift Banner + Beams + 9 Zombies + 3 Soldiers + 3 Turrets + HUD
+  console.log(' - Đang đợi đến thời điểm Gift Airstrike kích hoạt (14.5s)...');
+  await mobilePage.waitForTimeout(14200);
 
   const mobileScreenshot = await mobilePage.screenshot({ type: 'png' });
   const mobileTargetNames = ['mobile_runtime_360x640.png'];

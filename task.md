@@ -243,7 +243,27 @@
   - [ ] Cập nhật `player.html`.
   - [ ] Dừng lại chờ User nghiệm thu.
 
-## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
+## Giai đoạn 02.6: Final Art Gate P0 Evidence Review (ĐANG THỰC HIỆN)
+> **Mục tiêu**: Thực thi và cung cấp trọn bộ bằng chứng kỹ thuật theo 5 yêu cầu cốt lõi của Người Dùng:
+> 1. Kiểm tra triệt để lỗi viền đen (black halo) và mất chi tiết màu tối trên 4 nền: Trắng (#fff), Đen (#000), Magenta (#ff00ff) và Fortress.
+> 2. Xác minh cơ chế động trên nền Clean Plate: Cổng đóng/mở trượt 2 cánh không lộ cổng cũ, turret xoay 360° đồng trục, soldier/zombie occlusion Z-order.
+> 3. Kiểm tra ranh giới va chạm (collision boundary) độc lập trên cả 3 Lane (Alpha, Bravo, Charlie) tại y=840.
+> 4. Kiểm tra Mobile Runtime 360×640 ở mật độ chuẩn: 9 Zombie, 3 Soldier, 3 Turret, HUD TikTok và Hiệu ứng Gift.
+> 5. Cập nhật mã nguồn ArtIntegrationLabScene, ghi hình video WebGL 18s mới, đo đạc metrics Sharp, đóng gói `zombie_art_gate_p0_fixed.zip`, commit và push GitHub để nghiệm thu.
+
+- [x] Phân tích yêu cầu và lập kế hoạch chi tiết (Planning).
+- [x] Xây dựng kịch bản kiểm tra Alpha Halo Stress Test trên 4 nền (White, Black, Magenta, Fortress) cho 6 sprite kiến trúc; xuất `sprite_alpha_halo_stress_test.png` và `sprite_halo_metrics.json`.
+- [x] Nâng cấp `ArtIntegrationLabScene.ts` hỗ trợ:
+  - [x] Mật độ 9 Zombie (3 zombie/lane), 3 Soldier (1 lính/lane), 3 Turret.
+  - [x] Hệ thống Collision Boundary độc lập cho cả 3 lane tại y=840.
+  - [x] Hiệu ứng Gift tương tác (Airstrike/Orbital Flare) và HUD chuẩn TikTok.
+  - [x] Chu trình động 4 pha hoàn chỉnh trên Clean Plate.
+- [x] Ghi hình video runtime WebGL 18.5 giây mới: `art_integration_lab.webm`.
+- [x] Chụp ảnh Mobile Runtime 360×640 mật độ 9 Zombie + 3 Soldier + 3 Turret + Gift: `mobile_runtime_360x640.png`.
+- [x] Cập nhật kịch bản xác minh tự động `run-verification.js`.
+- [x] Đóng gói lại `zombie_art_gate_p0_fixed.zip` (14.7 MB tại cả Scratch và Artifact Brain).
+- [ ] Git commit và push lên GitHub (`vulinh6393-svg/zombie-live`).
+- [ ] Cung cấp đầy đủ đường link tải file và tài liệu trực tuyến để Người Dùng và ChatGPT review.
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions
 - [ ] Giai đoạn 05: Database, profile, missions & leaderboards
