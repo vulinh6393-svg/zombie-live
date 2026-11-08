@@ -195,28 +195,29 @@
 > - Tạo mẫu thử nghiệm asset độc lập có alpha sạch `sample_isolated_assets.png`.
 > - KHÔNG sửa `BattlefieldScene.ts`, KHÔNG tạo toàn bộ texture atlas trước khi duyệt sample, KHÔNG chuyển Phase 03.
 
-- [ ] **TASK 1 — Unified Master Environment & BASTION_MASTER_LAYOUT.md:**
-  - [ ] Thống nhất hệ tọa độ chuẩn, phân khu chiến trường 3 lane, cổng chính, tường thành, 2 tháp canh, 3 bệ pháo, sở chỉ huy, kho đạn.
-  - [ ] Sao chép/xuất bản `bastion_master_environment.png` (1080×1920).
-  - [ ] Soạn thảo chi tiết `docs/visual/BASTION_MASTER_LAYOUT.md`.
-- [ ] **TASK 2 — Rebuild Full Combat Reference (Thống nhất kiến trúc 100% với Master):**
-  - [ ] Bản 1 (Combat Normal): `combat_normal_unified_1080x1920.png` & `combat_normal_unified_360x640.png` (8–10 zombie trên 3 lane, 3 Soldier, 3 Turret nổ súng, đạn tracer, hit reactions, HUD TikTok tối giản, KHÔNG tên lửa).
-  - [ ] Bản 2 (Combat Gift Missile): `combat_gift_unified_1080x1920.png` & `combat_gift_unified_360x640.png` (Cùng khung cảnh, thêm hồng tâm radar, tên lửa lao xuống, nổ bộc phá & sóng xung kích shockwave).
-- [ ] **TASK 3 — Correct Mobile Sprite Scale (Giải quyết lỗi P0 tỷ lệ hiển thị Mobile):**
-  - [ ] Phân tích toán học: Canvas logic 1080×1920 hiển thị trên mobile 360×640 (tỉ lệ 1:3).
-  - [ ] Quy đổi display height nhân vật trong canvas logic từ 44px ➔ ~132px (hoặc zoom camera) để trên mobile đạt chuẩn 40–44px sắc nét, nhận diện rõ lính/quái.
-  - [ ] Tạo ảnh kiểm chứng `character_scale_comparison.png` ghép sprite thật Walker & Survivor lên nền concept để đối chiếu tương quan kích thước & góc nhìn.
-- [ ] **TASK 4 — Correct Asset License Manifest & Nguồn Gốc Concept:**
-  - [ ] Kiểm tra checksum & nguồn OpenGameArt: Xác nhận Zombie Walker là CC0, Survivor Player là CC-BY 3.0, phân biệt rõ với bộ OGA-BY 3.0.
-  - [ ] Minh bạch công cụ tạo ảnh (Imagen 3 / AI image generation tool), điều khoản thương mại và provenance của concept.
-  - [ ] Cập nhật `docs/visual/ASSET_LICENSE_MANIFEST.md`.
-- [ ] **TASK 5 — Asset Isolation Feasibility & Mẫu Thử Nghiệm Alpha:**
-  - [ ] Xây dựng giải pháp sản xuất asset độc lập có kênh alpha sạch (Clean Background Plate, Gate Frame, Left/Right Doors, Wall Segment, Watchtower, Turret Pad, Bunker, Spotlight).
-  - [ ] Xuất ảnh kiểm chứng `sample_isolated_assets.png` (gồm 1 đoạn tường, 1 cổng cơ giới và 1 bệ pháo lục giác đặt trên nền caro alpha và ghép thử lên nền đất).
-- [ ] **TASK 6 — Tổng Hợp Báo Cáo & Dừng Lại Chờ Review:**
-  - [ ] Cập nhật `player.html` với toàn bộ hình ảnh mới và so sánh trực quan.
-  - [ ] Xuất bản `docs/visual/ART_APPROVAL_FINAL_REPORT.md`.
-  - [ ] Cam kết giữ nguyên `BattlefieldScene.ts`, dừng lại chờ nghiệm thu trước khi chuyển bước.
+- [x] **TASK 1 — Unified Master Environment & BASTION_MASTER_LAYOUT.md:**
+  - [x] Thống nhất hệ tọa độ chuẩn, phân khu chiến trường 3 lane, cổng chính, tường thành, 2 tháp canh, 3 bệ pháo, sở chỉ huy, kho đạn.
+  - [x] Sao chép/xuất bản `bastion_master_environment.png` (1080×1920).
+  - [x] Soạn thảo chi tiết `docs/visual/BASTION_MASTER_LAYOUT.md`.
+- [x] **TASK 2 — Rebuild Full Combat Reference (Thống nhất kiến trúc 100% với Master):**
+  - [x] Bản 1 (Combat Normal): `combat_normal_unified_1080x1920.png` & `combat_normal_unified_360x640.png` (8–10 zombie trên 3 lane, 3 Soldier, 3 Turret nổ súng, đạn tracer, hit reactions, HUD TikTok tối giản, KHÔNG tên lửa).
+  - [x] Bản 2 (Combat Gift Missile): `combat_gift_unified_1080x1920.png` & `combat_gift_unified_360x640.png` (Cùng khung cảnh, thêm hồng tâm radar, tên lửa lao xuống, nổ bộc phá & sóng xung kích shockwave).
+- [x] **TASK 3 — Correct Mobile Sprite Scale (Giải quyết lỗi P0 tỷ lệ hiển thị Mobile):**
+  - [x] Phân tích toán học: Canvas logic 1080×1920 hiển thị trên mobile 360×640 (tỉ lệ 1:3).
+  - [x] Quy đổi display height nhân vật trong canvas logic từ 44px ➔ ~132px (hoặc zoom camera) để trên mobile đạt chuẩn 40–44px sắc nét, nhận diện rõ lính/quái.
+  - [x] Tạo ảnh kiểm chứng `character_scale_comparison.png` ghép sprite thật Walker & Survivor lên nền concept để đối chiếu tương quan kích thước & góc nhìn.
+- [x] **TASK 4 — Correct Asset License Manifest & Nguồn Gốc Concept:**
+  - [x] Kiểm tra checksum & nguồn OpenGameArt: Xác nhận Zombie Walker là CC0, Survivor Player là CC-BY 3.0, phân biệt rõ với bộ OGA-BY 3.0.
+  - [x] Minh bạch công cụ tạo ảnh (Imagen 3 / AI image generation tool), điều khoản thương mại và provenance của concept.
+  - [x] Cập nhật `docs/visual/ASSET_LICENSE_MANIFEST.md`.
+- [x] **TASK 5 — Asset Isolation Feasibility & Mẫu Thử Nghiệm Alpha:**
+  - [x] Xây dựng giải pháp sản xuất asset độc lập có kênh alpha sạch (Clean Background Plate, Gate Frame, Left/Right Doors, Wall Segment, Watchtower, Turret Pad, Bunker, Spotlight).
+  - [x] Xuất ảnh kiểm chứng `sample_isolated_assets.png` (gồm 1 đoạn tường, 1 cổng cơ giới và 1 bệ pháo lục giác đặt trên nền caro alpha và ghép thử lên nền đất).
+- [x] **TASK 6 — Tổng Hợp Báo Cáo & Dừng Lại Chờ Review:**
+  - [x] Cập nhật `player.html` với toàn bộ hình ảnh mới và so sánh trực quan.
+  - [x] Đóng gói `zombie_art_approval_unified.zip` (16.8MB) chứa đủ 7 file nghiệm thu.
+  - [x] Xuất bản `docs/visual/ART_APPROVAL_FINAL_REPORT.md`.
+  - [x] DỪNG LẠI CHỜ USER NGHIỆM THU CUỐI CÙNG (Không sửa `BattlefieldScene.ts`, không tạo full atlas, không sang Phase 03).
 
 ## Các giai đoạn tiếp theo (Chưa thực hiện - Đang dừng lại chờ người dùng review và chỉ thị)
 - [ ] Giai đoạn 03: Server-authoritative deterministic engine
