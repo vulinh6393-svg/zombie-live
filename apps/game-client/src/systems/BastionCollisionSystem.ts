@@ -19,13 +19,15 @@ export interface WallState {
 }
 
 /**
- * BASTION DYNAMIC COLLISION SYSTEM
+ * BASTION DYNAMIC COLLISION SYSTEM — SERVER-AUTHORITATIVE COMPATIBLE
  * 
  * Kiểm tra và giải quyết va chạm hình học thời gian thực (Real-time Geometric Collision):
- * - Không dùng tween điểm đích cố định.
- * - Tính toán dựa trên tọa độ thực, bán kính thực thể và trạng thái của cổng / tường.
- * - Server-Authoritative compatible: Client chạy prediction & visual simulation,
- *   server giữ chân lý collision mask.
+ * - Không dùng tween điểm đích cố định hay tọa độ giả lập.
+ * - Tính toán chính xác theo mép vật lý thực của hai cánh cửa (doorWidth = 115px, half-width = 57.5px)
+ *   và bán kính thực thể (radius = 20px).
+ * - Hành lang an toàn khi mở hoàn toàn (x=430, 650): [507.5, 572.5].
+ * - Xử lý va chạm động liên tục trong cả 4 trạng thái: CLOSED, OPENING, OPEN, CLOSING.
+ * - Xử lý trường hợp thực thể đang đứng trong thông đạo khi cổng đóng (bị kẹp hoặc đẩy lùi).
  */
 export class BastionCollisionSystem {
   private gateState: GateCollisionState = 'CLOSED';
@@ -36,6 +38,7 @@ export class BastionCollisionSystem {
   private rightWall: WallState = { id: 'RIGHT', state: 'INTACT', hp: 1000, maxHp: 1000 };
 
   readonly collisionLineY = BASTION_GEOMETRY.collisionLineY; // 840
+  readonly doorHalfWidth = BASTION_GEOMETRY.blastGate.doorWidth / 2; // 57.5
 
   constructor() {
     this.gateDoorLeftX = BASTION_GEOMETRY.blastGate.doorLeftClosedX; // 483
@@ -54,6 +57,9 @@ export class BastionCollisionSystem {
     }
   }
 
+  /**
+   * Cập nhật vị trí tức thời của 2 cánh cửa trong quá trình OPENING / CLOSING
+   */
   public updateGateDoors(doorLeftX: number, doorRightX: number) {
     this.gateDoorLeftX = doorLeftX;
     this.gateDoorRightX = doorRightX;
@@ -61,6 +67,25 @@ export class BastionCollisionSystem {
 
   public getGateState(): GateCollisionState {
     return this.gateState;
+  }
+
+  public getGateDoorPositions(): { leftX: number; rightX: number } {
+    return { leftX: this.gateDoorLeftX, rightX: this.gateDoorRightX };
+  }
+
+  /**
+   * Tính toán khoảng hở thông đạo an toàn tức thời cho một thực thể có bán kính radius
+   * Mép trong cánh trái: gateDoorLeftX + 57.5
+   * Mép trong cánh phải: gateDoorRightX - 57.5
+   * Khoảng an toàn cho tâm thực thể: [innerEdgeLeft + radius, innerEdgeRight - radius]
+   */
+  public getSafeCorridorBounds(radius: number = 20): { safeMinX: number; safeMaxX: number; isOpen: boolean } {
+    const innerEdgeLeft = this.gateDoorLeftX + this.doorHalfWidth;
+    const innerEdgeRight = this.gateDoorRightX - this.doorHalfWidth;
+    const safeMinX = innerEdgeLeft + radius;
+    const safeMaxX = innerEdgeRight - radius;
+    const isOpen = safeMinX < safeMaxX;
+    return { safeMinX, safeMaxX, isOpen };
   }
 
   // --- WALL STATE MUTATORS ---
@@ -80,7 +105,7 @@ export class BastionCollisionSystem {
    * @param currY Tọa độ y hiện tại
    * @param nextX Tọa độ x dự kiến
    * @param nextY Tọa độ y dự kiến
-   * @param radius Bán kính va chạm của thực thể (hoặc nửa chiều cao)
+   * @param radius Bán kính va chạm của thực thể (hoặc nửa chiều rộng bounding box)
    */
   public resolveMovement(
     currX: number,
@@ -90,13 +115,16 @@ export class BastionCollisionSystem {
     radius: number = 20
   ): CollisionResult {
     const boundaryY = this.collisionLineY; // 840
+    const gateThresholdBottomY = boundaryY + 100; // 940 (vùng sâu trong cổng)
 
-    // Thực thể đang đi từ Bắc xuống Nam và phần đầu vượt qua vạch 840
-    const wasAbove = currY <= boundaryY;
-    const isCrossing = nextY + radius >= boundaryY;
+    // Kiểm tra xem thực thể có đang tương tác với vùng phòng tuyến hay không
+    // Trường hợp 1: Đang từ phía Bắc tiến vào ranh giới y=840
+    const isCrossingFromNorth = currY <= boundaryY && nextY + radius >= boundaryY;
+    // Trường hợp 2: Đang nằm trong thông đạo cổng [840, 940] khi cổng đóng lại
+    const isInsideGateThreshold = currY > boundaryY && currY <= gateThresholdBottomY;
 
-    if (!wasAbove || !isCrossing) {
-      // Chưa chạm vạch va chạm
+    if (!isCrossingFromNorth && !isInsideGateThreshold) {
+      // Ngoài phạm vi va chạm phòng tuyến
       return {
         collided: false,
         resolvedX: nextX,
@@ -104,11 +132,9 @@ export class BastionCollisionSystem {
       };
     }
 
-    // 1. Phân vùng kiểm tra theo Lane & Kiến Trúc
-    // Lane Alpha (Left Wall): x trong [80, 410]
+    // 1. Lane Alpha (Left Wall): x trong [30, 390)
     if (nextX >= BASTION_GEOMETRY.lanes[0].xMin && nextX < BASTION_GEOMETRY.blastGate.corridorXMin) {
       if (this.leftWall.state !== 'BREACHED') {
-        // Bị tường trái chặn cứng tại 840
         return {
           collided: true,
           resolvedX: nextX,
@@ -116,7 +142,6 @@ export class BastionCollisionSystem {
           segment: 'LEFT_WALL',
         };
       } else {
-        // Tường đã vỡ hoàn toàn, cho phép đi qua
         return {
           collided: false,
           resolvedX: nextX,
@@ -126,10 +151,13 @@ export class BastionCollisionSystem {
       }
     }
 
-    // Lane Bravo (Blast Gate): x trong [410, 670]
+    // 2. Lane Bravo (Blast Gate): x trong [390, 690]
     if (nextX >= BASTION_GEOMETRY.blastGate.corridorXMin && nextX <= BASTION_GEOMETRY.blastGate.corridorXMax) {
-      if (this.gateState === 'CLOSED' || this.gateState === 'CLOSING') {
-        // Cổng đóng: Chặn cứng mọi thực thể tại 840
+      // Tính toán khoảng hở động tức thời tại tick hiện tại
+      const { safeMinX, safeMaxX, isOpen } = this.getSafeCorridorBounds(radius);
+
+      // Cổng đóng hoàn toàn
+      if (this.gateState === 'CLOSED' || !isOpen) {
         return {
           collided: true,
           resolvedX: nextX,
@@ -138,35 +166,33 @@ export class BastionCollisionSystem {
         };
       }
 
-      if (this.gateState === 'OPEN' || this.gateState === 'OPENING') {
-        // Kiểm tra xem thực thể có lọt vào giữa khoảng trống của 2 cánh cửa không
-        // Khoảng trống an toàn: từ (gateDoorLeftX + radius) đến (gateDoorRightX - radius)
-        const inClearCorridor = nextX > this.gateDoorLeftX + radius && nextX < this.gateDoorRightX - radius;
+      // Kiểm tra thực thể có nằm trọn trong hành lang thông suốt không
+      const inClearCorridor = nextX > safeMinX && nextX < safeMaxX;
 
-        if (inClearCorridor) {
-          // Thông đạo thông suốt, cho phép xuyên qua cổng tiến vào sân trong
-          return {
-            collided: false,
-            resolvedX: nextX,
-            resolvedY: nextY,
-            passThroughReason: 'GATE_OPEN',
-          };
-        } else {
-          // Va vào cánh cửa trượt đang mở dở
-          return {
-            collided: true,
-            resolvedX: nextX,
-            resolvedY: boundaryY - radius,
-            segment: 'GATE',
-          };
-        }
+      if (inClearCorridor) {
+        // Thông đạo an toàn, cho phép di chuyển tiếp tục
+        return {
+          collided: false,
+          resolvedX: nextX,
+          resolvedY: nextY,
+          passThroughReason: 'GATE_OPEN',
+        };
+      } else {
+        // Va vào cánh cửa bên trái hoặc bên phải đang mở dở hoặc đang đóng lại
+        // Nếu thực thể đang ở trong lòng cổng mà bị kẹp, đẩy lùi về phía trước cổng
+        const resolvedY = isInsideGateThreshold ? boundaryY - radius : boundaryY - radius;
+        return {
+          collided: true,
+          resolvedX: nextX,
+          resolvedY,
+          segment: 'GATE',
+        };
       }
     }
 
-    // Lane Charlie (Right Wall): x trong [670, 1000]
+    // 3. Lane Charlie (Right Wall): x trong (690, 1050]
     if (nextX > BASTION_GEOMETRY.blastGate.corridorXMax && nextX <= BASTION_GEOMETRY.lanes[2].xMax) {
       if (this.rightWall.state !== 'BREACHED') {
-        // Bị tường phải chặn cứng tại 840
         return {
           collided: true,
           resolvedX: nextX,
@@ -183,7 +209,7 @@ export class BastionCollisionSystem {
       }
     }
 
-    // Mặc định bên ngoài map
+    // Ngoài biên bản đồ
     return {
       collided: true,
       resolvedX: nextX,

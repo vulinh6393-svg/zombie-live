@@ -243,7 +243,35 @@
   - [ ] Cập nhật `player.html`.
   - [ ] Dừng lại chờ User nghiệm thu.
 
-## Giai đoạn 02.7: Art Gate Audit Correction & Single Vertical Slice (ĐANG THỰC HIỆN)
+## Giai đoạn 02.8: Final Art Gate Targeted Correction Round (ĐANG THỰC HIỆN)
+> **Mục tiêu**: Xử lý triệt để 5 vấn đề còn lại theo yêu cầu kiểm toán commit `ecb1463`:
+> 1. **TASK 1 — Sửa Cổng Baked (P0)**: Xóa hoàn toàn 2 cánh cửa tĩnh bên trong `bastion_gate_frame.png`, tạo khoảng thông đạo rỗng có alpha trong suốt 100%. Khung cổng chỉ chứa trụ, dầm ngang và pít-tông; 2 cánh trượt `bastion_gate_door_left.png` và `bastion_gate_door_right.png` trượt mở để lộ sàn sạch không còn bóng ma cửa cũ.
+> 2. **TASK 2 — Chuẩn Hóa Hình Học & Va Chạm Động (P0)**: Cập nhật `BastionCollisionSystem.ts` tính toán khoảng hở cổng dựa trên cạnh thực của cánh cửa ($x_{\text{inner}} = \text{doorX} \pm w/2$) và bán kính zombie ($r=20$): vùng an toàn thực tế $507.5 < x < 572.5$. Đồng bộ chiều rộng tường 420px giữa sprite và config.
+> 3. **TASK 3 — Kiểm Thử Trực Tiếp Từ Mã Nguồn Thật (P0)**: Viết test Vitest `BastionCollisionSystem.test.ts` và cập nhật `run-verification.js` import trực tiếp `BastionCollisionSystem.ts` và `BastionGeometryConfig.ts` (không dùng code copy/inline).
+> 4. **TASK 4 — Chuỗi Animation Thực & Quản Lý State HP/Death (P1)**: Đăng ký Phaser `anims.create` đa frame cho Survivor (`idle`, `shoot`) và Zombie (`move`, `attack`). Khi bị bắn, trừ HP thật sự, cập nhật `hp = 0`, `isDead = true`, đồng bộ thanh máu và state nội bộ.
+> 5. **TASK 5 — Đóng Gói, Ghi Hình & Đẩy GitHub**: Quay video runtime WebGL mới, chụp screenshot cổng đóng vs mở, chụp mobile 360×640, đóng gói `zombie_art_gate_p0_fixed.zip`, commit và push GitHub.
+
+- [x] **TASK 1 — Xử lý triệt để Gate Frame không chứa cánh cửa tĩnh (P0)**:
+  - [x] Cắt rỗng vùng thông đạo trung tâm $x \in [68..232], y \in [44..158]$ của `bastion_gate_frame.png` thành alpha trong suốt 100%.
+  - [x] Kiểm tra điểm ảnh thực: Tâm $(150, 100) = (0,0,0,0)$, trụ trái $(30, 80) = (21,21,19,255)$.
+  - [x] Lưu đồng bộ vào `public/assets/environment/bastion/`, `public/assets/concept/` và `art-approval-final/`.
+- [x] **TASK 2 — Cập nhật Collision System & Geometry Config chuẩn xác (P0)**:
+  - [x] Sửa `BastionGeometryConfig.ts`: Tường rộng 420px, cổng 300px, cánh cửa 115px, vạch va chạm y=840.
+  - [x] Sửa `BastionCollisionSystem.ts`: Tính toán khoảng hở an toàn theo mép trong thực tế: $x \in (\text{leftDoorX} + 57.5 + r, \text{rightDoorX} - 57.5 - r)$, đạt $[507.5, 572.5]$ khi mở tối đa.
+  - [x] Đồng bộ `BASTION_MASTER_LAYOUT.md` với các thông số tường 420px và công thức va chạm mép cửa.
+- [x] **TASK 3 — Viết Unit Test Vitest & Cập nhật run-verification.js (P0)**:
+  - [x] Tạo file `apps/game-client/src/systems/BastionCollisionSystem.test.ts` với 10 test case Vitest nghiêm ngặt.
+  - [x] Chạy `pnpm --filter @zombie-live/game-client test` xác nhận 100% tests PASS (15/15 tests).
+  - [x] Cập nhật `run-verification.js` import trực tiếp `BastionCollisionSystem.ts` và `BastionGeometryConfig.ts` từ production code (21/21 tests pass, exit code 0).
+- [x] **TASK 4 — Tích hợp Animation chuỗi đa frame & State HP thực trong Scene (P1)**:
+  - [x] Cập nhật `ArtIntegrationLabScene.ts`: Đăng ký `anims.create` cho Survivor (`survivor-idle`, `survivor-shoot`) và Zombie (`walker-walk`, `walker-attack`).
+  - [x] Cài đặt state nội bộ cho Zombie: Trừ HP khi trúng đạn, cập nhật `hp = 0` và `isDead = true`, đổi trạng thái chết, ngừng di chuyển, hiển thị `zombie_corpse_0` nằm trên đường.
+- [x] **TASK 5 — Xuất bằng chứng, đóng gói và push GitHub**:
+  - [x] Ghi hình video `art_integration_lab.webm` (18.5s, 5.06 MB) minh chứng cổng không còn cửa bóng mờ, animation chuỗi thật, HP giảm thật.
+  - [x] Chụp screenshot side-by-side: Cổng đóng vs Cổng mở `gate_closed_vs_open_proof.png` (từ cùng góc camera, chứng minh thông đạo sạch 100%).
+  - [x] Chụp ảnh Mobile QA 360×640 `mobile_runtime_360x640.png`.
+  - [x] Cập nhật `player.html` và file zip `zombie_art_gate_p0_fixed.zip` (17.5 MB tại Scratch và Brain).
+  - [x] Git commit và push remote `vulinh6393-svg/zombie-live` trên nhánh `feat/phase02-visual-refinement`.
 > **Mục tiêu**: Xử lý triệt để 5 vấn đề cốt lõi do Người Dùng chỉ ra:
 > 1. **Mỹ thuật Thật (Không dùng Procedural Canvas)**: Tạo bộ sprite bán hiện thực tả thực (weathered concrete, heavy steel, bolts, hazard paint) đồng bộ 100% với Master Bastion Concept bằng quy trình đồ họa chất lượng cao (subagent image-generator + alpha extraction sạch).
 > 2. **Chuẩn hóa Hình học Duy Nhất (Single Source of Truth Geometry)**: Viết file config TypeScript `BastionGeometryConfig.ts` và đồng bộ từng pixel vào `BASTION_MASTER_LAYOUT.md` (Cổng y=900, Turret y=580, Collision Boundary y=840).

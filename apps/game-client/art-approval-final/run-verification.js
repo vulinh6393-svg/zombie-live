@@ -3,117 +3,17 @@ import path from 'path';
 import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 
+// IMPORT TRỰC TIẾP TỪ MÃ NGUỒN PRODUCTION — KHÔNG SAO CHÉP CODE INLINE
+import { BASTION_GEOMETRY } from '../src/config/BastionGeometryConfig.ts';
+import { BastionCollisionSystem } from '../src/systems/BastionCollisionSystem.ts';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 console.log('========================================================================');
 console.log(' ZOMBIE ĐẠI CHIẾN — KỊCH BẢN KIỂM THỬ XÁC MINH BẢN GIAO THỰC THẾ        ');
-console.log(' (ASSERTION-DRIVEN VERIFICATION SUITE — KHÔNG HARDCODE TRẠNG THÁI PASS) ');
+console.log(' (ASSERTION-DRIVEN VERIFICATION SUITE — IMPORT TRỰC TIẾP PRODUCTION CODE) ');
 console.log('========================================================================\n');
-
-// Inline SSOT Geometry config for direct assertion validation
-const BASTION_GEOMETRY = {
-  canvas: { width: 1080, height: 1920, mobileWidth: 360, mobileHeight: 640, scaleRatio: 3.0 },
-  lanes: [
-    { id: 0, name: 'ALPHA', centerX: 280, xMin: 80, xMax: 410 },
-    { id: 1, name: 'BRAVO', centerX: 540, xMin: 410, xMax: 670 },
-    { id: 2, name: 'CHARLIE', centerX: 800, xMin: 670, xMax: 1000 },
-  ],
-  collisionLineY: 840,
-  turrets: [
-    { laneId: 0, x: 280, y: 580, platformSize: 130 },
-    { laneId: 1, x: 540, y: 580, platformSize: 130 },
-    { laneId: 2, x: 800, y: 580, platformSize: 130 },
-  ],
-  walls: [
-    { id: 'LEFT', centerX: 240, centerY: 900, width: 320, height: 120, collisionY: 840 },
-    { id: 'RIGHT', centerX: 840, centerY: 900, width: 320, height: 120, collisionY: 840 },
-  ],
-  blastGate: {
-    centerX: 540,
-    centerY: 900,
-    frameWidth: 300,
-    frameHeight: 160,
-    doorLeftClosedX: 483,
-    doorLeftOpenX: 430,
-    doorRightClosedX: 597,
-    doorRightOpenX: 650,
-    doorsY: 908,
-    corridorXMin: 410,
-    corridorXMax: 670,
-    collisionY: 840,
-  },
-  soldiers: [
-    { laneId: 0, x: 280, y: 1030 },
-    { laneId: 1, x: 540, y: 1050 },
-    { laneId: 2, x: 800, y: 1030 },
-  ]
-};
-
-// Inline Dynamic Collision System for assertion testing
-class BastionCollisionEngine {
-  constructor() {
-    this.gateState = 'CLOSED';
-    this.gateDoorLeftX = 483;
-    this.gateDoorRightX = 597;
-    this.leftWallState = 'INTACT';
-    this.rightWallState = 'INTACT';
-    this.collisionLineY = 840;
-  }
-
-  setGateState(s) {
-    this.gateState = s;
-    if (s === 'CLOSED') { this.gateDoorLeftX = 483; this.gateDoorRightX = 597; }
-    if (s === 'OPEN') { this.gateDoorLeftX = 430; this.gateDoorRightX = 650; }
-  }
-
-  setWallState(id, s) {
-    if (id === 'LEFT') this.leftWallState = s;
-    if (id === 'RIGHT') this.rightWallState = s;
-  }
-
-  resolveMovement(currX, currY, nextX, nextY, radius = 20) {
-    const boundaryY = this.collisionLineY;
-    const wasAbove = currY <= boundaryY;
-    const isCrossing = nextY + radius >= boundaryY;
-
-    if (!wasAbove || !isCrossing) {
-      return { collided: false, resolvedX: nextX, resolvedY: nextY };
-    }
-
-    // Lane Alpha
-    if (nextX >= 80 && nextX < 410) {
-      if (this.leftWallState !== 'BREACHED') {
-        return { collided: true, resolvedX: nextX, resolvedY: boundaryY - radius, segment: 'LEFT_WALL' };
-      }
-      return { collided: false, resolvedX: nextX, resolvedY: nextY, passThroughReason: 'WALL_BREACHED' };
-    }
-
-    // Lane Bravo (Gate)
-    if (nextX >= 410 && nextX <= 670) {
-      if (this.gateState === 'CLOSED' || this.gateState === 'CLOSING') {
-        return { collided: true, resolvedX: nextX, resolvedY: boundaryY - radius, segment: 'GATE' };
-      }
-      if (this.gateState === 'OPEN') {
-        const inClear = nextX > this.gateDoorLeftX + radius && nextX < this.gateDoorRightX - radius;
-        if (inClear) {
-          return { collided: false, resolvedX: nextX, resolvedY: nextY, passThroughReason: 'GATE_OPEN' };
-        }
-        return { collided: true, resolvedX: nextX, resolvedY: boundaryY - radius, segment: 'GATE' };
-      }
-    }
-
-    // Lane Charlie
-    if (nextX > 670 && nextX <= 1000) {
-      if (this.rightWallState !== 'BREACHED') {
-        return { collided: true, resolvedX: nextX, resolvedY: boundaryY - radius, segment: 'RIGHT_WALL' };
-      }
-      return { collided: false, resolvedX: nextX, resolvedY: nextY, passThroughReason: 'WALL_BREACHED' };
-    }
-
-    return { collided: true, resolvedX: nextX, resolvedY: boundaryY - radius };
-  }
-}
 
 const testResults = [];
 let hasAnyFailure = false;
@@ -123,7 +23,7 @@ function recordTest(name, passed, details) {
   if (!passed) hasAnyFailure = true;
   testResults.push({ name, status, details });
   const icon = passed ? '✔' : '❌';
-  console.log(` [${status}] ${icon} ${name.padEnd(46)} | ${details}`);
+  console.log(` [${status}] ${icon} ${name.padEnd(52)} | ${details}`);
 }
 
 async function runSuite() {
@@ -176,6 +76,29 @@ async function runSuite() {
   }
 
   // --------------------------------------------------------------------------
+  // SUITE 1.5: KIỂM THỬ KHUNG CỔNG THỰC SỰ RỖNG (ALPHA = 0 Ở THÔNG ĐẠO)
+  // --------------------------------------------------------------------------
+  console.log('\n--- 1.5 KIỂM THỬ THÔNG ĐẠO KHUNG CỔNG RỖNG 100% ALPHA (NO BAKED DOORS) ---');
+  const gateFramePath = path.join(__dirname, 'bastion_gate_frame.png');
+  const { data: frameData, info: frameInfo } = await sharp(gateFramePath).raw().toBuffer({ resolveWithObject: true });
+  
+  function getPixel(x, y) {
+    const idx = (y * frameInfo.width + x) * frameInfo.channels;
+    return [frameData[idx], frameData[idx+1], frameData[idx+2], frameData[idx+3]];
+  }
+
+  const centerPixel = getPixel(150, 100);
+  const isCenterHollow = centerPixel[3] === 0;
+  const leftPillar = getPixel(30, 80);
+  const isPillarSolid = leftPillar[3] > 200;
+  const frameIntegrity = isCenterHollow && isPillarSolid;
+  recordTest(
+    'Gate Frame Hollow Archway: Thông đạo rỗng, trụ thép nguyên vẹn',
+    frameIntegrity,
+    `Tâm (150,100) Alpha: ${centerPixel[3]} (Yêu cầu: 0) | Trụ trái Alpha: ${leftPillar[3]} (Yêu cầu: >200)`
+  );
+
+  // --------------------------------------------------------------------------
   // SUITE 2: KIỂM THỬ CONSISTENCY: CONFIG SSOT VS BASTION_MASTER_LAYOUT.MD
   // --------------------------------------------------------------------------
   console.log('\n--- 2. KIỂM THỬ CONSISTENCY: CONFIG SSOT VS BASTION_MASTER_LAYOUT.MD ---');
@@ -204,80 +127,116 @@ async function runSuite() {
       `Gate 900: ${hasNewGateY} | Turret 580: ${hasNewTurretY} | Collision 840: ${hasCollisionY}`
     );
 
-    // 3. Kiểm tra tính toàn vẹn của BASTION_GEOMETRY config
+    // 3. Kiểm tra tính toàn vẹn của BASTION_GEOMETRY config thực tế
     const configValid =
       BASTION_GEOMETRY.blastGate.centerY === 900 &&
       BASTION_GEOMETRY.collisionLineY === 840 &&
       BASTION_GEOMETRY.turrets[0].y === 580 &&
       BASTION_GEOMETRY.turrets[1].y === 580 &&
-      BASTION_GEOMETRY.turrets[2].y === 580;
+      BASTION_GEOMETRY.turrets[2].y === 580 &&
+      BASTION_GEOMETRY.walls[0].width === 420 &&
+      BASTION_GEOMETRY.walls[1].width === 420;
     recordTest(
-      'BastionGeometryConfig: Giá trị typed SSOT chuẩn xác',
+      'BastionGeometryConfig: Giá trị typed SSOT chuẩn xác (Tường 420px)',
       configValid,
-      `Gate Y: ${BASTION_GEOMETRY.blastGate.centerY} | Turret Y: ${BASTION_GEOMETRY.turrets[0].y} | Collision Y: ${BASTION_GEOMETRY.collisionLineY}`
+      `Gate Y: ${BASTION_GEOMETRY.blastGate.centerY} | Turret Y: ${BASTION_GEOMETRY.turrets[0].y} | Wall Width: ${BASTION_GEOMETRY.walls[0].width}px`
     );
   } else {
     recordTest('Layout Docs: BASTION_MASTER_LAYOUT.md', false, 'Không tìm thấy file tài liệu!');
   }
 
   // --------------------------------------------------------------------------
-  // SUITE 3: KIỂM THỬ ASSERTION LOGIC VA CHẠM THỰC TẾ (BastionCollisionEngine)
+  // SUITE 3: KIỂM THỬ TRỰC TIẾP BastionCollisionSystem TỪ PRODUCTION
   // --------------------------------------------------------------------------
-  console.log('\n--- 3. KIỂM THỬ ASSERTION LOGIC VA CHẠM THỰC TẾ (BastionCollisionEngine) ---');
-  const collision = new BastionCollisionEngine();
+  console.log('\n--- 3. KIỂM THỬ TRỰC TIẾP BastionCollisionSystem TỪ PRODUCTION ---');
+  const collision = new BastionCollisionSystem();
+  const RADIUS = 20;
 
-  // Test 3.1: Khi Cổng Đóng -> Zombie Lane Bravo bị chặn cứng tại y=840
+  // Test 3.1: Khi Cổng Đóng -> Chặn đứng cả 3 Lane
   collision.setGateState('CLOSED');
-  const resClosed = collision.resolveMovement(540, 800, 540, 860, 20);
-  const test3_1 = resClosed.collided === true && resClosed.resolvedY === 820 && resClosed.segment === 'GATE';
+  const resClosedAlpha = collision.resolveMovement(280, 800, 280, 860, RADIUS);
+  const resClosedBravo = collision.resolveMovement(540, 800, 540, 860, RADIUS);
+  const resClosedCharlie = collision.resolveMovement(800, 800, 800, 860, RADIUS);
+  const test3_1 =
+    resClosedAlpha.collided && resClosedAlpha.resolvedY === 820 &&
+    resClosedBravo.collided && resClosedBravo.resolvedY === 820 &&
+    resClosedCharlie.collided && resClosedCharlie.resolvedY === 820;
   recordTest(
-    'Collision Logic: Cổng ĐÓNG chặn đứng Zombie tại y=840 (ResolvedY=820)',
+    'Production Collision: Cổng CLOSED chặn đứng cả 3 Lane tại y=840',
     test3_1,
-    `Collided: ${resClosed.collided} | ResolvedY: ${resClosed.resolvedY} | Segment: ${resClosed.segment}`
+    `Alpha: ${resClosedAlpha.resolvedY} | Bravo: ${resClosedBravo.resolvedY} | Charlie: ${resClosedCharlie.resolvedY}`
   );
 
-  // Test 3.2: Khi Cổng MỞ -> Zombie Lane Bravo được phép đi xuyên qua thông đạo (ResolvedY=860)
+  // Test 3.2: Khi Cổng MỞ -> Tính toán chính xác khoảng an toàn [507.5, 572.5]
   collision.setGateState('OPEN');
-  const resOpen = collision.resolveMovement(540, 800, 540, 860, 20);
-  const test3_2 = resOpen.collided === false && resOpen.resolvedY === 860 && resOpen.passThroughReason === 'GATE_OPEN';
+  const bounds = collision.getSafeCorridorBounds(RADIUS);
+  const boundsAccurate = Math.abs(bounds.safeMinX - 507.5) < 0.1 && Math.abs(bounds.safeMaxX - 572.5) < 0.1;
   recordTest(
-    'Collision Logic: Cổng MỞ cho phép Zombie Bravo đi xuyên qua thông đạo',
-    test3_2,
-    `Collided: ${resOpen.collided} | ResolvedY: ${resOpen.resolvedY} | Reason: ${resOpen.passThroughReason}`
+    'Production Collision: Khoảng hở an toàn đạt chuẩn [507.5, 572.5] cho r=20',
+    boundsAccurate,
+    `SafeMinX: ${bounds.safeMinX.toFixed(1)} | SafeMaxX: ${bounds.safeMaxX.toFixed(1)} (Yêu cầu: [507.5, 572.5])`
   );
 
-  // Test 3.3: Khi Cổng ĐÓNG LẠI -> Zombie mới ở Lane Bravo tiếp tục bị chặn tại y=840
-  collision.setGateState('CLOSED');
-  const resReclosed = collision.resolveMovement(540, 800, 540, 860, 20);
-  const test3_3 = resReclosed.collided === true && resReclosed.resolvedY === 820 && resReclosed.segment === 'GATE';
+  // Test 3.3: Khi Cổng MỞ -> Zombie tâm Lane Bravo (x=540) đi xuyên qua an toàn
+  const resOpenCenter = collision.resolveMovement(540, 800, 540, 860, RADIUS);
+  const test3_3 = !resOpenCenter.collided && resOpenCenter.resolvedY === 860 && resOpenCenter.passThroughReason === 'GATE_OPEN';
   recordTest(
-    'Collision Logic: Cổng ĐÓNG LẠI tiếp tục chặn cứng Zombie tiếp theo',
+    'Production Collision: Zombie đi đúng tâm Bravo (x=540) qua cổng an toàn',
     test3_3,
-    `Collided: ${resReclosed.collided} | ResolvedY: ${resReclosed.resolvedY}`
+    `Collided: ${resOpenCenter.collided} | ResolvedY: ${resOpenCenter.resolvedY} | Reason: ${resOpenCenter.passThroughReason}`
   );
 
-  // Test 3.4: Lane Alpha (Tường Trái) và Lane Charlie (Tường Phải) LUÔN BỊ TƯỜNG CHẶN dù Cổng Mở
-  collision.setGateState('OPEN');
-  const resAlpha = collision.resolveMovement(280, 800, 280, 860, 20);
-  const resCharlie = collision.resolveMovement(800, 800, 800, 860, 20);
-  const test3_4 =
-    resAlpha.collided === true &&
-    resAlpha.segment === 'LEFT_WALL' &&
-    resCharlie.collided === true &&
-    resCharlie.segment === 'RIGHT_WALL';
+  // Test 3.4: Khi Cổng MỞ -> Zombie lệch mép cửa (x=500 hoặc x=580) bị chặn
+  const resOpenEdgeLeft = collision.resolveMovement(500, 800, 500, 860, RADIUS);
+  const resOpenEdgeRight = collision.resolveMovement(580, 800, 580, 860, RADIUS);
+  const test3_4 = resOpenEdgeLeft.collided && resOpenEdgeRight.collided;
   recordTest(
-    'Collision Logic: Lane Alpha & Charlie luôn bị tường chặn dù Cổng Mở',
+    'Production Collision: Zombie chạm mép cánh cửa trái/phải bị chặn',
     test3_4,
-    `Alpha: ${resAlpha.segment} (Blocked: ${resAlpha.collided}) | Charlie: ${resCharlie.segment} (Blocked: ${resCharlie.collided})`
+    `Left (x=500) Blocked: ${resOpenEdgeLeft.collided} | Right (x=580) Blocked: ${resOpenEdgeRight.collided}`
   );
 
-  // Test 3.5: Khi Tường Trái bị vỡ hoàn toàn (BREACHED) -> Zombie Alpha được phép tràn qua
-  collision.setWallState('LEFT', 'BREACHED');
-  const resBreach = collision.resolveMovement(280, 800, 280, 860, 20);
-  const test3_5 = resBreach.collided === false && resBreach.passThroughReason === 'WALL_BREACHED';
+  // Test 3.5: Khi Cổng MỞ -> Lane Alpha & Charlie vẫn bị tường chặn 100%
+  const resOpenAlpha = collision.resolveMovement(280, 800, 280, 860, RADIUS);
+  const resOpenCharlie = collision.resolveMovement(800, 800, 800, 860, RADIUS);
+  const test3_5 = resOpenAlpha.collided && resOpenCharlie.collided;
   recordTest(
-    'Collision Logic: Tường Trái vỡ (BREACHED) mở đường va chạm động',
+    'Production Collision: Lane Alpha & Charlie vẫn bị tường chặn dù Cổng Mở',
     test3_5,
+    `Alpha: ${resOpenAlpha.segment} | Charlie: ${resOpenCharlie.segment}`
+  );
+
+  // Test 3.6: Dynamic Opening/Closing -> Cập nhật theo vị trí hai cánh cửa
+  collision.setGateState('OPENING');
+  collision.updateGateDoors(450, 630);
+  const dynBounds = collision.getSafeCorridorBounds(RADIUS);
+  const resDynCenter = collision.resolveMovement(540, 800, 540, 860, RADIUS);
+  const resDynEdge = collision.resolveMovement(520, 800, 520, 860, RADIUS);
+  const test3_6 = !resDynCenter.collided && resDynEdge.collided;
+  recordTest(
+    'Production Collision: Động học tức thời khi cánh cửa đang trượt',
+    test3_6,
+    `Corridor: [${dynBounds.safeMinX.toFixed(1)}..${dynBounds.safeMaxX.toFixed(1)}] | Center (540): ${!resDynCenter.collided} | Edge (520): Blocked`
+  );
+
+  // Test 3.7: Cổng đóng lại khi thực thể đang trong thông đạo -> Xử lý đẩy lùi về y=820
+  collision.setGateState('CLOSING');
+  collision.updateGateDoors(480, 600);
+  const resTrapped = collision.resolveMovement(540, 870, 540, 880, RADIUS);
+  const test3_7 = resTrapped.collided && resTrapped.resolvedY === 820;
+  recordTest(
+    'Production Collision: Xử lý đẩy lùi thực thể kẹt trong thông đạo khi cổng đóng',
+    test3_7,
+    `Collided: ${resTrapped.collided} | ResolvedY: ${resTrapped.resolvedY}`
+  );
+
+  // Test 3.8: Tường vỡ (BREACHED)
+  collision.setWallState('LEFT', 'BREACHED', 0);
+  const resBreach = collision.resolveMovement(280, 800, 280, 860, RADIUS);
+  const test3_8 = !resBreach.collided && resBreach.passThroughReason === 'WALL_BREACHED';
+  recordTest(
+    'Production Collision: Tường Trái bị vỡ (BREACHED) cho phép tràn qua',
+    test3_8,
     `Collided: ${resBreach.collided} | Reason: ${resBreach.passThroughReason}`
   );
 

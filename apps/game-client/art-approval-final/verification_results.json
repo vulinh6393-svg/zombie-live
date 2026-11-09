@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-11-09T01:03:08.964Z",
-  "totalTests": 17,
-  "passed": 17,
+  "timestamp": "2026-11-09T02:49:22.539Z",
+  "totalTests": 21,
+  "passed": 21,
   "failed": 0,
   "notVerified": 0,
   "verdict": "PASS",
@@ -37,6 +37,11 @@
       "details": "Dim: 200x120 (Chuẩn: 200x120) | Alpha: [0..255] | Channels: 4"
     },
     {
+      "name": "Gate Frame Hollow Archway: Thông đạo rỗng, trụ thép nguyên vẹn",
+      "status": "PASS",
+      "details": "Tâm (150,100) Alpha: 0 (Yêu cầu: 0) | Trụ trái Alpha: 255 (Yêu cầu: >200)"
+    },
+    {
       "name": "Layout Docs: Loại bỏ tọa độ cũ y=1250/1340 của Cổng & Turret",
       "status": "PASS",
       "details": "Đã xóa hoàn toàn tọa độ cũ của Cổng và Turret"
@@ -47,39 +52,54 @@
       "details": "Gate 900: true | Turret 580: true | Collision 840: true"
     },
     {
-      "name": "BastionGeometryConfig: Giá trị typed SSOT chuẩn xác",
+      "name": "BastionGeometryConfig: Giá trị typed SSOT chuẩn xác (Tường 420px)",
       "status": "PASS",
-      "details": "Gate Y: 900 | Turret Y: 580 | Collision Y: 840"
+      "details": "Gate Y: 900 | Turret Y: 580 | Wall Width: 420px"
     },
     {
-      "name": "Collision Logic: Cổng ĐÓNG chặn đứng Zombie tại y=840 (ResolvedY=820)",
+      "name": "Production Collision: Cổng CLOSED chặn đứng cả 3 Lane tại y=840",
       "status": "PASS",
-      "details": "Collided: true | ResolvedY: 820 | Segment: GATE"
+      "details": "Alpha: 820 | Bravo: 820 | Charlie: 820"
     },
     {
-      "name": "Collision Logic: Cổng MỞ cho phép Zombie Bravo đi xuyên qua thông đạo",
+      "name": "Production Collision: Khoảng hở an toàn đạt chuẩn [507.5, 572.5] cho r=20",
+      "status": "PASS",
+      "details": "SafeMinX: 507.5 | SafeMaxX: 572.5 (Yêu cầu: [507.5, 572.5])"
+    },
+    {
+      "name": "Production Collision: Zombie đi đúng tâm Bravo (x=540) qua cổng an toàn",
       "status": "PASS",
       "details": "Collided: false | ResolvedY: 860 | Reason: GATE_OPEN"
     },
     {
-      "name": "Collision Logic: Cổng ĐÓNG LẠI tiếp tục chặn cứng Zombie tiếp theo",
+      "name": "Production Collision: Zombie chạm mép cánh cửa trái/phải bị chặn",
+      "status": "PASS",
+      "details": "Left (x=500) Blocked: true | Right (x=580) Blocked: true"
+    },
+    {
+      "name": "Production Collision: Lane Alpha & Charlie vẫn bị tường chặn dù Cổng Mở",
+      "status": "PASS",
+      "details": "Alpha: LEFT_WALL | Charlie: RIGHT_WALL"
+    },
+    {
+      "name": "Production Collision: Động học tức thời khi cánh cửa đang trượt",
+      "status": "PASS",
+      "details": "Corridor: [527.5..552.5] | Center (540): true | Edge (520): Blocked"
+    },
+    {
+      "name": "Production Collision: Xử lý đẩy lùi thực thể kẹt trong thông đạo khi cổng đóng",
       "status": "PASS",
       "details": "Collided: true | ResolvedY: 820"
     },
     {
-      "name": "Collision Logic: Lane Alpha & Charlie luôn bị tường chặn dù Cổng Mở",
-      "status": "PASS",
-      "details": "Alpha: LEFT_WALL (Blocked: true) | Charlie: RIGHT_WALL (Blocked: true)"
-    },
-    {
-      "name": "Collision Logic: Tường Trái vỡ (BREACHED) mở đường va chạm động",
+      "name": "Production Collision: Tường Trái bị vỡ (BREACHED) cho phép tràn qua",
       "status": "PASS",
       "details": "Collided: false | Reason: WALL_BREACHED"
     },
     {
       "name": "Runtime Video: art_integration_lab.webm",
       "status": "PASS",
-      "details": "Dung lượng: 3.82 MB (Yêu cầu >= 1MB)"
+      "details": "Dung lượng: 5.06 MB (Yêu cầu >= 1MB)"
     },
     {
       "name": "Mobile QA Screenshot: mobile_runtime_360x640.png",

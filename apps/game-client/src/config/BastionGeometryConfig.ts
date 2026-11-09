@@ -3,8 +3,6 @@
  * 
  * Toàn bộ hệ tọa độ pixel cho bản đồ chiến trường Bastion (1080x1920)
  * Được đo đạc và căn chỉnh trực tiếp từ ảnh Master: bastion_master_environment.png
- * 
- * Tuyệt đối không hardcode tọa độ tùy tiện ở các file khác.
  */
 
 export interface LaneAxis {
@@ -36,11 +34,15 @@ export interface BlastGateConfig {
   readonly centerY: number;
   readonly frameWidth: number;
   readonly frameHeight: number;
+  readonly doorWidth: number;
+  readonly doorHeight: number;
   readonly doorLeftClosedX: number;
   readonly doorLeftOpenX: number;
   readonly doorRightClosedX: number;
   readonly doorRightOpenX: number;
   readonly doorsY: number;
+  readonly portalXMin: number;
+  readonly portalXMax: number;
   readonly corridorXMin: number;
   readonly corridorXMax: number;
   readonly collisionY: number;
@@ -87,9 +89,9 @@ export const BASTION_GEOMETRY: BastionGeometry = {
     scaleRatio: 3.0,
   },
   lanes: [
-    { id: 0, name: 'ALPHA', centerX: 280, xMin: 80, xMax: 410 },
+    { id: 0, name: 'ALPHA', centerX: 280, xMin: 30, xMax: 410 },
     { id: 1, name: 'BRAVO', centerX: 540, xMin: 410, xMax: 670 },
-    { id: 2, name: 'CHARLIE', centerX: 800, xMin: 670, xMax: 1000 },
+    { id: 2, name: 'CHARLIE', centerX: 800, xMin: 670, xMax: 1050 },
   ],
   collisionLineY: 840,
   turrets: [
@@ -98,21 +100,25 @@ export const BASTION_GEOMETRY: BastionGeometry = {
     { laneId: 2, x: 800, y: 580, platformSize: 130 },
   ],
   walls: [
-    { id: 'LEFT', centerX: 240, centerY: 900, width: 320, height: 120, collisionY: 840 },
-    { id: 'RIGHT', centerX: 840, centerY: 900, width: 320, height: 120, collisionY: 840 },
+    { id: 'LEFT', centerX: 240, centerY: 900, width: 420, height: 130, collisionY: 840 },
+    { id: 'RIGHT', centerX: 840, centerY: 900, width: 420, height: 130, collisionY: 840 },
   ],
   blastGate: {
     centerX: 540,
     centerY: 900,
     frameWidth: 300,
     frameHeight: 160,
+    doorWidth: 115,
+    doorHeight: 120,
     doorLeftClosedX: 483,
     doorLeftOpenX: 430,
     doorRightClosedX: 597,
     doorRightOpenX: 650,
     doorsY: 908,
-    corridorXMin: 410,
-    corridorXMax: 670,
+    portalXMin: 458,
+    portalXMax: 622,
+    corridorXMin: 390,
+    corridorXMax: 690,
     collisionY: 840,
   },
   soldiers: [
