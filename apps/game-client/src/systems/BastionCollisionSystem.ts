@@ -1,4 +1,4 @@
-import { BASTION_GEOMETRY } from '../config/BastionGeometryConfig';
+import { BASTION_GEOMETRY } from '../config/BastionGeometryConfig.js';
 
 export type GateCollisionState = 'CLOSED' | 'OPENING' | 'OPEN' | 'CLOSING';
 export type WallCollisionState = 'INTACT' | 'DAMAGED' | 'BREACHED';

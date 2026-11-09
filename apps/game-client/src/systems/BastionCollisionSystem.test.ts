@@ -111,6 +111,27 @@ describe('BastionCollisionSystem (Production Vitest Suite)', () => {
       expect(resTrapped.resolvedY).toBe(840 - ENTITY_RADIUS);
       expect(resTrapped.segment).toBe('GATE');
     });
+
+    it('chuyển mượt mà từ bị chặn sang được phép đi tiếp khi cửa mở đủ rộng (CLOSED -> OPENING -> OPEN)', () => {
+      // 1. Cổng ban đầu đóng: Zombie bị chặn tại 820
+      collisionSystem.setGateState('CLOSED');
+      const step1 = collisionSystem.resolveMovement(540, 800, 540, 840, ENTITY_RADIUS);
+      expect(step1.collided).toBe(true);
+      expect(step1.resolvedY).toBe(820);
+
+      // 2. Cổng bắt đầu mở nhưng chưa đủ rộng (doorLeftX = 475, doorRightX = 605)
+      collisionSystem.setGateState('OPENING');
+      collisionSystem.updateGateDoors(475, 605);
+      const step2 = collisionSystem.resolveMovement(540, 820, 540, 840, ENTITY_RADIUS);
+      expect(step2.collided).toBe(true);
+
+      // 3. Cổng tiếp tục mở rộng tới x=440, 640 (khoảng an toàn [517.5, 562.5])
+      collisionSystem.updateGateDoors(440, 640);
+      const step3 = collisionSystem.resolveMovement(540, 820, 540, 860, ENTITY_RADIUS);
+      expect(step3.collided).toBe(false);
+      expect(step3.resolvedY).toBe(860);
+      expect(step3.passThroughReason).toBe('GATE_OPEN');
+    });
   });
 
   describe('4. Trạng Thái Tường Bị Phá Vỡ (BREACHED Wall)', () => {

@@ -36,7 +36,7 @@ export class BattlefieldScene extends Phaser.Scene {
 
   // Environment & Fortress
   private fortressRenderer!: FortressRenderer;
-  private layoutVariant: 'highway' | 'bastion' = 'highway';
+  private layoutVariant: 'highway' | 'bastion' = 'bastion';
   private lastBaseHp: number = 10000;
   private lastBaseHitTime: number = 0;
 
@@ -63,6 +63,22 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   preload() {
+    const safeLoad = (key: string, url: string) => {
+      if (!this.textures.exists(key)) {
+        this.load.image(key, url);
+      }
+    };
+
+    // 1. Bastion Master Architecture Sprites
+    safeLoad('clean_plate', 'assets/concept/bastion_clean_environment.png');
+    safeLoad('bastion_wall', 'assets/environment/bastion/bastion_wall_segment.png');
+    safeLoad('bastion_gate_frame', 'assets/environment/bastion/bastion_gate_frame.png');
+    safeLoad('bastion_door_left', 'assets/environment/bastion/bastion_gate_door_left.png');
+    safeLoad('bastion_door_right', 'assets/environment/bastion/bastion_gate_door_right.png');
+    safeLoad('bastion_turret_pad', 'assets/environment/bastion/bastion_turret_platform.png');
+    safeLoad('wall_damage_overlay', 'assets/environment/bastion/wall_damage_overlay.png');
+
+    // 2. Character & Weapon Sprite Sheets
     SpriteAssetLoader.loadAll(this);
     TextureGenerator.generateProps(this);
   }
@@ -78,7 +94,7 @@ export class BattlefieldScene extends Phaser.Scene {
       this.currentFormationMode = reqFormation;
     }
 
-    const reqLayout = urlParams.get('layout') === '2' ? 'bastion' : 'highway';
+    const reqLayout = urlParams.get('layout') === 'highway' ? 'highway' : 'bastion';
     this.layoutVariant = reqLayout;
 
     // 1. Draw 9:16 Natural Highway & Architectural Military Fortress
@@ -247,97 +263,32 @@ export class BattlefieldScene extends Phaser.Scene {
     vignette.fillRect(roadX + roadW + 16, 0, width - (roadX + roadW + 16), height);
   }
 
-  // Layout B: Fortified Bastion Outpost (Enclosed Military Courtyard Plaza - No Highway!)
+  // Layout B: Fortified Bastion Outpost (SSOT Geometry & Master Environment)
   private createBastionMap(): void {
-    const width = 1080;
-    const height = 1920;
+    // 1. Clean Environment Plate (Depth 1) - Verified zero baked gates or turrets
+    this.add.image(540, 960, 'clean_plate').setDepth(1);
 
-    // Dark barren wasteland terrain surrounding the citadel
-    const ground = this.add.graphics().setDepth(0);
-    ground.fillStyle(0x080b10, 1);
-    ground.fillRect(0, 0, width, height);
-
-    // Central Bastion Courtyard Staging Plaza (Stone & Reinforced Slabs)
-    const plaza = this.add.graphics().setDepth(2);
-    plaza.fillStyle(0x161c26, 1);
-    plaza.fillRect(90, 320, width - 180, 1080);
-
-    // Stone paving joints & grid lines
-    plaza.lineStyle(1.5, 0x242e3f, 0.7);
-    for (let x = 150; x < width - 150; x += 130) {
-      plaza.lineBetween(x, 320, x, 1400);
-    }
-    for (let y = 350; y < 1400; y += 90) {
-      plaza.lineBetween(90, y, width - 90, y);
-    }
-
-    // Heavy Fortified Left Rampart (Flank Defense)
-    const ramparts = this.add.graphics().setDepth(3);
-    ramparts.fillStyle(0x232c3d, 1);
-    ramparts.fillRect(30, 300, 110, 1100);
-    ramparts.fillRect(width - 140, 300, 110, 1100);
-
-    // Battlements & embrasures on flanking ramparts
-    ramparts.fillStyle(0x3a4860, 1);
-    for (let y = 320; y < 1380; y += 80) {
-      ramparts.fillRect(35, y, 25, 45);
-      ramparts.fillRect(width - 60, y, 25, 45);
-    }
-
-    // Drop shadows from flank ramparts
-    ramparts.fillStyle(0x000000, 0.6);
-    ramparts.fillRect(140, 300, 20, 1100);
-    ramparts.fillRect(width - 160, 300, 20, 1100);
-
-    // 3 Breach Funnels at the top (Alpha: 260, Bravo: 540, Charlie: 820)
-    ramparts.fillStyle(0xd97706, 0.85); // Hazard caution bars at breaches
-    ramparts.fillRect(210, 330, 100, 12);
-    ramparts.fillRect(490, 330, 100, 12);
-    ramparts.fillRect(770, 330, 100, 12);
-
-    // Bastion Courtyard Barricades & Forward Redoubts
-    const bastionLanes = [260, 540, 820];
-    for (const bx of bastionLanes) {
-      this.add.image(bx - 65, 1210, 'fortress_sandbags').setScale(1.0).setDepth(8);
-      this.add.image(bx + 65, 1210, 'fortress_sandbags').setScale(1.0).setDepth(8);
-      this.add.image(bx, 1180, 'fortress_barricade').setScale(1.0).setDepth(8);
-      this.add.image(bx - 120, 1200, 'ammo_crate').setScale(0.9).setDepth(8);
-      this.add.image(bx + 120, 1200, 'ammo_crate').setScale(0.9).setDepth(8);
-    }
-
-    // Bastion Floodlights illuminating the 3 entry funnels
+    // 2. Bastion Tactical Spotlights (Cold cyan illumination along 3 defense funnels)
     const spotlights = this.add.graphics().setDepth(4);
-    spotlights.fillStyle(0x38bdf8, 0.09); // Cold tactical cyan lighting
+    spotlights.fillStyle(0x38bdf8, 0.08);
     spotlights.beginPath();
-    spotlights.moveTo(260, 1330); spotlights.lineTo(170, 360); spotlights.lineTo(350, 360); spotlights.closePath();
-    spotlights.moveTo(540, 1300); spotlights.lineTo(440, 360); spotlights.lineTo(640, 360); spotlights.closePath();
-    spotlights.moveTo(820, 1330); spotlights.lineTo(730, 360); spotlights.lineTo(910, 360); spotlights.closePath();
+    spotlights.moveTo(280, 580); spotlights.lineTo(160, 240); spotlights.lineTo(400, 240); spotlights.closePath();
+    spotlights.moveTo(540, 580); spotlights.lineTo(420, 240); spotlights.lineTo(660, 240); spotlights.closePath();
+    spotlights.moveTo(800, 580); spotlights.lineTo(680, 240); spotlights.lineTo(920, 240); spotlights.closePath();
     spotlights.fillPath();
     spotlights.setBlendMode(Phaser.BlendModes.ADD);
 
-    // High-Fidelity Fortress
-    this.fortressRenderer = new FortressRenderer(this, 'bastion');
-
-    // Outer darkness vignette
-    const vignette = this.add.graphics().setDepth(26);
-    vignette.fillStyle(0x040609, 0.8);
-    vignette.fillRect(0, 0, 30, height);
-    vignette.fillRect(width - 30, 0, 30, height);
+    // 3. Assemble Full Semi-Realistic Bastion Architecture
+    this.fortressRenderer = new FortressRenderer(this, 'CLOSED');
   }
 
   private createFortressTurrets(): void {
-    const isBastion = this.layoutVariant === 'bastion';
-    const turretPositions = isBastion
-      ? [
-          { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 230, y: 1300, level: 1 },
-          { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1260, level: 1 },
-          { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 850, y: 1300, level: 1 },
-        ]
-      : [
-          { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 260, y: 1330, level: 1 },
-          { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 1310, level: 1 },
-          { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 820, y: 1330, level: 1 },
-        ];
+    // Mounted directly on top of the 3 SSOT Hexagonal Concrete Turret Pads at y=580
+    const turretPositions = [
+      { id: 'turret_alpha', name: 'Ụ Pháo Alpha', type: 'machinegun' as const, x: 280, y: 580, level: 1 },
+      { id: 'turret_bravo', name: 'Ụ Pháo Bravo', type: 'plasma' as const, x: 540, y: 580, level: 1 },
+      { id: 'turret_charlie', name: 'Ụ Pháo Charlie', type: 'tesla' as const, x: 800, y: 580, level: 1 },
+    ];
 
     for (const t of turretPositions) {
       const tower = new TowerRenderer(this, t);
@@ -427,6 +378,15 @@ export class BattlefieldScene extends Phaser.Scene {
       const existing = this.zombies.get(z.id);
       if (existing) {
         existing.updateSnapshot(z);
+        // Automatic state transition at collision boundary (y=840)
+        if (z.y >= 800 && !existing.isDead) {
+          const col = this.fortressRenderer.getCollisionSystem().resolveMovement(z.x, z.y, z.x, z.y + 10, 20);
+          if (col.collided) {
+            existing.playState('attack');
+          } else {
+            existing.playState('walk');
+          }
+        }
       } else {
         const renderer = new ZombieRenderer(this, z, DEFAULT_SCALE_TIER, this.debugEntities);
         this.zombies.set(z.id, renderer);
@@ -448,12 +408,12 @@ export class BattlefieldScene extends Phaser.Scene {
 
   // LOCALIZED BASE HIT REACTION (P0 Fix: Never covers full screen in red!)
   private triggerBaseHitReaction(): void {
-    // Localized spark burst and border flicker along wall at y: 1380
+    // Localized spark burst and border flicker along wall at y: 900
     const spark = this.add.graphics().setDepth(35);
     spark.fillStyle(0xff3333, 0.85);
-    spark.fillRoundedRect(50, 1380, 1080 - 100, 65, 8);
+    spark.fillRoundedRect(50, 900, 1080 - 100, 65, 8);
     spark.lineStyle(4, 0xff0055, 1);
-    spark.strokeRoundedRect(50, 1380, 1080 - 100, 65, 8);
+    spark.strokeRoundedRect(50, 900, 1080 - 100, 65, 8);
 
     this.cameras.main.shake(150, 0.005);
 
@@ -576,7 +536,7 @@ export class BattlefieldScene extends Phaser.Scene {
       spawn10Zombies: () => {
         for (let i = 0; i < 10; i++) {
           const lane = i % 3;
-          const lanesX = [260, 540, 820];
+          const lanesX = [280, 540, 800];
           const zSnapshot: ZombieSnapshot = {
             id: `walker_bench_${Date.now()}_${i}`,
             type: 'walker',
@@ -595,7 +555,7 @@ export class BattlefieldScene extends Phaser.Scene {
       spawn30Entities: () => {
         for (let i = 0; i < 20; i++) {
           const lane = i % 3;
-          const lanesX = [260, 540, 820];
+          const lanesX = [280, 540, 800];
           const zSnapshot: ZombieSnapshot = {
             id: `walker_swarm_${Date.now()}_${i}`,
             type: 'walker',
@@ -614,7 +574,7 @@ export class BattlefieldScene extends Phaser.Scene {
       spawn50Entities: () => {
         for (let i = 0; i < 40; i++) {
           const lane = i % 3;
-          const lanesX = [260, 540, 820];
+          const lanesX = [280, 540, 800];
           const zSnapshot: ZombieSnapshot = {
             id: `walker_horde_${Date.now()}_${i}`,
             type: 'walker',
@@ -627,6 +587,20 @@ export class BattlefieldScene extends Phaser.Scene {
           };
           const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
           this.zombies.set(zSnapshot.id, z);
+        }
+      },
+
+      openGate: () => {
+        this.fortressRenderer.openGate();
+        if ((this.snapshotSource as any)?.setGateState) {
+          (this.snapshotSource as any).setGateState('OPEN');
+        }
+      },
+
+      closeGate: () => {
+        this.fortressRenderer.closeGate();
+        if ((this.snapshotSource as any)?.setGateState) {
+          (this.snapshotSource as any).setGateState('CLOSED');
         }
       },
 

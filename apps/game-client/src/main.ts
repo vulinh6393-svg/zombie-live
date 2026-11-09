@@ -43,7 +43,6 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [QualityLabScene, BattlefieldScene, ContactSheetScene, FortressArtScene, ArtIntegrationLabScene],
 };
 
 let gameInstance: Phaser.Game | null = null;
@@ -56,6 +55,13 @@ if (typeof window !== 'undefined') {
     }
 
     gameInstance = new Phaser.Game(phaserGameConfig);
+
+    // Register all scenes with autoStart = false to prevent duplicate preloads & texture collision
+    gameInstance.scene.add('BattlefieldScene', BattlefieldScene, false);
+    gameInstance.scene.add('QualityLabScene', QualityLabScene, false);
+    gameInstance.scene.add('FortressArtScene', FortressArtScene, false);
+    gameInstance.scene.add('ArtIntegrationLabScene', ArtIntegrationLabScene, false);
+    gameInstance.scene.add('ContactSheetScene', ContactSheetScene, false);
 
     if (isArtLab) {
       gameInstance.scene.start('ArtIntegrationLabScene');

@@ -18,6 +18,9 @@ export class TextureGenerator {
   }
 
   public static generateProps(scene: Phaser.Scene): void {
+    if (scene.textures.exists('traffic_cone')) {
+      return;
+    }
     // 1. Traffic Cone (Côn giao thông) - Top-down with reflective ring
     let g = scene.make.graphics({ x: 0, y: 0 });
     g.fillStyle(0x000000, 0.45);

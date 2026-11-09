@@ -13,6 +13,15 @@ export class MockSnapshotSource implements GameSnapshotSource {
   private currentBaseHp: number = 9850;
   private deadZombieIds: Set<string> = new Set();
   private activeGiftSkill?: { skillId: string; name: string; remainingSeconds: number; senderName?: string };
+  private gateState: 'CLOSED' | 'OPEN' = 'CLOSED';
+
+  public setGateState(state: 'CLOSED' | 'OPEN'): void {
+    this.gateState = state;
+  }
+
+  public getGateState(): 'CLOSED' | 'OPEN' {
+    return this.gateState;
+  }
 
   public killAuthoritativeZombie(zombieId?: string): { killedId: string; aliveCount: number } {
     let targetId = zombieId;
@@ -88,9 +97,9 @@ export class MockSnapshotSource implements GameSnapshotSource {
     const elapsedSeconds = Math.floor(this.tickCount / 10);
 
     const towers: TowerSnapshot[] = [
-      { id: 'turret_alpha', type: 'machinegun', name: 'Ụ Pháo Alpha', x: 260, y: 1450, level: 2 },
-      { id: 'turret_bravo', type: 'plasma', name: 'Ụ Pháo Bravo', x: 540, y: 1430, level: 3 },
-      { id: 'turret_charlie', type: 'tesla', name: 'Ụ Pháo Charlie', x: 820, y: 1450, level: 2 },
+      { id: 'turret_alpha', type: 'machinegun', name: 'Ụ Pháo Alpha', x: 280, y: 580, level: 2 },
+      { id: 'turret_bravo', type: 'plasma', name: 'Ụ Pháo Bravo', x: 540, y: 580, level: 3 },
+      { id: 'turret_charlie', type: 'tesla', name: 'Ụ Pháo Charlie', x: 800, y: 580, level: 2 },
     ];
 
     const mvpPlayers = [
@@ -190,7 +199,7 @@ export class MockSnapshotSource implements GameSnapshotSource {
 
     // STANDARD BATTLEFIELD WAVES: 10+ real walker zombies marching in 3 lanes
     const zombies: ZombieSnapshot[] = [];
-    const lanes = [260, 540, 820];
+    const lanes = [280, 540, 800];
     const totalZombies = this.currentScenario === 'wave1' ? 6 : 10;
 
     for (let i = 0; i < totalZombies; i++) {
@@ -198,10 +207,11 @@ export class MockSnapshotSource implements GameSnapshotSource {
       const laneX = lanes[lane];
       const id = `walker_lane_${lane}_${i}`;
       const isDead = this.deadZombieIds.has(id);
-      // March down from y: 320 towards y: 1250 (defense line)
+      // March down from y: 220 towards defense line y: 840 (or through open gate in Lane Bravo)
       const speed = 2.4;
-      const initialOffset = i * 95;
-      const currentY = ((initialOffset + this.tickCount * speed) % 950) + 320;
+      const initialOffset = i * 70;
+      const maxY = (lane === 1 && this.gateState === 'OPEN') ? 1020 : 840;
+      const currentY = Math.min(maxY, 220 + ((initialOffset + this.tickCount * speed) % 850));
 
       zombies.push({
         id,
@@ -255,9 +265,9 @@ export class MockSnapshotSource implements GameSnapshotSource {
   private generateSoldiers(count: number = 3): SoldierSnapshot[] {
     const soldiers: SoldierSnapshot[] = [];
     const squads = [
-      { id: 'alpha', cx: 260, cy: 1320, role: 'Đại Diện' },
-      { id: 'bravo', cx: 540, cy: 1300, role: 'Đại Diện' },
-      { id: 'charlie', cx: 820, cy: 1320, role: 'Đại Diện' },
+      { id: 'alpha', cx: 280, cy: 1030, role: 'Đại Diện' },
+      { id: 'bravo', cx: 540, cy: 1050, role: 'Đại Diện' },
+      { id: 'charlie', cx: 800, cy: 1030, role: 'Đại Diện' },
     ];
 
     for (let i = 0; i < squads.length; i++) {

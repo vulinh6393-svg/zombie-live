@@ -226,6 +226,17 @@ export class ZombieRenderer {
     const lerpFactor = Math.min(1, (deltaMs / 100) * 1.5);
     this.container.x = Phaser.Math.Linear(this.container.x, this.targetX, lerpFactor);
     this.container.y = Phaser.Math.Linear(this.container.y, this.targetY, lerpFactor);
+
+    // Cập nhật hoạt ảnh trạng thái: Tấn công khi chạm ranh giới phòng thủ (y ~ 840), di chuyển khi đang hành quân hoặc thông cổng
+    if (this.container.y >= 835 && this.targetY <= 845) {
+      if (this.currentState !== 'attack') {
+        this.playState('attack');
+      }
+    } else if (this.container.y < 835 || this.targetY > 850) {
+      if (this.currentState === 'attack') {
+        this.playState('walk');
+      }
+    }
   }
 
   public destroy(): void {

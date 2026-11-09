@@ -243,14 +243,7 @@
   - [ ] Cập nhật `player.html`.
   - [ ] Dừng lại chờ User nghiệm thu.
 
-## Giai đoạn 02.8: Final Art Gate Targeted Correction Round (ĐANG THỰC HIỆN)
-> **Mục tiêu**: Xử lý triệt để 5 vấn đề còn lại theo yêu cầu kiểm toán commit `ecb1463`:
-> 1. **TASK 1 — Sửa Cổng Baked (P0)**: Xóa hoàn toàn 2 cánh cửa tĩnh bên trong `bastion_gate_frame.png`, tạo khoảng thông đạo rỗng có alpha trong suốt 100%. Khung cổng chỉ chứa trụ, dầm ngang và pít-tông; 2 cánh trượt `bastion_gate_door_left.png` và `bastion_gate_door_right.png` trượt mở để lộ sàn sạch không còn bóng ma cửa cũ.
-> 2. **TASK 2 — Chuẩn Hóa Hình Học & Va Chạm Động (P0)**: Cập nhật `BastionCollisionSystem.ts` tính toán khoảng hở cổng dựa trên cạnh thực của cánh cửa ($x_{\text{inner}} = \text{doorX} \pm w/2$) và bán kính zombie ($r=20$): vùng an toàn thực tế $507.5 < x < 572.5$. Đồng bộ chiều rộng tường 420px giữa sprite và config.
-> 3. **TASK 3 — Kiểm Thử Trực Tiếp Từ Mã Nguồn Thật (P0)**: Viết test Vitest `BastionCollisionSystem.test.ts` và cập nhật `run-verification.js` import trực tiếp `BastionCollisionSystem.ts` và `BastionGeometryConfig.ts` (không dùng code copy/inline).
-> 4. **TASK 4 — Chuỗi Animation Thực & Quản Lý State HP/Death (P1)**: Đăng ký Phaser `anims.create` đa frame cho Survivor (`idle`, `shoot`) và Zombie (`move`, `attack`). Khi bị bắn, trừ HP thật sự, cập nhật `hp = 0`, `isDead = true`, đồng bộ thanh máu và state nội bộ.
-> 5. **TASK 5 — Đóng Gói, Ghi Hình & Đẩy GitHub**: Quay video runtime WebGL mới, chụp screenshot cổng đóng vs mở, chụp mobile 360×640, đóng gói `zombie_art_gate_p0_fixed.zip`, commit và push GitHub.
-
+## Giai đoạn 02.8: Final Art Gate Targeted Correction Round (ĐÃ NGHIỆM THU VERTICAL SLICE - COMMIT 3d3187f)
 - [x] **TASK 1 — Xử lý triệt để Gate Frame không chứa cánh cửa tĩnh (P0)**:
   - [x] Cắt rỗng vùng thông đạo trung tâm $x \in [68..232], y \in [44..158]$ của `bastion_gate_frame.png` thành alpha trong suốt 100%.
   - [x] Kiểm tra điểm ảnh thực: Tâm $(150, 100) = (0,0,0,0)$, trụ trái $(30, 80) = (21,21,19,255)$.
@@ -271,7 +264,51 @@
   - [x] Chụp screenshot side-by-side: Cổng đóng vs Cổng mở `gate_closed_vs_open_proof.png` (từ cùng góc camera, chứng minh thông đạo sạch 100%).
   - [x] Chụp ảnh Mobile QA 360×640 `mobile_runtime_360x640.png`.
   - [x] Cập nhật `player.html` và file zip `zombie_art_gate_p0_fixed.zip` (17.5 MB tại Scratch và Brain).
-  - [x] Git commit và push remote `vulinh6393-svg/zombie-live` trên nhánh `feat/phase02-visual-refinement`.
+  - [x] Git commit `3d3187f` và push remote `vulinh6393-svg/zombie-live` trên nhánh `feat/phase02-visual-refinement`.
+
+## Giai đoạn 02.9: Main Battlefield Integration (PHASE 02.6 THEO PHÊ DUYỆT CỦA USER)
+> **Mục tiêu**: Chính thức kết thúc chuỗi Art Gate; chuyển sang tích hợp chiến trường chính `BattlefieldScene.ts` với tổ hợp kiến trúc Bastion Master và giải quyết triệt để lỗi state machine zombie cổng mở.
+> 
+> **Quy trình triển khai**:
+> 1. **P0 — Fix Zombie Gate State Machine & Chuẩn Hóa Ranh Giới Lane**:
+>    - Sửa state machine trong `ArtIntegrationLabScene.ts`: Mỗi tick đều đánh giá lại khả năng di chuyển khi vật cản thay đổi. Khi cổng mở đủ rộng cho bán kính $r=20$, Zombie Bravo tự động chuyển từ `walker-attack` về `walker-walk` và tiếp tục hành quân qua cổng.
+>    - Thống nhất ranh giới 3 lane SSOT: Alpha $[30..390)$, Bravo $[390..690]$, Charlie $(690..1050]$ giữa `BastionGeometryConfig.ts`, `BASTION_MASTER_LAYOUT.md` và mã nguồn server.
+> 2. **P0 — Tích hợp Kiến trúc Bastion Master vào BattlefieldScene**:
+>    - Nâng cấp `FortressRenderer.ts` và `BattlefieldScene.ts` sử dụng trọn bộ sprite bán hiện thực: `clean_plate`, khung cổng rỗng, 2 cánh cửa trượt động, tường 420px, 3 bệ pháo lục giác $y=580$, vạch va chạm $y=840$.
+>    - Tách bạch rõ các module: Render, Geometry SSOT, Collision và Combat Effects.
+> 3. **P0 — Bảo Toàn Tính Server-Authoritative**:
+>    - Client chỉ render snapshot và nội suy chuyển động (lerp). Mọi quyết định về HP, sát thương, kết quả trận đấu đều do Snapshot / Server quyết định.
+> 4. **P1 — Tích hợp Gameplay Đầy Đủ (Mock Mode Gameplay Loop)**:
+>    - Vận hành trận địa tự động 3 lane, 3 squad phòng thủ (với Staggered Formation chống overlap), 3 ụ pháo tự động xoay và bắn tỉa.
+>    - Animation đa frame mượt mà cho Survivor và Zombie Walker; hiển thị vệt đạn, tia lửa nòng súng, sát thương số nảy, animation chết và xác zombie `zombie_corpse_0`.
+>    - Đồng bộ HUD Base HP, Wave Timer, Top Leaderboard, và hiệu ứng Gift Missile/Airstrike.
+> 5. **P1 — QA, E2E Test, Video Gameplay 30s & Đóng Gói**:
+>    - Unit test Vitest và kiểm thử tích hợp cho `BattlefieldScene`.
+>    - Ghi hình video gameplay thực tế $\ge 30$ giây `battlefield_gameplay_30s.webm`.
+>    - Chụp screenshot 1080×1920 (`battlefield_main_1080x1920.png`) và mobile 360×640 (`battlefield_mobile_360x640.png`).
+>    - Đo đạc FPS thực tế và kiểm tra 0 lỗi console runtime.
+>    - Git commit và push remote `vulinh6393-svg/zombie-live` trên nhánh `feat/phase02-visual-refinement`.
+
+- [x] **Bước 1: Sửa lỗi Zombie Gate State Machine & Chuẩn hóa Ranh giới Lane (P0)**:
+  - [x] Sửa logic update trong `ArtIntegrationLabScene.ts`: Đánh giá lại va chạm liên tục mỗi tick kể cả khi `isAttacking === true`. Khi thông đạo đủ rộng, zombie tự động chuyển trạng thái `isAttacking = false`, play `walker-walk` và đi qua cổng.
+  - [x] Chuẩn hóa ranh giới lane trong `BastionGeometryConfig.ts`: Alpha $[30..390)$, Bravo $[390..690]$, Charlie $(690..1050]$.
+  - [x] Chạy unit test Vitest xác nhận pass (16/16 tests pass).
+- [x] **Bước 2: Nâng cấp FortressRenderer & Tích hợp vào BattlefieldScene (P0)**:
+  - [x] Cập nhật `FortressRenderer.ts` hỗ trợ kiến trúc Bastion SSOT ($y=900$ tường & cổng, $y=580$ bệ pháo, $y=840$ collision boundary, 2 cánh cửa trượt động).
+  - [x] Cập nhật `BattlefieldScene.ts` render nền sạch `bastion_clean_environment.png`, tổ hợp công trình Bastion và vạch phòng tuyến $y=840$.
+  - [x] Tích hợp cơ chế đóng/mở cổng đồng bộ với snapshot hoặc sự kiện chiến trường.
+- [x] **Bước 3: Tích hợp Gameplay, Animation Chuỗi & VFX Hoàn Chỉnh (P1)**:
+  - [x] Đảm bảo 3 squad lính phòng thủ sử dụng animation đa frame Riley Gombart (`survivor-idle`, `survivor-shoot`).
+  - [x] Đảm bảo Zombie Walker chạy `walker-walk`, `walker-attack` khi chạm ranh giới $y=840$, và hiển thị `zombie_corpse_0` khi chết.
+  - [x] 3 ụ pháo xoay 360° theo mục tiêu từng lane, có giật nòng và tia lửa.
+  - [x] Hiệu ứng quà tặng Gift Skill (Missile / Airstrike) nổ rực sáng trên chiến trường.
+- [x] **Bước 4: Kiểm Thử E2E, Ghi Video $\ge 30$s & Đo Đạc Hiệu Năng (P1)**:
+  - [x] Chạy Playwright ghi video gameplay chiến trường chính 32 giây (`battlefield_gameplay_30s.webm` 20.6 MB).
+  - [x] Chụp ảnh 1080×1920 (`battlefield_main_1080x1920.png`) và mobile 360×640 (`battlefield_mobile_360x640.png`).
+  - [x] Đo FPS thực tế: Trung bình 59.5 FPS (Min: 53, Max: 61, p95: 16.8ms), 0 lỗi console.
+  - [x] Chạy `pnpm -r run typecheck` (0 errors) và `pnpm test` (16/16 tests pass).
+- [x] **Bước 5: Commit & Push GitHub (feat/phase02-visual-refinement)**:
+  - [x] Đẩy toàn bộ thay đổi lên GitHub để người dùng và ChatGPT review trực tiếp.
 > **Mục tiêu**: Xử lý triệt để 5 vấn đề cốt lõi do Người Dùng chỉ ra:
 > 1. **Mỹ thuật Thật (Không dùng Procedural Canvas)**: Tạo bộ sprite bán hiện thực tả thực (weathered concrete, heavy steel, bolts, hazard paint) đồng bộ 100% với Master Bastion Concept bằng quy trình đồ họa chất lượng cao (subagent image-generator + alpha extraction sạch).
 > 2. **Chuẩn hóa Hình học Duy Nhất (Single Source of Truth Geometry)**: Viết file config TypeScript `BastionGeometryConfig.ts` và đồng bộ từng pixel vào `BASTION_MASTER_LAYOUT.md` (Cổng y=900, Turret y=580, Collision Boundary y=840).

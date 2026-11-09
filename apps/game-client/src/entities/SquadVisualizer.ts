@@ -73,11 +73,11 @@ export class SquadVisualizer {
     this.formationMode = initialMode;
     this.debugEntities = debugEntities;
 
-    // Defense Line coordinates: y: 1330 (Behind barricades, in front of fortress wall)
+    // Defense Line coordinates: Behind fortress wall in courtyard staging area (y: 1030-1050)
     const squadDefs: SquadData[] = [
-      { id: 'alpha', name: 'ALPHA', laneIndex: 0, centerX: 260, centerY: 1340, totalMembers: 12, color: '#00f5d4' },
-      { id: 'bravo', name: 'BRAVO', laneIndex: 1, centerX: 540, centerY: 1320, totalMembers: 18, color: '#fee440' },
-      { id: 'charlie', name: 'CHARLIE', laneIndex: 2, centerX: 820, centerY: 1340, totalMembers: 10, color: '#f72585' },
+      { id: 'alpha', name: 'ALPHA', laneIndex: 0, centerX: 280, centerY: 1030, totalMembers: 12, color: '#00f5d4' },
+      { id: 'bravo', name: 'BRAVO', laneIndex: 1, centerX: 540, centerY: 1050, totalMembers: 18, color: '#fee440' },
+      { id: 'charlie', name: 'CHARLIE', laneIndex: 2, centerX: 800, centerY: 1030, totalMembers: 10, color: '#f72585' },
     ];
 
     for (const sq of squadDefs) {

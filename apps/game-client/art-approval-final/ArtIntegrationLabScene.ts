@@ -431,33 +431,35 @@ export class ArtIntegrationLabScene extends Phaser.Scene {
       this.enterPhase(nextPhase);
     }
 
-    // --- REAL DYNAMIC COLLISION RESOLUTION IN GAME LOOP ---
+    // --- REAL DYNAMIC COLLISION & CONTINUOUS STATE EVALUATION ---
     let blockedCount = 0;
 
     this.zombies.forEach((z) => {
       if (z.isDead) return;
 
-      if (!z.isAttacking) {
-        // Compute prospective next position based on velocity
-        const nextY = z.y + z.vy * dt;
-        // Test collision against Bastion defense geometry
-        const res: CollisionResult = this.collisionSystem.resolveMovement(z.x, z.y, z.x, nextY, 20);
+      // Calculate prospective next position based on velocity
+      const nextY = z.y + z.vy * dt;
+      // Re-evaluate collision against defense geometry on EVERY tick
+      const res: CollisionResult = this.collisionSystem.resolveMovement(z.x, z.y, z.x, nextY, 20);
 
-        z.x = res.resolvedX;
-        z.y = res.resolvedY;
-        z.container.setPosition(z.x, z.y);
+      z.x = res.resolvedX;
+      z.y = res.resolvedY;
+      z.container.setPosition(z.x, z.y);
 
-        if (res.collided) {
-          // Collision detected! Entity halted at boundary!
-          blockedCount++;
+      if (res.collided) {
+        // Obstacle blocking movement
+        blockedCount++;
+        if (!z.isAttacking) {
           z.isAttacking = true;
           z.sprite.play('walker-attack');
-        } else if (res.passThroughReason === 'GATE_OPEN') {
-          // Successfully breached open gate corridor! Continue forward
         }
       } else {
-        // Attacking obstacle
-        blockedCount++;
+        // Path is open and clear (e.g., Gate corridor opened wide enough or beyond wall)
+        if (z.isAttacking) {
+          // Obstacle cleared! Auto-resume forward advance!
+          z.isAttacking = false;
+          z.sprite.play('walker-walk');
+        }
       }
     });
 

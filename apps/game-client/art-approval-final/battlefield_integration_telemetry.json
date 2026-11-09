@@ -1,0 +1,19 @@
+{
+  "totalDurationSeconds": 32,
+  "fpsMetrics": {
+    "averageFps": 59.5,
+    "minFps": 53,
+    "maxFps": 61,
+    "samplesCount": 31,
+    "p95FrameTimeMs": 16.799999999999272
+  },
+  "consoleErrorsCount": 0,
+  "consoleErrors": [],
+  "videoFile": "battlefield_gameplay_30s.webm",
+  "videoSizeBytes": 21628574,
+  "screenshots": {
+    "main1080x1920": "battlefield_main_1080x1920.png",
+    "mobile360x640": "battlefield_mobile_360x640.png"
+  },
+  "verdict": "PASS"
+}

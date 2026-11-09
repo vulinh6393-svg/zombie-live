@@ -89,9 +89,9 @@ export const BASTION_GEOMETRY: BastionGeometry = {
     scaleRatio: 3.0,
   },
   lanes: [
-    { id: 0, name: 'ALPHA', centerX: 280, xMin: 30, xMax: 410 },
-    { id: 1, name: 'BRAVO', centerX: 540, xMin: 410, xMax: 670 },
-    { id: 2, name: 'CHARLIE', centerX: 800, xMin: 670, xMax: 1050 },
+    { id: 0, name: 'ALPHA', centerX: 280, xMin: 30, xMax: 390 },
+    { id: 1, name: 'BRAVO', centerX: 540, xMin: 390, xMax: 690 },
+    { id: 2, name: 'CHARLIE', centerX: 800, xMin: 690, xMax: 1050 },
   ],
   collisionLineY: 840,
   turrets: [
