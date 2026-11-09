@@ -177,8 +177,9 @@ export class HUD {
       const rSecs = snapshot.waveRemainingSeconds % 60;
       this.timerText.setText(`⏱️ ${rMins.toString().padStart(2, '0')}:${rSecs.toString().padStart(2, '0')}`);
     } else {
-      const mins = Math.floor(snapshot.elapsedSeconds / 60);
-      const secs = snapshot.elapsedSeconds % 60;
+      const elapsed = snapshot.elapsedSeconds ?? Math.floor((snapshot.tick || 0) / 20);
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
       this.timerText.setText(`⏱️ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
     }
 

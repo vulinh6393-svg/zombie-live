@@ -367,7 +367,70 @@
 - [x] Đóng gói lại `zombie_art_gate_p0_fixed.zip` (14.7 MB tại cả Scratch và Artifact Brain).
 - [x] Git commit và push lên GitHub (`vulinh6393-svg/zombie-live`).
 - [x] Cung cấp đầy đủ đường link tải file và tài liệu trực tuyến để Người Dùng và ChatGPT review.
-- [ ] Giai đoạn 03: Server-authoritative deterministic engine
+## Giai đoạn 03: Server-Authoritative Deterministic Engine (PHASE 03 - ĐÃ HOÀN THÀNH 100%)
+> **Mục tiêu**: Chuyển đổi toàn diện từ gameplay demo client sang Server-Authoritative Game Engine thực thụ. Mọi logic di chuyển, va chạm vật lý, tính toán sát thương, sinh/tử của zombie, trạng thái từng công trình và hiệu ứng quà tặng do Game Server quyết định ở tần số cố định 20Hz (Fixed Tick 50ms). Client chỉ đóng vai trò Renderer hiển thị snapshot và nội suy chuyển động (Interpolation 60 FPS).
+>
+> **Tuân thủ quy chuẩn kỹ thuật**:
+> - `@senior-architect`: Thiết kế tách lớp rõ ràng (Simulation Engine trong `packages/shared`, Network Server trong `apps/game-server`, Interpolated Renderer trong `apps/game-client`). Khớp nối qua Zod Schema SSOT.
+> - `@development`: Quy trình TDD nghiêm ngặt (Unit test simulation -> Integration test socket -> E2E Playwright assertion -> Đo đạc latency & 60s video gameplay).
+> - `@clean-code`: Code TypeScript type-safe 100%, chú thích tiếng Việt chi tiết, không hardcode, tự động dọn dẹp bộ nhớ/listener khi shutdown.
+
+- [x] **Bước 1: Shared Simulation Engine & Zod Protocol Schema (P0)**:
+  - [x] Di chuyển `BastionCollisionSystem.ts` và `BastionGeometryConfig.ts` vào `packages/shared/src/simulation/` để cả Server và Client dùng chung 1 engine hình học duy nhất, 0 phụ thuộc Phaser.
+  - [x] Chuẩn hóa Zod Schemas trong `packages/shared/src/game.ts` & `events.ts`:
+    * `MatchSnapshot`: `matchId`, `seed`, `tick`, `sequenceId`, `serverTime`, `phase`, `baseHp`, `maxBaseHp`, `walls: { left: WallState, right: WallState }`, `gate: GateState`, `soldiers: SoldierSnapshot[]`, `zombies: ZombieSnapshot[]`, `towers: TowerSnapshot[]`, `recentEvents: CombatEvent[]`, `waveState: WaveState`, `result: MatchResult`.
+    * `CombatEvent`: `{ id, tick, type: 'SHOOT' | 'HIT' | 'DEATH' | 'WALL_HIT' | 'GIFT_SKILL', sourceId, targetId, damage, isCritical, x, y }`.
+    * `WallState`: `{ id: 'LEFT' | 'RIGHT', hp: number, maxHp: number, state: 'INTACT' | 'DAMAGED' | 'BREACHED' }`.
+    * `GateState`: `{ state: 'CLOSED' | 'OPENING' | 'OPEN' | 'CLOSING', doorLeftX: number, doorRightX: number }`.
+  - [x] Thêm bộ sinh số ngẫu nhiên hạt giống `SeededRandom.ts` (Mulberry32 PRNG) đảm bảo tính tất định deterministic 100%.
+  - [x] Chạy `pnpm -r run typecheck` và unit test xác nhận `packages/shared` compile và test sạch (8/8 tests pass).
+
+- [x] **Bước 2: Authoritative Game Engine 20Hz Trên Server (`apps/game-server`) (P0)**:
+  - [x] Xây dựng `AuthoritativeGameEngine` trong `packages/shared/src/simulation/` và export qua `apps/game-server/src/engine/AuthoritativeGameEngine.ts`:
+    * Vòng lặp fixed tick 20Hz (50ms/tick) sử dụng monotonic clock (`Date.now()`), accumulator time và bounded catch-up (tối đa 5 ticks/frame).
+    * Deterministic PRNG seeded cho spawn zombie và target selection.
+    * Tích hợp `BastionCollisionSystem` thời gian thực: Quản lý zombie movement, va chạm tường độc lập, va chạm cánh cổng cơ giới, hành lang qua cổng khi mở và phản lực đẩy lùi khi đóng.
+    * Xử lý chiến đấu: Ụ súng và lính khóa mục tiêu, tính toán damage thật, sinh sự kiện `CombatEvent` và áp dụng trạng thái chết (`isDead = true`) khi HP $\le 0$.
+    * Độc lập hóa máu từng đoạn tường: Tường Trái/Phải có HP riêng, hư hại và sập độc lập khi chịu đòn, không suy diễn từ Base HP tổng.
+    * Đóng/mở cổng cơ giới có chu trình trượt mượt mà qua các tick: `CLOSED` -> `OPENING` -> `OPEN` -> `CLOSING` -> `CLOSED`.
+    * Cơ chế Gift Skill (Tên Lửa / Airstrike): Gây sát thương diện rộng authoritative theo tọa độ thực.
+  - [x] Tích hợp phát snapshot 10Hz qua Socket.IO namespace `/game` (`match:snapshot`).
+  - [x] Viết unit tests `AuthoritativeGameEngine.test.ts` (8/8 tests pass).
+
+- [x] **Bước 3: Loại Bỏ Hoàn Toàn Client Gameplay Authority & Cập Nhật Renderer (P0/P1)**:
+  - [x] Xóa bỏ toàn bộ mutation quyền hạn trên client: Loại bỏ `target.isPermadeath = true`, `target.triggerDeath()` khỏi client logic; sinh/tử của entity 100% tuân thủ snapshot từ server.
+  - [x] Khóa an toàn API QA/Debug: `setupWindowBattlefieldAPI()` chỉ kích hoạt khi có cờ `?debug=1` hoặc trong môi trường test/dev, tuyệt đối cấm ở production và `/overlay`.
+  - [x] Nâng cấp `MockSnapshotSource` sử dụng chung `AuthoritativeGameEngine` (chế độ local in-memory fallback), xóa bỏ hoàn toàn hardcoded clamp `y=840` / `y=1020` - Đạt 100% Mock/Socket Parity!
+  - [x] Nâng cấp `SocketSnapshotSource` với cơ chế lọc bỏ gói tin cũ/đến trễ `sequenceId <= lastSequenceId` và tự động re-sync khi reconnect.
+  - [x] Cập nhật `BattlefieldScene.ts` & `ZombieRenderer.ts` & `FortressRenderer.ts`:
+    * Render damage numbers, tia lửa, vệt đạn và hiệu ứng chớp đỏ dựa trên danh sách `recentEvents` từ server với bộ đệm `processedEventIds: Set<string>` chống trùng lặp.
+    * Trạng thái tường và cổng đồng bộ trực tiếp từ `snapshot.walls` và `snapshot.gate`.
+    * Bổ sung cơ chế cleanup hoàn chỉnh trong `shutdown()` của Scene: unsubscribe snapshot, remove listeners, clear timers.
+  - [x] Toàn bộ monorepo typecheck sạch sẽ (0 errors) và vitest unit tests pass 100%.
+
+- [x] **Bước 4: Kiểm Thử Toàn Diện (Vitest, E2E Assertions & Socket Mode Demo) (P0)**:
+  - [x] Unit tests Vitest cho `AuthoritativeGameEngine` (pass 100%).
+  - [x] E2E Playwright test với assertions logic 12 tiêu chí thực sự (`run-phase03-socket-qa.ts`):
+    * [x] C01: Socket connection & monotonic sequenceId.
+    * [x] C02: Deterministic 20Hz tick advancement.
+    * [x] C03: Gate CLOSED collision barrier at y=840.
+    * [x] C04: Gate OPEN corridor passage.
+    * [x] C05: Gate CLOSING boundary enforcement without teleportation.
+    * [x] C06: Wall Alpha & Charlie physical blocking at y=840.
+    * [x] C07: Independent wall damage & breached penetration.
+    * [x] C08: Authoritative combat events & event deduplication.
+    * [x] C09: Authoritative zombie death on HP <= 0.
+    * [x] C10: Client authority lockdown (pure interpolated renderer).
+    * [x] C11: Socket disconnect & reconnect state sync.
+    * [x] C12: High-performance 60s telemetry & zero console errors (12/12 PASS).
+  - [x] Khởi chạy Game Server và Game Client kết nối thực tế qua Socket.IO (`mode=socket`).
+  - [x] Ghi hình video gameplay chiến trường 64 giây qua socket mode (`socket_gameplay_60s.webm` 40.7 MB).
+  - [x] Đo đạc và xuất báo cáo hiệu năng: FPS 58.9, p95 frame time 16.8ms, 0 lỗi console, và export `phase03_authoritative_telemetry.json`.
+
+- [x] **Bước 5: Git Commit & Remote Push**:
+  - [x] Commit toàn bộ mã nguồn, tài liệu và bằng chứng nghiệm thu lên nhánh `feat/phase02-visual-refinement`.
+  - [x] Bàn giao báo cáo chi tiết cho Người Dùng và ChatGPT review.
+
 - [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions
 - [ ] Giai đoạn 05: Database, profile, missions & leaderboards
 - [ ] Giai đoạn 06: Gift mapping và deterministic skill effects

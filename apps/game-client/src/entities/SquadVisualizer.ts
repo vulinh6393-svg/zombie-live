@@ -234,6 +234,10 @@ export class SquadVisualizer {
     return result;
   }
 
+  public getSoldierById(id: string): SoldierRenderer | undefined {
+    return this.getAllSoldiers().find((s) => s.id === id);
+  }
+
   /**
    * Evaluates AABB Rectangle Intersection between every pair of soldiers
    * to mathematically verify ZERO OVERLAP.

@@ -1,0 +1,165 @@
+{
+  "testSuite": "Phase 03 - Server-Authoritative Gameplay Engine",
+  "timestamp": "2026-11-09T06:27:17.900Z",
+  "totalDurationSeconds": 64,
+  "performance": {
+    "fpsSamplesCount": 53,
+    "averageFps": 58.9,
+    "minFps": 57,
+    "maxFps": 59,
+    "p95FrameTimeMs": 16.800000000000182,
+    "consoleErrorsCount": 0,
+    "consoleErrors": []
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "C01_SOCKET_CONNECTION",
+      "name": "Authoritative Socket Connection & Monotonic Sequence ID",
+      "status": "PASS",
+      "details": "Connected: true, Mode: socket, SequenceId: 189, Server Tick: 374",
+      "metric": {
+        "socketState": {
+          "isConnected": true,
+          "sequenceId": 189,
+          "mode": "socket"
+        },
+        "initialSnapshotTick": 374
+      }
+    },
+    {
+      "id": "C02_DETERMINISTIC_20HZ_TICK",
+      "name": "Deterministic 20Hz Tick Advancement",
+      "status": "PASS",
+      "details": "Tick 1: 374, Tick 2: 394, Delta in 1s: 20 ticks (Expected ~20)",
+      "metric": {
+        "tick1": 374,
+        "tick2": 394,
+        "tickDelta": 20
+      }
+    },
+    {
+      "id": "C03_GATE_CLOSED_COLLISION",
+      "name": "Gate CLOSED Collision Barrier (y=840)",
+      "status": "PASS",
+      "details": "Gate State: CLOSED, Max Bravo Zombie Y: 820.0px (<= 840px)",
+      "metric": {
+        "gateState": "CLOSED",
+        "maxBravoY": 820
+      }
+    },
+    {
+      "id": "C04_GATE_OPEN_PASSAGE",
+      "name": "Gate OPEN Corridor Passage",
+      "status": "PASS",
+      "details": "Gate State: OPEN, Max Bravo Zombie Y during open: 1230.7px (Passed through archway > 840px)",
+      "metric": {
+        "gateState": "OPEN",
+        "maxBravoY": 1230.7
+      }
+    },
+    {
+      "id": "C08_EVENT_DEDUPLICATION",
+      "name": "Authoritative Combat Events & Event Deduplication",
+      "status": "PASS",
+      "details": "Events processed: before=21, after=37, deduplicated via Set<string>",
+      "metric": {
+        "eventsCountBefore": 21,
+        "eventsCountAfter": 37
+      }
+    },
+    {
+      "id": "C05_GATE_CLOSING_BOUNDARY",
+      "name": "Gate CLOSING Boundary Enforcement without Teleportation",
+      "status": "PASS",
+      "details": "Gate State: CLOSED, Left Door X: 483, Right Door X: 597",
+      "metric": {
+        "gateState": "CLOSED",
+        "doorLeftX": 483,
+        "doorRightX": 597
+      }
+    },
+    {
+      "id": "C06_WALL_INTACT_BLOCKING",
+      "name": "Wall Alpha & Charlie Physical Blocking at y=840",
+      "status": "PASS",
+      "details": "Charlie Zombies blocked by Right Wall at max Y: 498.6px (<= 840px)",
+      "metric": {
+        "charlieMaxY": 498.6
+      }
+    },
+    {
+      "id": "C07_INDEPENDENT_WALL_BREACH",
+      "name": "Independent Wall Damage & Breached Penetration",
+      "status": "PASS",
+      "details": "Left Wall: BREACHED (HP: 0), Right Wall: INTACT (HP: 852)",
+      "metric": {
+        "leftWall": {
+          "id": "LEFT",
+          "state": "BREACHED",
+          "hp": 0,
+          "maxHp": 1000
+        },
+        "rightWall": {
+          "id": "RIGHT",
+          "state": "INTACT",
+          "hp": 852,
+          "maxHp": 1000
+        }
+      }
+    },
+    {
+      "id": "C11_SOCKET_RECONNECT_SYNC",
+      "name": "Socket Disconnect & Reconnect State Sync",
+      "status": "PASS",
+      "details": "Reconnected: true, Post-reconnect tick: 1182 (Advanced from 1102)",
+      "metric": {
+        "reconnectedState": {
+          "isConnected": true,
+          "sequenceId": 599,
+          "mode": "socket"
+        },
+        "tick": 1182
+      }
+    },
+    {
+      "id": "C09_AUTHORITATIVE_DEATH",
+      "name": "Authoritative Zombie Death on HP <= 0",
+      "status": "PASS",
+      "details": "Total zombies: 10, Live: 7, Dead: 3",
+      "metric": {
+        "total": 10,
+        "live": 7,
+        "dead": 3
+      }
+    },
+    {
+      "id": "C10_CLIENT_LOCKDOWN",
+      "name": "Client Authority Lockdown (Pure Interpolated Renderer)",
+      "status": "PASS",
+      "details": "Client has zero authority over HP or entity lifecycles. All state derived from server snapshot.",
+      "metric": {
+        "clientCannotMutate": true
+      }
+    },
+    {
+      "id": "C12_HIGH_PERFORMANCE_TELEMETRY",
+      "name": "High-Performance 60s Telemetry & Zero Console Errors",
+      "status": "PASS",
+      "details": "Ran for 64s, Avg FPS: 58.9 (Min: 57, Max: 59), p95: 16.8ms, Console errors: 0",
+      "metric": {
+        "executionSeconds": 64,
+        "avgFps": 58.9,
+        "minFps": 57,
+        "maxFps": 59,
+        "p95FrameTime": 16.800000000000182,
+        "consoleErrorsCount": 0
+      }
+    }
+  ],
+  "allCriteriaPassed": true,
+  "artifacts": {
+    "video60s": "socket_gameplay_60s.webm",
+    "screenshot1080": "socket_battlefield_1080x1920.png",
+    "screenshotMobile": "socket_battlefield_mobile_360x640.png"
+  }
+}

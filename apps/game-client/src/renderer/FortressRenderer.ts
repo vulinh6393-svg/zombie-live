@@ -1,6 +1,10 @@
 import Phaser from 'phaser';
-import { BASTION_GEOMETRY } from '../config/BastionGeometryConfig.js';
-import { BastionCollisionSystem, GateCollisionState } from '../systems/BastionCollisionSystem.js';
+import {
+  BASTION_GEOMETRY,
+  BastionCollisionSystem,
+  GateCollisionState,
+  WallCollisionState,
+} from '@zombie-live/shared';
 import { GAME_FONTS } from '../config/FontConfig.js';
 
 export interface FortressConfig {
@@ -250,6 +254,45 @@ export class FortressRenderer {
         this.collisionSystem.updateGateDoors(this.gateDoorLeft.x, this.gateDoorRight.x);
       }
     });
+  }
+
+  /**
+   * Đồng bộ vị trí và trạng thái 2 cánh cổng từ snapshot server
+   */
+  public syncGate(doorLeftX: number, doorRightX: number, state: GateCollisionState): void {
+    this.gateState = state;
+    this.collisionSystem.setGateState(state);
+    this.collisionSystem.updateGateDoors(doorLeftX, doorRightX);
+
+    this.gateDoorLeft.x = doorLeftX;
+    this.gateDoorRight.x = doorRightX;
+
+    if (state === 'OPEN') {
+      this.ledLight.setFillStyle(0x10b981);
+    } else if (state === 'CLOSED') {
+      this.ledLight.setFillStyle(0xef4444);
+    } else {
+      this.ledLight.setFillStyle(0xf59e0b);
+    }
+  }
+
+  /**
+   * Đồng bộ trạng thái độc lập của từng đoạn tường từ snapshot server
+   */
+  public syncWalls(
+    leftWall: { hp: number; maxHp: number; state: WallCollisionState },
+    rightWall: { hp: number; maxHp: number; state: WallCollisionState }
+  ): void {
+    this.collisionSystem.setWallState('LEFT', leftWall.state, leftWall.hp);
+    this.collisionSystem.setWallState('RIGHT', rightWall.state, rightWall.hp);
+
+    const leftRatio = leftWall.hp / leftWall.maxHp;
+    if (leftRatio < 0.6) {
+      const damageAlpha = Phaser.Math.Clamp((0.6 - leftRatio) / 0.6, 0, 1);
+      this.wallDamageOverlay.setAlpha(damageAlpha);
+    } else {
+      this.wallDamageOverlay.setAlpha(0);
+    }
   }
 
   /**

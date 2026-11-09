@@ -1,287 +1,120 @@
 import { GameSnapshotSource, SnapshotListener } from './GameSnapshotSource.js';
-import { ExtendedMatchSnapshot, SoldierSnapshot, ZombieSnapshot, TowerSnapshot } from '../types.js';
+import { AuthoritativeGameEngine, MatchSnapshot } from '@zombie-live/shared';
 
 export type MockScenario = 'wave1' | 'wave3' | 'wave4' | 'boss' | 'victory' | 'defeat';
 
+/**
+ * MOCK SNAPSHOT SOURCE — 100% SHARED ENGINE PARITY
+ * 
+ * Vận hành AuthoritativeGameEngine trực tiếp trên client (in-memory mode):
+ * - Không sử dụng công thức giả lập riêng.
+ * - Chạy vòng lặp fixed-tick 20Hz (50ms) và phát snapshot 10Hz (100ms).
+ * - Kết quả di chuyển, va chạm vật lý, sát thương và cái chết đồng nhất hoàn toàn với Game Server.
+ */
 export class MockSnapshotSource implements GameSnapshotSource {
   readonly mode = 'mock' as const;
   private listeners: Set<SnapshotListener> = new Set();
-  private timer: any = null;
-  private currentScenario: MockScenario = 'wave3';
-  private tickCount = 0;
+  private simulationInterval: any = null;
   private connected = false;
-  private currentBaseHp: number = 9850;
-  private deadZombieIds: Set<string> = new Set();
-  private activeGiftSkill?: { skillId: string; name: string; remainingSeconds: number; senderName?: string };
-  private gateState: 'CLOSED' | 'OPEN' = 'CLOSED';
 
-  public setGateState(state: 'CLOSED' | 'OPEN'): void {
-    this.gateState = state;
+  private engine: AuthoritativeGameEngine;
+
+  constructor(seed: number = 42, maxZombies: number = 10) {
+    this.engine = new AuthoritativeGameEngine({ seed, maxZombies });
   }
 
-  public getGateState(): 'CLOSED' | 'OPEN' {
-    return this.gateState;
+  public getEngine(): AuthoritativeGameEngine {
+    return this.engine;
   }
 
-  public killAuthoritativeZombie(zombieId?: string): { killedId: string; aliveCount: number } {
-    let targetId = zombieId;
-    const totalZombies = this.currentScenario === 'wave1' ? 6 : 10;
-    if (!targetId) {
-      for (let i = 0; i < totalZombies; i++) {
-        const id = `walker_lane_${i % 3}_${i}`;
-        if (!this.deadZombieIds.has(id)) {
-          targetId = id;
-          break;
-        }
-      }
-    }
-    if (targetId) {
-      this.deadZombieIds.add(targetId);
-      const aliveCount = Math.max(0, totalZombies - this.deadZombieIds.size);
-      console.log(`[AUTHORITATIVE EVENT] ${new Date().toISOString()} | Tick: ${this.tickCount} | Zombie ${targetId} HP: 0 (DEAD) | Live Count: ${aliveCount + 1} -> ${aliveCount}`);
-      return { killedId: targetId, aliveCount };
-    }
-    return { killedId: '', aliveCount: Math.max(0, totalZombies - this.deadZombieIds.size) };
-  }
-
-  public resetAuthoritativeZombies(): void {
-    this.deadZombieIds.clear();
-  }
-
-  connect(): void {
+  public connect(): void {
     if (this.connected) return;
     this.connected = true;
-    this.tickCount = 0;
-    // Emit snapshots at 10Hz (100ms)
-    this.timer = setInterval(() => {
-      this.tickCount++;
-      const snapshot = this.generateSnapshot();
-      for (const listener of this.listeners) {
-        listener(snapshot);
+
+    // Fixed-tick 20Hz simulation loop (50ms)
+    this.simulationInterval = setInterval(() => {
+      this.engine.step();
+
+      // Emit snapshot at 10Hz (every 2 ticks)
+      if (this.engine.tick % 2 === 0) {
+        const snapshot = this.engine.generateSnapshot();
+        for (const listener of this.listeners) {
+          listener(snapshot as any);
+        }
       }
-    }, 100);
+    }, 50);
   }
 
-  disconnect(): void {
+  public disconnect(): void {
     this.connected = false;
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
+    if (this.simulationInterval !== null) {
+      clearInterval(this.simulationInterval);
+      this.simulationInterval = null;
     }
   }
 
-  isConnected(): boolean {
+  public isConnected(): boolean {
     return this.connected;
   }
 
-  subscribe(listener: SnapshotListener): () => void {
+  public subscribe(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
     if (this.connected) {
-      listener(this.generateSnapshot());
+      listener(this.engine.generateSnapshot() as any);
     }
     return () => {
       this.listeners.delete(listener);
     };
   }
 
-  setScenario(scenario: MockScenario): void {
-    this.currentScenario = scenario;
-    this.tickCount = 0;
+  public openGate(): void {
+    this.engine.openGate();
   }
 
-  getScenario(): MockScenario {
-    return this.currentScenario;
-  }
-
-  private generateSnapshot(): ExtendedMatchSnapshot {
-    const elapsedSeconds = Math.floor(this.tickCount / 10);
-
-    const towers: TowerSnapshot[] = [
-      { id: 'turret_alpha', type: 'machinegun', name: 'Ụ Pháo Alpha', x: 280, y: 580, level: 2 },
-      { id: 'turret_bravo', type: 'plasma', name: 'Ụ Pháo Bravo', x: 540, y: 580, level: 3 },
-      { id: 'turret_charlie', type: 'tesla', name: 'Ụ Pháo Charlie', x: 800, y: 580, level: 2 },
-    ];
-
-    const mvpPlayers = [
-      { name: 'XạThủAlpha', points: 1540, avatarColor: 0x00f5d4 },
-      { name: 'HộVệBravo', points: 1320, avatarColor: 0xfee440 },
-      { name: 'BắnTỉaCharlie', points: 1080, avatarColor: 0xf72585 },
-      { name: 'YTáChiếnTrường', points: 860, avatarColor: 0x00bbf9 },
-    ];
-
-    // BOSS SCENARIO
-    if (this.currentScenario === 'boss') {
-      const bossMaxHp = 15000;
-      const bossHp = Math.max(1200, bossMaxHp - (this.tickCount * 45) % bossMaxHp);
-      const bossY = 550 + Math.sin(this.tickCount * 0.04) * 35;
-
-      const zombies: ZombieSnapshot[] = [
-        {
-          id: 'boss-king',
-          type: 'boss',
-          name: 'ZOMBIE VUA (BOSS)',
-          x: 540,
-          y: bossY,
-          hp: bossHp,
-          maxHp: bossMaxHp,
-          lane: 2,
-          isBoss: true,
-        },
-        // Escorts
-        { id: 'z-escort-1', type: 'walker', name: 'Hộ Vệ Alpha', x: 260, y: bossY + 120, hp: 180, maxHp: 180, lane: 1 },
-        { id: 'z-escort-2', type: 'walker', name: 'Hộ Vệ Charlie', x: 820, y: bossY + 120, hp: 180, maxHp: 180, lane: 3 },
-      ];
-
-      return {
-        matchId: 'mock-match-boss',
-        seed: 42,
-        tick: this.tickCount,
-        elapsedSeconds: 240 + (elapsedSeconds % 40),
-        phase: 'BOSS',
-        baseHp: 6500,
-        maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(3),
-        zombies,
-        towers,
-        activePlayerCount: 40,
-        bossHp,
-        maxBossHp: bossMaxHp,
-        result: 'IN_PROGRESS',
-        giftSkillActive: {
-          skillId: 'airstrike',
-          name: 'TÊN LỬA TỔNG LỰC',
-          remainingSeconds: 4,
-          senderName: 'VIP_Gamer99',
-        },
-        mvpPlayers,
-      };
-    }
-
-    // VICTORY SCENARIO
-    if (this.currentScenario === 'victory') {
-      return {
-        matchId: 'mock-match-win',
-        seed: 42,
-        tick: this.tickCount,
-        elapsedSeconds: 300,
-        phase: 'RESULTS',
-        baseHp: 7800,
-        maxBaseHp: 10000,
-        soldiers: this.generateSoldiers(3),
-        zombies: [],
-        towers,
-        activePlayerCount: 38,
-        result: 'VICTORY',
-        mvpPlayers,
-      };
-    }
-
-    // DEFEAT SCENARIO
-    if (this.currentScenario === 'defeat') {
-      return {
-        matchId: 'mock-match-loss',
-        seed: 42,
-        tick: this.tickCount,
-        elapsedSeconds: 215,
-        phase: 'RESULTS',
-        baseHp: 0,
-        maxBaseHp: 10000,
-        soldiers: [],
-        zombies: [
-          { id: 'z-defeat-1', type: 'walker', name: 'Zombie Tràn Căn Cứ', x: 540, y: 1460, hp: 150, maxHp: 200, lane: 2 },
-        ],
-        towers,
-        activePlayerCount: 15,
-        result: 'DEFEAT',
-        mvpPlayers,
-      };
-    }
-
-    // STANDARD BATTLEFIELD WAVES: 10+ real walker zombies marching in 3 lanes
-    const zombies: ZombieSnapshot[] = [];
-    const lanes = [280, 540, 800];
-    const totalZombies = this.currentScenario === 'wave1' ? 6 : 10;
-
-    for (let i = 0; i < totalZombies; i++) {
-      const lane = i % 3;
-      const laneX = lanes[lane];
-      const id = `walker_lane_${lane}_${i}`;
-      const isDead = this.deadZombieIds.has(id);
-      // March down from y: 220 towards defense line y: 840 (or through open gate in Lane Bravo)
-      const speed = 2.4;
-      const initialOffset = i * 70;
-      const maxY = (lane === 1 && this.gateState === 'OPEN') ? 1020 : 840;
-      const currentY = Math.min(maxY, 220 + ((initialOffset + this.tickCount * speed) % 850));
-
-      zombies.push({
-        id,
-        type: 'walker',
-        name: `Zombie #${i + 1}`,
-        x: laneX + Math.sin(this.tickCount * 0.08 + i) * 28,
-        y: currentY,
-        hp: isDead ? 0 : Math.max(10, 100 - ((this.tickCount * 4 + i * 20) % 90)),
-        maxHp: 100,
-        lane: lane + 1,
-      });
-    }
-
-    const waveRemaining = Math.max(0, 120 - Math.floor(this.tickCount / 10));
-
-    return {
-      matchId: 'mock-match-ongoing',
-      seed: 42,
-      tick: this.tickCount,
-      elapsedSeconds: Math.floor(this.tickCount / 10),
-      waveRemainingSeconds: waveRemaining,
-      phase: this.currentScenario === 'wave1' ? 'WAVE_1' : 'WAVE_3',
-      baseHp: this.currentBaseHp,
-      maxBaseHp: 10000,
-      soldiers: this.generateSoldiers(3),
-      zombies,
-      towers,
-      activePlayerCount: 40,
-      result: 'IN_PROGRESS',
-      giftSkillActive: this.activeGiftSkill,
-      mvpPlayers,
-    };
-  }
-
-  public takeBaseDamage(amount: number = 350): void {
-    this.currentBaseHp = Math.max(0, this.currentBaseHp - amount);
+  public closeGate(): void {
+    this.engine.closeGate();
   }
 
   public triggerGift(name: string = 'TÊN LỬA TỔNG LỰC', sender: string = 'VIP_Gamer99'): void {
-    this.activeGiftSkill = {
-      skillId: 'airstrike',
-      name,
-      remainingSeconds: 3,
-      senderName: sender,
-    };
-    setTimeout(() => {
-      this.activeGiftSkill = undefined;
-    }, 3000);
+    this.engine.triggerGiftSkill(name, sender);
   }
 
-  private generateSoldiers(count: number = 3): SoldierSnapshot[] {
-    const soldiers: SoldierSnapshot[] = [];
-    const squads = [
-      { id: 'alpha', cx: 280, cy: 1030, role: 'Đại Diện' },
-      { id: 'bravo', cx: 540, cy: 1050, role: 'Đại Diện' },
-      { id: 'charlie', cx: 800, cy: 1030, role: 'Đại Diện' },
-    ];
+  public damageWall(side: 'LEFT' | 'RIGHT', amount: number = 500): void {
+    this.engine.damageWall(side, amount);
+  }
 
-    for (let i = 0; i < squads.length; i++) {
-      const sq = squads[i];
-      soldiers.push({
-        id: `soldier_${sq.id}_0`,
-        userId: `user_${sq.id}_0`,
-        name: `${sq.id.toUpperCase()} ${sq.role}`,
-        x: sq.cx,
-        y: sq.cy,
-        hp: 100,
-        maxHp: 100,
-      });
+  /**
+   * Kích hoạt tiêu diệt zombie theo cơ chế Authoritative:
+   * Giáng đòn sát thương chí tử vào entity trên engine để engine tự xử lý cái chết và sinh CombatEvent
+   */
+  public killAuthoritativeZombie(zombieId?: string): { killedId: string; aliveCount: number } {
+    const all = this.engine.getAllZombies();
+    let target = zombieId ? this.engine.getZombie(zombieId) : all.find((z) => !z.isDead);
+
+    if (target && !target.isDead) {
+      target.hp = 0;
+      target.isDead = true;
+      target.deathTick = this.engine.tick;
+      const aliveCount = all.filter((z) => !z.isDead).length;
+      console.log(`[AUTHORITATIVE EVENT] Tick: ${this.engine.tick} | Zombie ${target.id} HP: 0 (DEAD) | Live Count: ${aliveCount}`);
+      return { killedId: target.id, aliveCount };
     }
-    return soldiers;
+
+    const aliveCount = all.filter((z) => !z.isDead).length;
+    return { killedId: '', aliveCount };
+  }
+
+  private currentScenario: MockScenario = 'wave3';
+
+  public generateSnapshot(): MatchSnapshot {
+    return this.engine.generateSnapshot();
+  }
+
+  public setScenario(scenario: MockScenario): void {
+    this.currentScenario = scenario;
+  }
+
+  public getScenario(): MockScenario {
+    return this.currentScenario;
   }
 }

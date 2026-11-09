@@ -3,7 +3,7 @@ import { buildServer } from './server.js';
 
 describe('Game Server Health & Ready Endpoints', () => {
   it('returns 200 OK from /health', async () => {
-    const { app } = buildServer();
+    const { app, stopEngine } = buildServer();
     const res = await app.inject({
       method: 'GET',
       url: '/health',
@@ -13,10 +13,12 @@ describe('Game Server Health & Ready Endpoints', () => {
     const body = JSON.parse(res.payload);
     expect(body.status).toBe('ok');
     expect(body.service).toBe('game-server');
+    expect(body.engineTick).toBeDefined();
+    stopEngine();
   });
 
   it('returns 200 Ready from /ready', async () => {
-    const { app } = buildServer();
+    const { app, stopEngine } = buildServer();
     const res = await app.inject({
       method: 'GET',
       url: '/ready',
@@ -28,5 +30,7 @@ describe('Game Server Health & Ready Endpoints', () => {
     expect(body.mockMode).toBe(true);
     expect(body.dependencies).toBeDefined();
     expect(body.dependencies.database).toBeDefined();
+    expect(body.engine).toBeDefined();
+    stopEngine();
   });
 });

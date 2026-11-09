@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { GameSnapshotSource, SnapshotListener } from './GameSnapshotSource.js';
-import { ExtendedMatchSnapshot } from '../types.js';
+import { MatchSnapshot } from '@zombie-live/shared';
 
 export class SocketSnapshotSource implements GameSnapshotSource {
   readonly mode = 'socket' as const;
@@ -8,6 +8,7 @@ export class SocketSnapshotSource implements GameSnapshotSource {
   private listeners: Set<SnapshotListener> = new Set();
   private connected = false;
   private serverUrl: string;
+  private lastSequenceId: number = -1;
 
   constructor(serverUrl: string = 'http://localhost:3001') {
     this.serverUrl = serverUrl;
@@ -18,23 +19,32 @@ export class SocketSnapshotSource implements GameSnapshotSource {
     this.socket = io(`${this.serverUrl}/game`, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2000,
     });
 
     this.socket.on('connect', () => {
       this.connected = true;
-      console.log('[SocketSnapshotSource] Connected to game server');
+      console.log('[SocketSnapshotSource] Đã kết nối thành công tới Game Server:', this.serverUrl);
+      // Khi vừa kết nối hoặc reconnect, yêu cầu ngay full snapshot mới nhất
+      this.socket?.emit('match:getSnapshot');
     });
 
     this.socket.on('disconnect', () => {
       this.connected = false;
-      console.log('[SocketSnapshotSource] Disconnected from game server');
+      console.log('[SocketSnapshotSource] Mất kết nối tới Game Server, đang kích hoạt auto-reconnect...');
     });
 
-    this.socket.on('match:snapshot', (snapshot: ExtendedMatchSnapshot) => {
+    this.socket.on('match:snapshot', (snapshot: MatchSnapshot) => {
+      // Bảo vệ chống gói tin đến trễ hoặc đảo thứ tự mạng (Out-of-order & Stale Packets)
+      if (snapshot.sequenceId !== undefined && snapshot.sequenceId <= this.lastSequenceId) {
+        // Bỏ qua snapshot cũ hơn snapshot hiện tại
+        return;
+      }
+      this.lastSequenceId = snapshot.sequenceId ?? this.lastSequenceId + 1;
+
       for (const listener of this.listeners) {
-        listener(snapshot);
+        listener(snapshot as any);
       }
     });
   }
@@ -45,6 +55,7 @@ export class SocketSnapshotSource implements GameSnapshotSource {
       this.socket = null;
     }
     this.connected = false;
+    this.lastSequenceId = -1;
   }
 
   isConnected(): boolean {
@@ -56,5 +67,26 @@ export class SocketSnapshotSource implements GameSnapshotSource {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  // --- ACTIONS (GỬI LỆNH LÊN SERVER AUTHORITATIVE) ---
+  public openGate(): void {
+    this.socket?.emit('admin:openGate');
+  }
+
+  public closeGate(): void {
+    this.socket?.emit('admin:closeGate');
+  }
+
+  public triggerGift(name: string = 'TÊN LỬA TỔNG LỰC', sender: string = 'VIP_Gamer99'): void {
+    this.socket?.emit('admin:giftSkill', { name, sender });
+  }
+
+  public damageWall(side: 'LEFT' | 'RIGHT', amount: number = 500): void {
+    this.socket?.emit('admin:damageWall', { side, amount });
+  }
+
+  public getLastSequenceId(): number {
+    return this.lastSequenceId;
   }
 }

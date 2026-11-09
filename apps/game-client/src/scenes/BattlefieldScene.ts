@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameSnapshotSource } from '../sources/GameSnapshotSource.js';
 import { ExtendedMatchSnapshot, ZombieSnapshot } from '../types.js';
+import { CombatEvent } from '@zombie-live/shared';
 import { ZombieRenderer } from '../entities/ZombieRenderer.js';
 import { TowerRenderer } from '../entities/TowerRenderer.js';
 import { SquadVisualizer, FormationMode } from '../entities/SquadVisualizer.js';
@@ -34,14 +35,15 @@ export class BattlefieldScene extends Phaser.Scene {
   private hud!: HUD;
   private tiktokSafeZone!: TikTokSafeZone;
 
+  // Event Deduplication Cache
+  private processedEventIds: Set<string> = new Set();
+  private latestSnapshot: ExtendedMatchSnapshot | null = null;
+
   // Environment & Fortress
   private fortressRenderer!: FortressRenderer;
   private layoutVariant: 'highway' | 'bastion' = 'bastion';
   private lastBaseHp: number = 10000;
   private lastBaseHitTime: number = 0;
-
-  // Real-time Firing Simulation Timers
-  private fireTimer: number = 0;
 
   // Performance Telemetry
   private fpsText?: Phaser.GameObjects.Text;
@@ -161,16 +163,9 @@ export class BattlefieldScene extends Phaser.Scene {
     // Update Squads
     this.squadVisualizer.update(delta);
 
-    // Update Zombies
+    // Update Zombies (Client-side smooth lerp interpolation)
     for (const zombie of this.zombies.values()) {
       zombie.update(delta);
-    }
-
-    // Visual Combat Loop (Purely visual effects, never modifies entity HP on client!)
-    this.fireTimer += delta;
-    if (this.fireTimer >= 320) {
-      this.fireTimer = 0;
-      this.simulateVisualCombat();
     }
   }
 
@@ -297,75 +292,89 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // REAL-TIME COMBAT VISUAL SIMULATION (Server Authoritative)
-  // NEVER modifies target HP or triggers client death on its own!
   // =========================================================================
-  private simulateVisualCombat(): void {
-    if (this.zombies.size === 0) return;
+  // AUTHORITATIVE COMBAT EVENT HANDLER (Server-Driven VFX & Animations)
+  // Mọi sát thương, tia đạn, số damage và hoạt ảnh tử vong đều kích hoạt từ sự kiện Server!
+  // =========================================================================
+  private handleCombatEvent(ev: CombatEvent): void {
+    if (ev.type === 'SHOOT') {
+      const target = ev.targetId ? this.zombies.get(ev.targetId) : null;
+      const targetX = target ? target.getX() : ev.x;
+      const targetY = target ? target.getY() : ev.y;
 
-    const allSoldiers = this.squadVisualizer.getAllSoldiers();
-    const activeZombies = Array.from(this.zombies.values()).filter((z) => !z.isDead);
-    if (activeZombies.length === 0) return;
-
-    // 1. Squad Soldiers fire at closest zombies
-    const shootersCount = Math.min(3, allSoldiers.length);
-    for (let i = 0; i < shootersCount; i++) {
-      const soldier = allSoldiers[Phaser.Math.Between(0, allSoldiers.length - 1)];
-      const target = this.getClosestZombie(soldier.getX(), soldier.getY());
-      if (target) {
-        soldier.aimAt(target.getX(), target.getY());
-        const { flashX, flashY } = soldier.fireMuzzleFlash();
-
-        // Projectile tracer flight
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 140);
-
-        this.time.delayedCall(140, () => {
-          if (!target.isDead) {
-            target.triggerHitFlash();
-            const dmg = Phaser.Math.Between(25, 45);
-            this.damagePool.showDamage(target.getX(), target.getY(), dmg, dmg > 38);
-          }
-        });
+      if (ev.sourceId.startsWith('soldier_')) {
+        const soldier = this.squadVisualizer.getSoldierById(ev.sourceId) || this.squadVisualizer.getAllSoldiers()[0];
+        if (soldier) {
+          soldier.aimAt(targetX, targetY);
+          const { flashX, flashY } = soldier.fireMuzzleFlash();
+          this.projectilePool.fireTracer(flashX, flashY, targetX, targetY, 120);
+        }
+      } else if (ev.sourceId.startsWith('turret_')) {
+        const turret = this.towers.get(ev.sourceId);
+        if (turret) {
+          turret.aimAt(targetX, targetY);
+          const { flashX, flashY } = turret.fireMuzzleFlash();
+          this.projectilePool.fireTracer(flashX, flashY, targetX, targetY, 120);
+        }
       }
-    }
 
-    // 2. Turrets fire dual bursts at closest zombies
-    for (const turret of this.towers.values()) {
-      const target = this.getClosestZombie(turret.getX(), turret.getY());
-      if (target) {
-        turret.aimAt(target.getX(), target.getY());
-        const { flashX, flashY } = turret.fireMuzzleFlash();
-
-        this.projectilePool.fireTracer(flashX, flashY, target.getX(), target.getY(), 120);
+      if (target && !target.isDead) {
         this.time.delayedCall(120, () => {
           if (!target.isDead) {
             target.triggerHitFlash();
-            this.damagePool.showDamage(target.getX(), target.getY(), 55, true);
+            if (ev.damage && ev.damage > 0) {
+              this.damagePool.showDamage(targetX, targetY, ev.damage, !!ev.isCritical);
+            }
           }
         });
       }
-    }
-  }
-
-  private getClosestZombie(fromX: number, fromY: number): ZombieRenderer | null {
-    let closest: ZombieRenderer | null = null;
-    let minDist = Infinity;
-    for (const z of this.zombies.values()) {
-      if (z.isDead) continue;
-      const dist = Phaser.Math.Distance.Between(fromX, fromY, z.getX(), z.getY());
-      if (dist < minDist) {
-        minDist = dist;
-        closest = z;
+    } else if (ev.type === 'HIT') {
+      const target = ev.targetId ? this.zombies.get(ev.targetId) : null;
+      if (target && !target.isDead) {
+        target.triggerHitFlash();
+        if (ev.damage && ev.damage > 0) {
+          this.damagePool.showDamage(ev.x, ev.y, ev.damage, !!ev.isCritical);
+        }
       }
+    } else if (ev.type === 'DEATH') {
+      const target = ev.targetId ? this.zombies.get(ev.targetId) : null;
+      if (target && !target.isDead) {
+        target.triggerDeath();
+      }
+    } else if (ev.type === 'GIFT_SKILL') {
+      this.triggerGiftSkillVFX('TÊN LỬA TỔNG LỰC', ev.x, ev.y);
     }
-    return closest;
   }
 
   // =========================================================================
   // SNAPSHOT SYNCHRONIZATION
   // =========================================================================
   private handleSnapshot(snapshot: ExtendedMatchSnapshot): void {
-    // 1. Sync Zombies (100% Real Sprites with authoritative life state)
+    this.latestSnapshot = snapshot;
+    // 1. Process Authoritative Combat Events (Deduplicated by eventId)
+    if ((snapshot as any).recentEvents && (snapshot as any).recentEvents.length > 0) {
+      for (const ev of (snapshot as any).recentEvents as CombatEvent[]) {
+        if (this.processedEventIds.has(ev.id)) continue;
+        this.processedEventIds.add(ev.id);
+        if (this.processedEventIds.size > 500) {
+          const firstKey = this.processedEventIds.values().next().value;
+          if (firstKey) this.processedEventIds.delete(firstKey);
+        }
+        this.handleCombatEvent(ev);
+      }
+    }
+
+    // 2. Synchronize Physical Gate Doors & Independent Wall States from Snapshot
+    if ((snapshot as any).gate) {
+      const g = (snapshot as any).gate;
+      this.fortressRenderer.syncGate(g.doorLeftX, g.doorRightX, g.state);
+    }
+    if ((snapshot as any).walls) {
+      const w = (snapshot as any).walls;
+      this.fortressRenderer.syncWalls(w.left, w.right);
+    }
+
+    // 3. Sync Zombies (100% Real Sprites with authoritative life state)
     const incomingZombieIds = new Set(snapshot.zombies.map((z) => z.id));
     for (const [id, renderer] of this.zombies.entries()) {
       if (!incomingZombieIds.has(id)) {
@@ -393,7 +402,7 @@ export class BattlefieldScene extends Phaser.Scene {
       }
     }
 
-    // 2. Base HP Reaction (Localized only, strictly throttled)
+    // 4. Base HP Reaction (Localized only, strictly throttled)
     const now = this.time.now;
     if (snapshot.baseHp < this.lastBaseHp && now - this.lastBaseHitTime > 3000) {
       this.lastBaseHitTime = now;
@@ -402,7 +411,7 @@ export class BattlefieldScene extends Phaser.Scene {
     this.lastBaseHp = snapshot.baseHp;
     this.fortressRenderer.updateHp(snapshot.baseHp, snapshot.maxBaseHp);
 
-    // 3. Update HUD
+    // 5. Update HUD
     this.hud.update(snapshot);
   }
 
@@ -427,11 +436,8 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // GIFT SKILL: TÊN LỬA TỔNG LỰC (AIRSTRIKE CRUISE MISSILE)
-  private triggerGiftSkillVFX(skillName: string = 'Tên Lửa Tổng Lực'): void {
-    this.hud.showGiftAlert(skillName, 'MinhAnh99');
-
-    const targetX = 540;
-    const targetY = 750;
+  private triggerGiftSkillVFX(skillName: string = 'Tên Lửa Tổng Lực', targetX: number = 540, targetY: number = 580): void {
+    this.hud.showGiftAlert(skillName, 'VIP_Gamer99');
 
     // 1. Tactical Targeting Reticle at impact point
     const reticle = this.add.image(targetX, targetY, 'tactical_reticle')
@@ -529,78 +535,30 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
-  // WINDOW AUTOMATION & QA BENCHMARK API
+  // WINDOW AUTOMATION & QA BENCHMARK API (Restricted to Debug / Dev Test only!)
   // =========================================================================
   private setupWindowBattlefieldAPI(): void {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDebugOrTest = this.debugEntities || urlParams.get('debug') === '1' || urlParams.get('test') === '1';
+    if (!isDebugOrTest || this.isOverlayMode) {
+      // Vô hiệu hóa tuyệt đối API trên production LIVE và route /overlay
+      return;
+    }
+
     (window as any).battlefield = {
-      spawn10Zombies: () => {
-        for (let i = 0; i < 10; i++) {
-          const lane = i % 3;
-          const lanesX = [280, 540, 800];
-          const zSnapshot: ZombieSnapshot = {
-            id: `walker_bench_${Date.now()}_${i}`,
-            type: 'walker',
-            name: `Zombie #${i + 1}`,
-            x: lanesX[lane] + Phaser.Math.Between(-35, 35),
-            y: 340 + i * 65,
-            hp: 100,
-            maxHp: 100,
-            lane: lane + 1,
-          };
-          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
-          this.zombies.set(zSnapshot.id, z);
-        }
-      },
-
-      spawn30Entities: () => {
-        for (let i = 0; i < 20; i++) {
-          const lane = i % 3;
-          const lanesX = [280, 540, 800];
-          const zSnapshot: ZombieSnapshot = {
-            id: `walker_swarm_${Date.now()}_${i}`,
-            type: 'walker',
-            name: `Swarm #${i + 1}`,
-            x: lanesX[lane] + Phaser.Math.Between(-45, 45),
-            y: 300 + i * 45,
-            hp: 100,
-            maxHp: 100,
-            lane: lane + 1,
-          };
-          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
-          this.zombies.set(zSnapshot.id, z);
-        }
-      },
-
-      spawn50Entities: () => {
-        for (let i = 0; i < 40; i++) {
-          const lane = i % 3;
-          const lanesX = [280, 540, 800];
-          const zSnapshot: ZombieSnapshot = {
-            id: `walker_horde_${Date.now()}_${i}`,
-            type: 'walker',
-            name: `Horde #${i + 1}`,
-            x: lanesX[lane] + Phaser.Math.Between(-55, 55),
-            y: 280 + i * 25,
-            hp: 100,
-            maxHp: 100,
-            lane: lane + 1,
-          };
-          const z = new ZombieRenderer(this, zSnapshot, DEFAULT_SCALE_TIER, this.debugEntities);
-          this.zombies.set(zSnapshot.id, z);
-        }
-      },
-
       openGate: () => {
-        this.fortressRenderer.openGate();
-        if ((this.snapshotSource as any)?.setGateState) {
-          (this.snapshotSource as any).setGateState('OPEN');
+        if ((this.snapshotSource as any)?.openGate) {
+          (this.snapshotSource as any).openGate();
+        } else {
+          this.fortressRenderer.openGate();
         }
       },
 
       closeGate: () => {
-        this.fortressRenderer.closeGate();
-        if ((this.snapshotSource as any)?.setGateState) {
-          (this.snapshotSource as any).setGateState('CLOSED');
+        if ((this.snapshotSource as any)?.closeGate) {
+          (this.snapshotSource as any).closeGate();
+        } else {
+          this.fortressRenderer.closeGate();
         }
       },
 
@@ -634,25 +592,12 @@ export class BattlefieldScene extends Phaser.Scene {
       },
 
       triggerZombieDeath: (zombieId?: string) => {
-        let killedInfo = { killedId: '', aliveCount: 9 };
+        // Gửi lệnh tiêu diệt authoritative lên server/engine, KHÔNG tự sửa entity trực tiếp trên client
+        let killedInfo = { killedId: '', aliveCount: 0 };
         if ((this.snapshotSource as any)?.killAuthoritativeZombie) {
           killedInfo = (this.snapshotSource as any).killAuthoritativeZombie(zombieId);
         }
-        let target: ZombieRenderer | undefined;
-        if (killedInfo.killedId) {
-          target = this.zombies.get(killedInfo.killedId);
-        } else if (zombieId) {
-          target = this.zombies.get(zombieId);
-        } else {
-          target = Array.from(this.zombies.values()).find((z) => !z.isDead);
-        }
-        if (target) {
-          target.isPermadeath = true;
-          target.triggerDeath();
-          console.log(`[BATTLEFIELD API] Authoritative Death applied to: ${target.id} | Remaining alive: ${killedInfo.aliveCount}`);
-          return { killedId: target.id, aliveCount: killedInfo.aliveCount, success: true };
-        }
-        return { success: false, message: 'No live zombie found' };
+        return { killedId: killedInfo.killedId, aliveCount: killedInfo.aliveCount, success: Boolean(killedInfo.killedId) };
       },
 
       triggerViewerJoin: (viewerName: string = 'HungGamer', squadId: 'alpha' | 'bravo' | 'charlie' = 'bravo') => {
@@ -660,18 +605,46 @@ export class BattlefieldScene extends Phaser.Scene {
       },
 
       triggerGift: (skillName: string = 'Tên Lửa Tổng Lực') => {
-        this.triggerGiftSkillVFX(skillName);
+        if ((this.snapshotSource as any)?.triggerGift) {
+          (this.snapshotSource as any).triggerGift(skillName);
+        } else {
+          this.triggerGiftSkillVFX(skillName);
+        }
       },
 
       triggerMinorDamage: () => {
         this.triggerBaseHitReaction();
       },
 
-      setMockScenario: (sc: any) => {
-        if ((this.snapshotSource as any)?.setScenario) {
-          (this.snapshotSource as any).setScenario(sc);
+      damageWall: (side: 'LEFT' | 'RIGHT' = 'LEFT', amount: number = 500) => {
+        if ((this.snapshotSource as any)?.damageWall) {
+          (this.snapshotSource as any).damageWall(side, amount);
         }
       },
+
+      getLatestSnapshot: () => this.latestSnapshot,
+
+      getSocketState: () => ({
+        isConnected: (this.snapshotSource as any)?.isConnected?.() ?? false,
+        sequenceId: (this.snapshotSource as any)?.getLastSequenceId?.() ?? -1,
+        mode: this.snapshotSource ? (this.snapshotSource as any).mode : 'unknown',
+      }),
+
+      disconnectSocket: () => {
+        if (this.snapshotSource) {
+          this.snapshotSource.disconnect();
+        }
+      },
+
+      connectSocket: () => {
+        if (this.snapshotSource) {
+          this.snapshotSource.connect();
+        }
+      },
+
+      snapshotSource: this.snapshotSource,
+
+      getProcessedEventsCount: () => this.processedEventIds.size,
 
       toggleTikTokSafeZone: () => {
         return this.tiktokSafeZone.toggle();
@@ -691,5 +664,25 @@ export class BattlefieldScene extends Phaser.Scene {
     const sorted = [...this.frameTimes].sort((a, b) => a - b);
     const index = Math.floor(sorted.length * 0.95);
     return sorted[index] || 16.6;
+  }
+
+  /**
+   * Dọn dẹp hoàn chỉnh khi scene shutdown hoặc reload
+   */
+  shutdown(): void {
+    if (this.unsubscribeSnapshot) {
+      this.unsubscribeSnapshot();
+      this.unsubscribeSnapshot = undefined;
+    }
+    if (this.snapshotSource) {
+      this.snapshotSource.disconnect();
+    }
+    this.processedEventIds.clear();
+    this.zombies.forEach((z) => z.destroy());
+    this.zombies.clear();
+    this.towers.clear();
+    if ((window as any).battlefield) {
+      delete (window as any).battlefield;
+    }
   }
 }
