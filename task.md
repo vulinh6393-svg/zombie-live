@@ -243,7 +243,45 @@
   - [ ] Cập nhật `player.html`.
   - [ ] Dừng lại chờ User nghiệm thu.
 
-## Giai đoạn 02.6: Final Art Gate P0 Evidence Review (ĐANG THỰC HIỆN)
+## Giai đoạn 02.7: Art Gate Audit Correction & Single Vertical Slice (ĐANG THỰC HIỆN)
+> **Mục tiêu**: Xử lý triệt để 5 vấn đề cốt lõi do Người Dùng chỉ ra:
+> 1. **Mỹ thuật Thật (Không dùng Procedural Canvas)**: Tạo bộ sprite bán hiện thực tả thực (weathered concrete, heavy steel, bolts, hazard paint) đồng bộ 100% với Master Bastion Concept bằng quy trình đồ họa chất lượng cao (subagent image-generator + alpha extraction sạch).
+> 2. **Chuẩn hóa Hình học Duy Nhất (Single Source of Truth Geometry)**: Viết file config TypeScript `BastionGeometryConfig.ts` và đồng bộ từng pixel vào `BASTION_MASTER_LAYOUT.md` (Cổng y=900, Turret y=580, Collision Boundary y=840).
+> 3. **Hệ Thống Collision Động Thực Sự (Real Dynamic Collision)**: Xây dựng `BastionCollisionSystem.ts` kiểm tra va chạm hình học thời gian thực (Closed -> Chặn; Open -> Cho qua hành lang; Damaged/Breached -> Cập nhật hitbox). Không dùng tween điểm đích hardcode!
+> 4. **Kịch Bản Kiểm Thử Có Assertion Thật Sự (`run-verification.js`)**: Kiểm tra thực tế từng byte PNG, đo đạc alpha, kiểm tra consistency của geometry, chạy unit test assertion cho collision logic, tính toán động PASS/FAIL và trả exit code 1 nếu fail.
+> 5. **Vertical Slice Hoàn Chỉnh Trên Phaser**: 1 Tường hoàn chỉnh, 1 Cổng 2 cánh đóng/mở/khóa, 1 Turret xoay bắn, 1 Lính có animation thật, 1 Zombie Walker va chạm và bị tiêu diệt, 1 decal sát thương tường. Quay video 1080×1920 và kiểm tra mobile 360×640.
+> 6. **Giữ nguyên commit và đẩy GitHub**: Đóng gói `zombie_art_gate_p0_fixed.zip`, commit, push GitHub để người dùng và ChatGPT review. Tuyệt đối KHÔNG sửa `BattlefieldScene.ts`, KHÔNG tạo Full Atlas, KHÔNG sang Phase 03.
+
+- [x] **Bước 1 — Single Source of Truth Geometry & Layout Docs**:
+  - [x] Tạo `apps/game-client/src/config/BastionGeometryConfig.ts` (typed coordinates: Cổng y=900, Turret y=580, Collision y=840, 3 Lanes).
+  - [x] Đồng bộ toàn diện `docs/visual/BASTION_MASTER_LAYOUT.md` loại bỏ hoàn toàn tọa độ cũ y=1250/1340.
+- [x] **Bước 2 — Sản Xuất Bộ Sprite Bán Hiện Thực Thật (Semi-Realistic Textured Assets)**:
+  - [x] Khởi chạy subagent `image-generator` tạo texture bê tông và thép dã chiến chất lượng cao đồng bộ Master Bastion Concept.
+  - [x] Cắt ghép, trích xuất Alpha sạch không viền đen cho 5 asset: `bastion_wall_segment.png`, `bastion_gate_frame.png`, `bastion_gate_door_left.png`, `bastion_gate_door_right.png`, `bastion_turret_platform.png`.
+  - [x] Kiểm chứng độ hài hòa mỹ thuật khi đặt trên Clean Plate ở tỷ lệ 1:1 gameplay.
+- [x] **Bước 3 — Xây Dựng Hệ Thống Collision Động (`BastionCollisionSystem.ts`)**:
+  - [x] Cài đặt engine va chạm dựa trên bounding box & segment:
+    * Cổng Closed: Lane Bravo bị chặn tại y=840.
+    * Cổng Open: Corridor x: [420..660] thông suốt, cho phép Zombie đi qua y=840 vào sâu y=940.
+    * Cổng Closing: Zombie chưa qua vạch bị đẩy lùi/chặn lại.
+    * Lane Alpha & Charlie: Luôn bị chặn tại y=840 bởi tường thành.
+    * Tường hỏng/vỡ: Có thể mở đường va chạm khi HP = 0.
+  - [x] Viết test assertion kiểm thử logic va chạm thời gian thực.
+- [x] **Bước 4 — Nâng Cấp Vertical Slice Scene (`ArtIntegrationLabScene.ts`)**:
+  - [x] Tích hợp sprite bán hiện thực mới.
+  - [x] Áp dụng `BastionCollisionSystem` thời gian thực (update loop tính toán vận tốc, va chạm và phản lực).
+  - [x] 1 Soldier Riley Gombart bắn animation thật, 1 Turret nhắm bắn, 1 Zombie Walker tiến công theo collision và bị hạ gục.
+  - [x] Decal hư hại tường xuất hiện đúng cơ chế.
+- [x] **Bước 5 — Viết Lại Kịch Bản Kiểm Thử Bàn Giao Thật Sự (`run-verification.js`)**:
+  - [x] Đọc trực tiếp byte PNG, kiểm tra magic bytes `89 50 4E 47`, kích thước thực, min/max alpha, biên vật thể.
+  - [x] Kiểm tra consistency giữa `BastionGeometryConfig.ts` và `BASTION_MASTER_LAYOUT.md`.
+  - [x] Chạy kiểm thử tự động cho `BastionCollisionSystem` (Closed vs Open vs Re-closed).
+  - [x] Tính toán động kết quả `PASS` / `FAIL` (không hardcode) và exit code 0/1.
+- [x] **Bước 6 — Thu Thập Bằng Chứng Runtime, Đóng Gói & Đẩy GitHub**:
+  - [x] Ghi hình video runtime WebGL 1080×1920 mới: `art_integration_lab.webm`.
+  - [x] Chụp ảnh runtime Mobile 360×640: `mobile_runtime_360x640.png`.
+  - [x] Đóng gói `zombie_art_gate_p0_fixed.zip`.
+  - [x] Commit Git và push lên GitHub `vulinh6393-svg/zombie-live`.
 > **Mục tiêu**: Thực thi và cung cấp trọn bộ bằng chứng kỹ thuật theo 5 yêu cầu cốt lõi của Người Dùng:
 > 1. Kiểm tra triệt để lỗi viền đen (black halo) và mất chi tiết màu tối trên 4 nền: Trắng (#fff), Đen (#000), Magenta (#ff00ff) và Fortress.
 > 2. Xác minh cơ chế động trên nền Clean Plate: Cổng đóng/mở trượt 2 cánh không lộ cổng cũ, turret xoay 360° đồng trục, soldier/zombie occlusion Z-order.

@@ -2,9 +2,11 @@
 
 > **Dự án**: Zombie Đại Chiến: Thành Trì Cuối Cùng (2D 9:16 Server-Authoritative Live Defense Monorepo)  
 > **Tài liệu**: Master Environment Layout Specification  
-> **Bản đồ tham chiếu chuẩn (Master Reference)**: [`bastion_master_environment.png`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/public/assets/concept/bastion_master_environment.png) (Được chuẩn hóa từ `fortress_concept_bastion_1080x1920.png` đã được phê duyệt)  
-> **Thời điểm cập nhật**: 2026-11-08  
-> **Trạng thái**: Thống nhất 100% tọa độ kiến trúc, 3 lane gameplay và quy chuẩn tỷ lệ hiển thị giữa Logic Canvas (1080×1920) và Mobile Viewport (360×640).
+> **Nguồn cấu hình duy nhất (SSOT)**: [`apps/game-client/src/config/BastionGeometryConfig.ts`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/src/config/BastionGeometryConfig.ts)  
+> **Bản đồ tham chiếu chuẩn (Master Reference)**: [`bastion_master_environment.png`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/public/assets/concept/bastion_master_environment.png)  
+> **Ảnh đo đạc có lưới tọa độ**: [`bastion_geometry_verified.png`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/public/assets/concept/bastion_geometry_verified.png)  
+> **Thời điểm cập nhật**: 2026-11-09  
+> **Trạng thái**: ĐỒNG BỘ 100% VỚI MÃ NGUỒN VÀ SCENE RUNTIME (Cổng y=900, Turret y=580, Collision Boundary y=840).
 
 ---
 
@@ -17,31 +19,24 @@
   $$\text{Pixel trên Mobile (360×640)} = \frac{\text{Pixel trên Canvas Logic (1080×1920)}}{3}$$
 
 > [!IMPORTANT]
-> **Khắc phục lỗi nhân vật bị teo nhỏ (14.7px) trên điện thoại**:
-> - Trước đây tài liệu đề xuất nhân vật có `Display Height = 44px` trong canvas logic, dẫn đến khi hiển thị trên điện thoại `360×640`, nhân vật chỉ còn `44 / 3 ≈ 14.7px` (nhỏ như đầu tăm, người xem livestream không thể nhìn rõ).
-> - **Tiêu chuẩn mới đã hiệu chỉnh**:
->   - Mục tiêu hiển thị trên điện thoại: **Chiều cao nhân vật từ 40px đến 44px**.
->   - **Chiều cao trong Logic Canvas 1080×1920 bắt buộc phải là**:
->     $$H_{\text{logic}} = 44\text{px} \times 3 = 132\text{px}$$
->   - Soldier: Chiều cao hiển thị chuẩn logic: **132px** (Trên mobile hiển thị: **44px**).
->   - Zombie Walker: Chiều cao hiển thị chuẩn logic: **132px** (Trên mobile hiển thị: **44px**).
->   - Boss Zombie King: Chiều cao hiển thị chuẩn logic: **198px** (Trên mobile hiển thị: **66px**).
+> - Chiều cao hiển thị chuẩn logic của nhân vật: **132px** (Trên mobile 360×640 hiển thị: **44.0px**).
+> - Đảm bảo người xem livestream nhìn rõ quân phục, vũ khí và zombie mà không bị teo nhỏ.
 
 ---
 
 ## II. Phân Tầng Chiến Trường Trục Dọc (Vertical Zonation)
 
-Chiến trường được phân chia thành 7 phân khu chức năng mạch lạc theo chiều dọc từ trên xuống dưới, đảm bảo cân bằng hoàn hảo giữa vùng an toàn TikTok và không gian giao tranh khốc liệt:
+Chiến trường được phân chia thành 7 phân khu chức năng mạch lạc theo chiều dọc từ trên xuống dưới, đồng bộ chính xác với hệ tọa độ đo đạc thực tế:
 
 ```mermaid
 flowchart TD
-    Z1["Zone 1: Top HUD & TikTok Safe Zone (y: 0 - 220)<br>Timer, Base HP, Leaderboard"]
-    Z2["Zone 2: Zombie Approach & Choke Funnels (y: 220 - 750)<br>3 hành lang di chuyển, bẫy răng rồng, dây thép gai"]
-    Z3["Zone 3: Active Combat Zone (y: 750 - 1180)<br>Vùng giao tranh ác liệt, đạn bắn, zombie trúng đạn, gift missile"]
-    Z4["Zone 4: Fortress Defense Line (y: 1180 - 1420)<br>Heavy Blast Gate, Tường thành bê tông, 2 Tháp canh góc, 3 Bệ pháo"]
-    Z5["Zone 5: Bastion Staging Yard (y: 1420 - 1680)<br>Sân tiền duyên bê tông, 3 Soldier đại diện phòng thủ theo lane"]
-    Z6["Zone 6: Rear Logistics & Command Bunker (y: 1680 - 1820)<br>Boong-ke chỉ huy radar, kho đạn dược, thùng nhiên liệu, đèn pha"]
-    Z7["Zone 7: Bottom TikTok Safe Zone (y: 1820 - 1920)<br>Khung bình luận livestream, CTA tham chiến"]
+    Z1["Zone 1: Top HUD & Safe Zone (y: 0 - 150)<br>Timer, Base HP, Leaderboard"]
+    Z2["Zone 2: Zombie Spawn & Approach (y: 150 - 380)<br>Vùng xuất hiện Zombie theo 3 Lane"]
+    Z3["Zone 3: Choke Funnels & Obstacles (y: 380 - 520)<br>Răng rồng, dây thép gai dã chiến"]
+    Z4["Zone 4: 3 Turret Emplacements (y: 530 - 640, Center y=580)<br>3 ụ pháo tự động Lane Alpha (280), Bravo (540), Charlie (800)"]
+    Z5["Zone 5: Active Combat & Crossfire Zone (y: 650 - 840)<br>Vùng giao tranh ác liệt, đạn bắn, hỏa lực phòng thủ"]
+    Z6["Zone 6: Defense Line & Collision Boundary (y: 840 - 980)<br>Vạch va chạm y=840, Cổng thép y=900, Tường bê tông y=900"]
+    Z7["Zone 7: Bastion Courtyard & Bunker (y: 990 - 1820)<br>Lính phòng thủ y=1030-1050, Sân tập kết, Boong-ke chỉ huy y=1710"]
 
     Z1 --> Z2 --> Z3 --> Z4 --> Z5 --> Z6 --> Z7
 ```
@@ -52,49 +47,50 @@ flowchart TD
 
 Chiến trường được chia thành 3 làn chiến thuật tương ứng với 3 tiểu đội Alpha, Bravo, Charlie:
 
-| Làn Gameplay | Tên Tiểu Đội | Tọa Độ Tâm Trục X | Giới Hạn Chiều Ngang | Vị Trí Cửa Phễu (Choke Funnel) | Vị Trí Bệ Pháo (Turret Pad) | Vị Trí Lính Phòng Thủ (Soldier) |
+| Làn Gameplay | Tên Tiểu Đội | Tọa Độ Tâm Trục X | Giới Hạn Chiều Ngang | Vị Trí Bệ Pháo (Turret Pad) | Vạch Va Chạm (Collision Boundary) | Vị Trí Lính Phòng Thủ (Soldier) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Lane 0** | **Alpha Squad** | **x = 280** | x: 140 ➔ 410 | (280, 720) | (280, 1320) | (280, 1390) |
-| **Lane 1** | **Bravo Squad** | **x = 540** | x: 410 ➔ 670 | (540, 720) - Trước Cổng Chính | (540, 1340) | (540, 1410) |
-| **Lane 2** | **Charlie Squad** | **x = 800** | x: 670 ➔ 940 | (800, 720) | (800, 1320) | (800, 1390) |
+| **Lane 0** | **Alpha Squad** | **x = 280** | x: 80 ➔ 410 | (280, 580) | (280, 840) — Tường Trái | (280, 1030) |
+| **Lane 1** | **Bravo Squad** | **x = 540** | x: 410 ➔ 670 | (540, 580) | (540, 840) — Cổng Thép | (540, 1050) |
+| **Lane 2** | **Charlie Squad** | **x = 800** | x: 670 ➔ 1000 | (800, 580) | (800, 840) — Tường Phải | (800, 1030) |
 
 ---
 
 ## IV. Bảng Tọa Độ & Kích Thước Các Công Trình Kiến Trúc Chuẩn
 
-Dựa trên bản đồ tham chiếu chuẩn [`bastion_master_environment.png`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/public/assets/concept/bastion_master_environment.png):
+Toàn bộ tọa độ bên dưới trùng khớp 100% với file cấu hình [`BastionGeometryConfig.ts`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/src/config/BastionGeometryConfig.ts) và scene [`ArtIntegrationLabScene.ts`](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/apps/game-client/src/scenes/ArtIntegrationLabScene.ts):
 
-| Đối Tượng Kiến Trúc | Kích Thước Logic (px) | Kích Thước Mobile (px) | Tọa Độ Tâm (x, y) | Điểm Neo (Origin) | Tầng Sâu (Depth) | Mô Tả Hình Học & Vai Trò |
+| Đối Tượng Kiến Trúc | Kích Thước Logic (px) | Kích Thước Mobile (px) | Tọa Độ Tâm (x, y) | Điểm Neo (Origin) | Tầng Sâu (Depth) | Ranh Giới Va Chạm (Collision) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Mặt Nền Sân Căn Cứ** | 1080 × 1920 | 360 × 640 | (540, 960) | (0.5, 0.5) | **1** | Bê tông dã chiến có khe co giãn, vạch sơn chevron |
-| **Rào Cản Dây Thép Gai** | 160 × 45 | 53 × 15 | (280, 700), (800, 700) | (0.5, 0.5) | **3** | Bẫy làm chậm zombie ở hai cánh |
-| **Cọc Bê Tông Răng Rồng** | 180 × 60 | 60 × 20 | (410, 760), (670, 760) | (0.5, 0.5) | **3** | Rào cản phân cách 3 luồng di chuyển |
-| **Tường Thành Trái** | 420 × 120 | 140 × 40 | (250, 1250) | (0.5, 0.5) | **4** | Tường bê tông cốt thép khối dày, có lỗ châu mai |
-| **Tường Thành Phải** | 420 × 120 | 140 × 40 | (830, 1250) | (0.5, 0.5) | **4** | Tường bê tông cốt thép đối xứng bên phải |
-| **Khung Cổng Blast Gate** | 300 × 150 | 100 × 50 | (540, 1250) | (0.5, 0.5) | **5** | Khung cổng thép chịu lực cố định |
-| **Cánh Cổng Thép (Trượt)**| 240 × 120 | 80 × 40 | (540, 1250) | (0.5, 0.5) | **6** | Cổng thép cơ giới dập gân, pít-tông thủy lực |
-| **Tháp Canh Góc Trái** | 240 × 240 | 80 × 80 | (110, 1220) | (0.5, 0.5) | **7** | Tháp canh tròn tiền đồn có bao cát đỉnh |
-| **Tháp Canh Góc Phải** | 240 × 240 | 80 × 80 | (970, 1220) | (0.5, 0.5) | **7** | Tháp canh tròn tiền đồn có đèn pha rọi |
-| **Bệ Pháo Alpha** | 150 × 150 | 50 × 50 | (280, 1320) | (0.5, 0.5) | **8** | Bệ pháo lục giác dập đinh tán |
-| **Bệ Pháo Bravo** | 150 × 150 | 50 × 50 | (540, 1340) | (0.5, 0.5) | **8** | Bệ pháo trung tâm nâng cao |
-| **Bệ Pháo Charlie** | 150 × 150 | 50 × 50 | (800, 1320) | (0.5, 0.5) | **8** | Bệ pháo lục giác bên phải |
-| **Ụ Pháo Tự Động (3 ụ)** | Base 96px, Gun 80px | Base 32px, Gun 27px | Trùng bệ pháo | (0.5, 0.65) | **9–10** | Xoay 360°, nòng súng kép giật nòng |
-| **Lính Soldier Alpha** | Display 132px | Display 44px | (280, 1390) | (0.5, 0.5) | **11** | Soldier đại diện Alpha nâng súng nhắm |
-| **Lính Soldier Bravo** | Display 132px | Display 44px | (540, 1410) | (0.5, 0.5) | **11** | Soldier đại diện Bravo trung phong |
-| **Lính Soldier Charlie** | Display 132px | Display 44px | (800, 1390) | (0.5, 0.5) | **11** | Soldier đại diện Charlie nâng súng nhắm |
-| **Zombie Walker (8–10 con)**| Display 132px | Display 44px | Di chuyển y: 300 ➔ 1200 | (0.5, 0.5) | **12** | Tiến công theo 3 lane, dính đạn, ngã gục |
-| **Boong-ke Chỉ Huy** | 340 × 150 | 113 × 50 | (540, 1740) | (0.5, 0.5) | **13** | Boong-ke bọc thép kiên cố phía sau |
-| **Chảo Ăng-ten Radar** | 72 × 72 | 24 × 24 | (540, 1690) | (0.5, 0.5) | **14** | Chảo radar xoay tròn 360° |
-| **Kho Đạn Dược Quân Sự** | 160 × 90 | 53 × 30 | (240, 1740) | (0.5, 0.5) | **13** | Hòm đạn xanh rêu và thùng phuy tiếp vận |
-| **Đèn Chiếu & Máy Phát** | 140 × 80 | 47 × 27 | (840, 1740) | (0.5, 0.5) | **13** | Cụm máy phát điện và đèn pha hậu cần |
-| **HUD TikTok LIVE** | Tỷ lệ chuẩn 1080 | Tỷ lệ chuẩn 360 | Header y: 120, Footer y: 1870 | (0.5, 0.5) | **20** | Vùng an toàn hiển thị chỉ số rõ nét |
+| **Mặt Nền Sân Căn Cứ** | 1080 × 1920 | 360 × 640 | (540, 960) | (0.5, 0.5) | **1** | Không (Nền sàn) |
+| **Vạch Va Chạm Phòng Tuyến**| 960 × 6 | 320 × 2 | (540, 840) | (0.5, 0.5) | **5** | **y = 840** (Chặn Zombie cả 3 Lane) |
+| **Khung Cổng Blast Gate** | 300 × 160 | 100 × 53 | (540, 900) | (0.5, 0.5) | **7** | Khung cổng cố định |
+| **Cánh Cửa Trái (Trượt)** | 115 × 120 | 38 × 40 | Đóng: (483, 908) ➔ Mở: (430, 908) | (0.5, 0.5) | **6** | Trượt ngang $\Delta x = -53\text{px}$ |
+| **Cánh Cửa Phải (Trượt)**| 115 × 120 | 38 × 40 | Đóng: (597, 908) ➔ Mở: (650, 908) | (0.5, 0.5) | **6** | Trượt ngang $\Delta x = +53\text{px}$ |
+| **Tường Thành Trái** | 320 × 120 | 107 × 40 | (240, 900) | (0.5, 0.5) | **7** | Chặn vĩnh viễn tại y = 840 (Alpha) |
+| **Tường Thành Phải** | 320 × 120 | 107 × 40 | (840, 900) | (0.5, 0.5) | **7** | Chặn vĩnh viễn tại y = 840 (Charlie) |
+| **Bệ Pháo Alpha** | 130 × 130 | 43 × 43 | (280, 580) | (0.5, 0.5) | **8** | Bệ bê tông lục giác |
+| **Bệ Pháo Bravo** | 130 × 130 | 43 × 43 | (540, 580) | (0.5, 0.5) | **8** | Bệ bê tông lục giác trung tâm |
+| **Bệ Pháo Charlie** | 130 × 130 | 43 × 43 | (800, 580) | (0.5, 0.5) | **8** | Bệ bê tông lục giác |
+| **Ụ Pháo Tự Động (3 ụ)** | Base 80px, Gun 80px | Base 27px, Gun 27px | (280, 580), (540, 580), (800, 580) | (0.5, 0.7) | **9–10** | Xoay 360° theo mục tiêu từng lane |
+| **Lính Soldier Alpha** | Display 132px | Display 44.0px | (280, 1030) (Nấp sau tường y: 860) | (0.5, 0.5) | **11 / 4** | Occlusion: Depth 4 nấp sau tường Depth 7 |
+| **Lính Soldier Bravo** | Display 132px | Display 44.0px | (540, 1050) | (0.5, 0.5) | **11** | Đứng bảo vệ trước hành lang cổng |
+| **Lính Soldier Charlie** | Display 132px | Display 44.0px | (800, 1030) | (0.5, 0.5) | **11** | Điểm tựa cover cánh phải |
+| **Zombie Walker (9 con)** | Display 132px | Display 44.0px | Di chuyển y: 230 ➔ 840 | (0.5, 0.5) | **12** | 3 con/lane; dừng tại vạch va chạm y=840 |
+| **Sân Căn Cứ (Courtyard)** | 880 × 500 | 293 × 167 | Tâm (540, 1340), y: 1090..1590 | (0.5, 0.5) | **1** | Vùng di chuyển tiếp viện phía sau |
+| **Boong-ke Chỉ Huy** | 360 × 150 | 120 × 50 | Tâm (540, 1710), y: 1640..1780 | (0.5, 0.5) | **13** | Sở chỉ huy bọc thép phía sau |
+| **Kho Đạn Hậu Cần** | 180 × 120 | 60 × 40 | Tâm (220, 1720), y: 1660..1780 | (0.5, 0.5) | **13** | Hòm đạn xanh rêu và thùng phuy |
 
 ---
 
-## V. Hướng Nhìn Camera & Phép Chiếu (Camera Projection)
+## V. Quy Tắc Va Chạm Động (Dynamic Collision Rules)
 
-- **Góc nhìn**: Top-Down 2.5D (Bird's-Eye View với góc nghiêng khoảng `78°` từ trên xuống).
-- **Đặc trưng thị giác**:
-  - Bề mặt sàn, đường di chuyển và đỉnh đầu nhân vật/quái vật được nhìn thấy rõ ràng từ trên đỉnh xuống.
-  - Mặt trước của tường thành bê tông, cổng thép, tháp canh và boong-ke chỉ huy có độ dày khối 3D (Extruded height) đổ bóng xiên nhẹ về phía nam.
-  - Sprite Survivor Player và Zombie Walker của Riley Gombart (vốn có góc nhìn top-down hơi chếch đỉnh) hoàn toàn đồng điệu và hòa hợp tự nhiên vào mặt sân khi được đặt tại độ cao hiển thị chuẩn 132px.
+Hệ thống va chạm `BastionCollisionSystem` tuân thủ các quy tắc hình học:
+1. **Khi Cổng Đóng (`GATE_CLOSED`)**:
+   - Vạch va chạm liên tục từ $x=80$ đến $x=1000$ tại $y=840$.
+   - Mọi Zombie ở cả 3 lane bị chặn đứng tại $y=840$, không thể xuyên qua.
+2. **Khi Cổng Mở (`GATE_OPEN`)**:
+   - Đoạn thông đạo trung tâm $x \in [410, 670]$ được mở thông.
+   - Zombie tại Lane Bravo được phép di chuyển qua $y=840$, tiến vào hành lang sâu đến $y=940$.
+   - Lane Alpha ($x \in [80, 410]$) và Lane Charlie ($x \in [670, 1000]$) **vẫn bị tường chặn 100% tại $y=840$**.
+3. **Khi Cổng Đang Đóng (`GATE_CLOSING`)**:
+   - Nếu Zombie chưa vượt qua $y=840$, cánh cửa trượt đóng lại và đẩy/chặn Zombie ở lại phía bắc $y=840$.

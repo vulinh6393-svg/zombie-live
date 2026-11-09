@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-11-09T01:03:08.964Z",
+  "totalTests": 17,
+  "passed": 17,
+  "failed": 0,
+  "notVerified": 0,
+  "verdict": "PASS",
+  "testRecords": [
+    {
+      "name": "Sprite RGBA: bastion_wall_segment.png",
+      "status": "PASS",
+      "details": "Dim: 420x130 (Chuẩn: 420x130) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Sprite RGBA: bastion_gate_frame.png",
+      "status": "PASS",
+      "details": "Dim: 300x160 (Chuẩn: 300x160) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Sprite RGBA: bastion_gate_door_left.png",
+      "status": "PASS",
+      "details": "Dim: 115x120 (Chuẩn: 115x120) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Sprite RGBA: bastion_gate_door_right.png",
+      "status": "PASS",
+      "details": "Dim: 115x120 (Chuẩn: 115x120) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Sprite RGBA: bastion_turret_platform.png",
+      "status": "PASS",
+      "details": "Dim: 130x130 (Chuẩn: 130x130) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Sprite RGBA: wall_damage_overlay.png",
+      "status": "PASS",
+      "details": "Dim: 200x120 (Chuẩn: 200x120) | Alpha: [0..255] | Channels: 4"
+    },
+    {
+      "name": "Layout Docs: Loại bỏ tọa độ cũ y=1250/1340 của Cổng & Turret",
+      "status": "PASS",
+      "details": "Đã xóa hoàn toàn tọa độ cũ của Cổng và Turret"
+    },
+    {
+      "name": "Layout Docs: Khớp tọa độ SSOT (Cổng 900, Turret 580, Collision 840)",
+      "status": "PASS",
+      "details": "Gate 900: true | Turret 580: true | Collision 840: true"
+    },
+    {
+      "name": "BastionGeometryConfig: Giá trị typed SSOT chuẩn xác",
+      "status": "PASS",
+      "details": "Gate Y: 900 | Turret Y: 580 | Collision Y: 840"
+    },
+    {
+      "name": "Collision Logic: Cổng ĐÓNG chặn đứng Zombie tại y=840 (ResolvedY=820)",
+      "status": "PASS",
+      "details": "Collided: true | ResolvedY: 820 | Segment: GATE"
+    },
+    {
+      "name": "Collision Logic: Cổng MỞ cho phép Zombie Bravo đi xuyên qua thông đạo",
+      "status": "PASS",
+      "details": "Collided: false | ResolvedY: 860 | Reason: GATE_OPEN"
+    },
+    {
+      "name": "Collision Logic: Cổng ĐÓNG LẠI tiếp tục chặn cứng Zombie tiếp theo",
+      "status": "PASS",
+      "details": "Collided: true | ResolvedY: 820"
+    },
+    {
+      "name": "Collision Logic: Lane Alpha & Charlie luôn bị tường chặn dù Cổng Mở",
+      "status": "PASS",
+      "details": "Alpha: LEFT_WALL (Blocked: true) | Charlie: RIGHT_WALL (Blocked: true)"
+    },
+    {
+      "name": "Collision Logic: Tường Trái vỡ (BREACHED) mở đường va chạm động",
+      "status": "PASS",
+      "details": "Collided: false | Reason: WALL_BREACHED"
+    },
+    {
+      "name": "Runtime Video: art_integration_lab.webm",
+      "status": "PASS",
+      "details": "Dung lượng: 3.82 MB (Yêu cầu >= 1MB)"
+    },
+    {
+      "name": "Mobile QA Screenshot: mobile_runtime_360x640.png",
+      "status": "PASS",
+      "details": "Kích thước: 720x1280 (Viewport chuẩn 360x640 @2x DPR)"
+    },
+    {
+      "name": "Stress Test 4 Backgrounds: sprite_alpha_halo_stress_test.png",
+      "status": "PASS",
+      "details": "Kích thước: 1600x1200 (Đầy đủ 4 nền White, Black, Magenta, Fortress)"
+    }
+  ]
+}
