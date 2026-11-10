@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Zombie Đại Chiến — Mock LIVE Interaction Dashboard</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background: #090d16;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+    }
+    h1 { color: #00f5d4; font-size: 22px; margin-top: 0; }
+    .subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .card h2 { color: #38bdf8; font-size: 16px; margin-top: 0; margin-bottom: 12px; }
+    .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+    .stat-val { font-weight: bold; color: #10b981; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    button {
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    button:hover { background: #334155; border-color: #38bdf8; }
+    button.primary { background: #0284c7; border-color: #38bdf8; }
+    button.primary:hover { background: #0369a1; }
+    button.danger { background: #be123c; border-color: #f43f5e; }
+    button.success { background: #059669; border-color: #10b981; }
+    .log-box {
+      background: #030712;
+      border: 1px solid #1f2937;
+      border-radius: 6px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      height: 180px;
+      overflow-y: auto;
+      color: #94a3b8;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .badge-green { background: #064e3b; color: #34d399; }
+    .badge-red { background: #4c0519; color: #fb7185; }
+  </style>
+</head>
+<body>
+  <h1>🎮 Zombie Đại Chiến — Mock LIVE Interaction Dashboard</h1>
+  <div class="subtitle">Bảng điều khiển tương tác giả lập TikTok LIVE dành cho Developer & QA (Tách biệt hoàn toàn khỏi OBS /overlay)</div>
+
+  <div class="grid">
+    <!-- PANEL 1: LIVE SIMULATION CONTROLS -->
+    <div class="card">
+      <h2>1. Giả Lập Người Xem & Bình Luận (Viewer Comments)</h2>
+      <div class="btn-row">
+        <button class="primary" onclick="simulateJoin('alpha')">JOIN 1 (Alpha)</button>
+        <button class="primary" onclick="simulateJoin('bravo')">JOIN 2 (Bravo)</button>
+        <button class="primary" onclick="simulateJoin('charlie')">JOIN 3 (Charlie)</button>
+      </div>
+      <div class="btn-row">
+        <button onclick="sendAction('BAN')">BẮN (Hỗ trợ hỏa lực)</button>
+        <button onclick="sendAction('SUA')">SỬA (Sửa thành trì)</button>
+        <button onclick="sendAction('CUU')">CỨU (Tiếp viện hồi máu)</button>
+        <button onclick="sendAction('BOSS')">BOSS (Dồn dam Boss)</button>
+      </div>
+
+      <h2>2. Giả Lập Tặng Quà (Gift Skills & Streaks)</h2>
+      <div class="btn-row">
+        <button class="danger" onclick="sendGift('gift_missile', 1)">Tên Lửa (Airstrike)</button>
+        <button class="success" onclick="sendGift('gift_shield', 1)">Khiên Năng Lượng (Shield)</button>
+        <button onclick="sendGift('gift_doughnut', 1)">Overclock Ụ Pháo</button>
+        <button onclick="sendGift('gift_missile', 5, true)">Gift Streak (5x Tên Lửa)</button>
+      </div>
+
+      <h2>3. Thử Tải Thông Lượng (Stress Test 100 evt/s)</h2>
+      <div class="btn-row">
+        <button id="stressBtn" class="danger" onclick="toggleStressTest()">Bắt đầu Test 100 sự kiện/giây</button>
+      </div>
+    </div>
+
+    <!-- PANEL 2: SERVER AUTHORITATIVE TELEMETRY -->
+    <div class="card">
+      <h2>Giám Sát Trạng Thái Game Server (20Hz Authoritative)</h2>
+      <div class="stat-row">
+        <span>Giai đoạn Trận Đấu (Phase):</span>
+        <span class="stat-val" id="phaseVal">PREPARING</span>
+      </div>
+      <div class="stat-row">
+        <span>Server Tick (20Hz):</span>
+        <span class="stat-val" id="tickVal">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Base HP:</span>
+        <span class="stat-val" id="baseHpVal">10000 / 10000</span>
+      </div>
+      <div class="stat-row">
+        <span>Người Xem Tham Chiến (Thực Tế):</span>
+        <span class="stat-val" id="playersVal">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Thông lượng Xử Lý:</span>
+        <span class="stat-val" id="throughputVal">0 events/s</span>
+      </div>
+      <div class="stat-row">
+        <span>Lệnh Chấp Nhận / Từ Chối:</span>
+        <span class="stat-val"><span id="acceptedVal" style="color: #34d399">0</span> / <span id="rejectedVal" style="color: #fb7185">0</span></span>
+      </div>
+
+      <h2 style="margin-top: 14px;">Nhật Ký Tương Tác Thời Gian Thực</h2>
+      <div class="log-box" id="logBox">
+        [SYSTEM] Mock LIVE Interaction Dashboard đã sẵn sàng kết nối.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let accepted = 0;
+    let rejected = 0;
+    let stressRunning = false;
+    let stressTimer = null;
+    let viewerCounter = 1;
+
+    function log(msg, isSuccess = true) {
+      const box = document.getElementById('logBox');
+      const time = new Date().toLocaleTimeString();
+      const badge = isSuccess ? '<span class="badge badge-green">OK</span>' : '<span class="badge badge-red">REJECT</span>';
+      box.innerHTML = `[${time}] ${badge} ${msg}<br/>` + box.innerHTML;
+    }
+
+    async function sendCommand(payload) {
+      try {
+        const res = await fetch('/api/dashboard/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.accepted) {
+          accepted++;
+          document.getElementById('acceptedVal').innerText = accepted;
+          log(`${payload.userName || 'Viewer'}: ${payload.command || payload.giftId} -> ${data.reason || 'THÀNH CÔNG'}`, true);
+        } else {
+          rejected++;
+          document.getElementById('rejectedVal').innerText = rejected;
+          log(`${payload.userName || 'Viewer'}: ${payload.command || payload.giftId} -> ${data.reason || 'TỪ CHỐI'}`, false);
+        }
+      } catch (err) {
+        log(`Lỗi kết nối: ${err.message}`, false);
+      }
+    }
+
+    function simulateJoin(squad) {
+      const uid = `usr_${viewerCounter++}`;
+      sendCommand({
+        type: 'COMMENT',
+        userId: uid,
+        userName: `Gamer_${uid}`,
+        command: `JOIN ${squad.toUpperCase()}`
+      });
+    }
+
+    function sendAction(cmd) {
+      sendCommand({
+        type: 'COMMENT',
+        userId: `usr_${Math.max(1, viewerCounter - 1)}`,
+        userName: `Gamer_active`,
+        command: cmd
+      });
+    }
+
+    function sendGift(giftId, qty = 1, isStreak = false) {
+      const uid = `vip_${Math.floor(Math.random() * 5) + 1}`;
+      sendCommand({
+        type: 'GIFT',
+        userId: uid,
+        userName: `VIP_${uid}`,
+        giftId,
+        quantity: qty,
+        streakId: isStreak ? `streak_${Date.now()}` : undefined
+      });
+    }
+
+    function toggleStressTest() {
+      const btn = document.getElementById('stressBtn');
+      if (stressRunning) {
+        clearInterval(stressTimer);
+        stressRunning = false;
+        btn.innerText = 'Bắt đầu Test 100 sự kiện/giây';
+        btn.className = 'danger';
+      } else {
+        stressRunning = true;
+        btn.innerText = 'Đang chạy test tải (Bấm để Dừng)';
+        btn.className = 'success';
+        stressTimer = setInterval(() => {
+          for (let i = 0; i < 5; i++) {
+            const uid = `stress_${Math.floor(Math.random() * 50)}`;
+            const cmds = ['BAN', 'SUA', 'CUU', '1', '2', '3'];
+            const randomCmd = cmds[Math.floor(Math.random() * cmds.length)];
+            sendCommand({
+              type: 'COMMENT',
+              userId: uid,
+              userName: `Viewer_${uid}`,
+              command: randomCmd
+            });
+          }
+        }, 50); // 5 events every 50ms = 100 events/second
+      }
+    }
+
+    // Polling server state for telemetry
+    setInterval(async () => {
+      try {
+        const res = await fetch('/ready');
+        const data = await res.json();
+        if (data.engine) {
+          document.getElementById('phaseVal').innerText = data.engine.phase || 'N/A';
+          document.getElementById('tickVal').innerText = data.engine.tick || 0;
+          document.getElementById('baseHpVal').innerText = `${data.engine.baseHp} / 10000`;
+          document.getElementById('playersVal').innerText = data.engine.playerCount || 0;
+        }
+      } catch (e) {}
+    }, 1000);
+  </script>
+</body>
+</html>

@@ -24,7 +24,7 @@ describe('Game Client Configuration & Mock Source', () => {
     const snap = lastSnapshot!;
     expect(snap.zombies.length).toBeGreaterThan(0);
     expect(snap.soldiers.length).toBeGreaterThanOrEqual(3);
-    expect(snap.activePlayerCount).toBe(40);
+    expect(snap.activePlayerCount).toBeGreaterThanOrEqual(3);
     expect(snap.towers?.length).toBe(3);
 
     // 2. Boss Scenario

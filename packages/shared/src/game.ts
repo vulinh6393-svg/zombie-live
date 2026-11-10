@@ -7,6 +7,7 @@ export const MatchPhaseSchema = z.enum([
   'WAVE_2',
   'WAVE_3',
   'WAVE_4',
+  'WAVE_5',
   'BOSS',
   'RESULTS',
   'RESET',
@@ -23,8 +24,23 @@ export const CombatEventTypeSchema = z.enum([
   'DEATH',
   'WALL_HIT',
   'GIFT_SKILL',
+  'COMMAND_FEEDBACK',
 ]);
 export type CombatEventType = z.infer<typeof CombatEventTypeSchema>;
+
+export interface PlayerContribution {
+  userId: string;
+  userName: string;
+  avatarUrl?: string;
+  squad: 'alpha' | 'bravo' | 'charlie';
+  score: number;
+  kills: number;
+  assists: number;
+  repairs: number;
+  rescues: number;
+  bossDamage: number;
+  lastActionTick: number;
+}
 
 export interface CombatEvent {
   id: string; // Unique event ID (e.g. evt_{tick}_{seq})

@@ -217,8 +217,9 @@ export class HUD {
     }
 
     // 6. Gift Skill Banner
-    if (snapshot.giftSkillActive) {
-      this.showGiftAlert(snapshot.giftSkillActive.name, snapshot.giftSkillActive.senderName);
+    const activeSkill = (snapshot as any).activeGiftSkill || snapshot.giftSkillActive;
+    if (activeSkill) {
+      this.showGiftAlert(activeSkill.name, activeSkill.senderName);
     }
 
     // 7. MVP Board

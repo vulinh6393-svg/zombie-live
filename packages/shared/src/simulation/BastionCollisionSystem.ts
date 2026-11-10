@@ -134,6 +134,7 @@ export class BastionCollisionSystem {
   ): CollisionResult {
     const boundaryY = this.collisionLineY; // 840
     const gateThresholdBottomY = boundaryY + 110; // 950 (vùng sâu trong thông đạo cổng)
+    const targetY = boundaryY - radius; // 820
 
     // Kiểm tra xem thực thể có đang tương tác với vùng phòng tuyến hay không
     const isCrossingFromNorth = currY <= boundaryY && nextY + radius >= boundaryY;
@@ -148,13 +149,17 @@ export class BastionCollisionSystem {
       };
     }
 
+    const stepDist = Math.abs(nextY - currY);
+    const maxPush = Math.max(stepDist * 1.2, 4.0);
+
     // 1. Lane Alpha (Left Wall): x trong [30, 390)
     if (nextX >= BASTION_GEOMETRY.lanes[0].xMin && nextX < BASTION_GEOMETRY.blastGate.corridorXMin) {
       if (this.leftWall.state !== 'BREACHED') {
+        const resolvedY = currY > targetY ? Math.max(targetY, currY - maxPush) : Math.min(nextY, targetY);
         return {
           collided: true,
           resolvedX: nextX,
-          resolvedY: boundaryY - radius,
+          resolvedY,
           segment: 'LEFT_WALL',
         };
       } else {
@@ -172,15 +177,32 @@ export class BastionCollisionSystem {
       // Tính toán khoảng hở động tức thời tại tick hiện tại
       const { safeMinX, safeMaxX, isOpen } = this.getSafeCorridorBounds(radius);
 
-      // Cổng đóng hoàn toàn
+      // Cổng đóng hoàn toàn hoặc đang khép cửa không đủ khoảng hở an toàn
       if (this.gateState === 'CLOSED' || !isOpen) {
-        // Nếu thực thể đang kẹt trong thông đạo khi cửa đóng lại
+        // Nếu thực thể đang ở trong khu vực thông đạo khi cửa đóng lại
         if (isInsideGateThreshold) {
-          // Quy tắc vật lý xác định: Nếu đã đi qua quá nửa cổng (y > 890), đẩy về phía nam vào sân thành
-          // Nếu vẫn ở nửa trước (y <= 890), đẩy lùi về phía bắc trước cổng
-          const resolvedY = currY > 890 ? gateThresholdBottomY + 10 : boundaryY - radius;
-          // Kẹp x an toàn trong ranh giới cổng, không ép xuyên tường
-          const resolvedX = Math.max(BASTION_GEOMETRY.blastGate.portalXMin + radius, Math.min(BASTION_GEOMETRY.blastGate.portalXMax - radius, nextX));
+          // Continuous contact resolution: Tuyệt đối KHÔNG teleport tức thời
+          // 1. Nếu thực thể đã đi qua quá nửa cổng (currY > 890): tiếp tục tiến về nam với vận tốc tự nhiên, không giật lùi
+          if (currY > 890) {
+            const resolvedY = currY + Math.max(0, nextY - currY);
+            const resolvedX = Math.max(
+              BASTION_GEOMETRY.blastGate.portalXMin + radius,
+              Math.min(BASTION_GEOMETRY.blastGate.portalXMax - radius, nextX)
+            );
+            return {
+              collided: false,
+              resolvedX,
+              resolvedY,
+              passThroughReason: 'GATE_OPEN',
+            };
+          }
+
+          // 2. Nếu thực thể ở nửa bắc (currY <= 890): Đẩy lùi liên tục về phía bắc với tốc độ trượt mượt mà (smooth contact push-back)
+          const resolvedY = Math.max(targetY, currY - maxPush);
+          const resolvedX = Math.max(
+            BASTION_GEOMETRY.blastGate.portalXMin + radius,
+            Math.min(BASTION_GEOMETRY.blastGate.portalXMax - radius, nextX)
+          );
           return {
             collided: true,
             resolvedX,
@@ -189,10 +211,12 @@ export class BastionCollisionSystem {
           };
         }
 
+        // Thực thể ở ngoài cổng (currY <= boundaryY): Chặn đứng tại ranh giới, trượt mượt mà
+        const resolvedY = currY > targetY ? Math.max(targetY, currY - maxPush) : Math.min(nextY, targetY);
         return {
           collided: true,
           resolvedX: nextX,
-          resolvedY: boundaryY - radius,
+          resolvedY,
           segment: 'GATE',
         };
       }
@@ -210,11 +234,29 @@ export class BastionCollisionSystem {
         };
       } else {
         // Va vào cánh cửa bên trái hoặc bên phải đang mở dở hoặc đang đóng lại
-        // Quy tắc xác định: Đẩy lùi về phía bắc (nếu ở ngoài) hoặc đẩy về hướng an toàn nhất
-        let resolvedY = boundaryY - radius;
         if (isInsideGateThreshold) {
-          resolvedY = currY > 890 ? gateThresholdBottomY + 10 : boundaryY - radius;
+          if (currY > 890) {
+            // Đã qua nửa cổng: tiếp tục tiến về nam
+            return {
+              collided: false,
+              resolvedX: nextX,
+              resolvedY: currY + Math.max(0, nextY - currY),
+              passThroughReason: 'GATE_OPEN',
+            };
+          } else {
+            // Chưa qua nửa cổng: đẩy lùi liên tục có giới hạn bước
+            const resolvedY = Math.max(targetY, currY - maxPush);
+            return {
+              collided: true,
+              resolvedX: nextX,
+              resolvedY,
+              segment: 'GATE',
+            };
+          }
         }
+
+        // Ở ngoài cửa: chặn tại ranh giới mượt mà
+        const resolvedY = currY > targetY ? Math.max(targetY, currY - maxPush) : Math.min(nextY, targetY);
         return {
           collided: true,
           resolvedX: nextX,
@@ -227,10 +269,11 @@ export class BastionCollisionSystem {
     // 3. Lane Charlie (Right Wall): x trong (690, 1050]
     if (nextX > BASTION_GEOMETRY.blastGate.corridorXMax && nextX <= BASTION_GEOMETRY.lanes[2].xMax) {
       if (this.rightWall.state !== 'BREACHED') {
+        const resolvedY = currY > targetY ? Math.max(targetY, currY - maxPush) : Math.min(nextY, targetY);
         return {
           collided: true,
           resolvedX: nextX,
-          resolvedY: boundaryY - radius,
+          resolvedY,
           segment: 'RIGHT_WALL',
         };
       } else {

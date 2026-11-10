@@ -343,6 +343,8 @@ export class BattlefieldScene extends Phaser.Scene {
       }
     } else if (ev.type === 'GIFT_SKILL') {
       this.triggerGiftSkillVFX('TÊN LỬA TỔNG LỰC', ev.x, ev.y);
+    } else if (ev.type === 'COMMAND_FEEDBACK') {
+      this.triggerCommandFeedbackVFX(ev.sourceId, ev.x, ev.y);
     }
   }
 
@@ -432,6 +434,39 @@ export class BattlefieldScene extends Phaser.Scene {
       duration: 220,
       ease: 'Cubic.easeOut',
       onComplete: () => spark.destroy(),
+    });
+  }
+
+  // COMMAND FEEDBACK VFX (Flare & reinforcement indicators)
+  private triggerCommandFeedbackVFX(sourceId: string, x: number, y: number): void {
+    const isRepair = y < 1000;
+    const color = isRepair ? 0x00f5d4 : 0xfee440;
+    const textStr = isRepair ? '🔧 ĐÃ GIA CỐ THÀNH!' : '⭐ CHI VIỆN CHIẾN TRƯỜNG!';
+
+    const text = this.add.text(x, y - 20, textStr, {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: isRepair ? '#00f5d4' : '#fee440',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(60);
+
+    const burst = this.add.graphics().setDepth(59);
+    burst.fillStyle(color, 0.7);
+    burst.fillCircle(x, y, 26);
+
+    this.tweens.add({
+      targets: [text, burst],
+      y: y - 60,
+      alpha: 0,
+      scale: 1.15,
+      duration: 1000,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        text.destroy();
+        burst.destroy();
+      },
     });
   }
 

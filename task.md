@@ -431,7 +431,75 @@
   - [x] Commit toàn bộ mã nguồn, tài liệu và bằng chứng nghiệm thu lên nhánh `feat/phase02-visual-refinement`.
   - [x] Bàn giao báo cáo chi tiết cho Người Dùng và ChatGPT review.
 
-- [ ] Giai đoạn 04: Mock LIVE simulator và realtime player actions
+## Giai đoạn 03.1: Hardening & Bug Fixes (ĐANG TRIỂN KHAI)
+> **Mục tiêu**: Xử lý triệt để 4 lỗi P0 và 1 vấn đề P1 do Người Dùng và ChatGPT chỉ ra, đảm bảo hệ thống đạt chuẩn Security, Zero Event Loss, Smooth Collision không teleport, và bộ E2E Assertion thực chất trước khi mở kết nối tương tác LIVE.
+>
+> **Tuân thủ quy chuẩn**:
+> - `@senior-architect`: Phân tách hoàn toàn Public Namespace (`/game` - Read Only) và Protected Admin Namespace (`/admin` - Auth & Rate-limited). Simulation Event Queue độc lập không phụ thuộc tick phát broadcast.
+> - `@development`: Test-Driven Development (Security tests cho guest socket, Odd/Even tick event delivery tests, continuous contact collision tests, replay deterministic tests).
+> - `@clean-code`: Code type-safe với Zod schema validation toàn diện, xử lý lỗi tường minh, chú thích tiếng Việt chuẩn mực.
+
+- [x] **P0.1 — Secure Game Server & Namespace Separation**:
+  - [x] Tách namespace Socket.IO: `/game` (public read-only) và `/admin` (yêu cầu authentication/authorization qua token handshake).
+  - [x] Chặn mọi command can thiệp trận đấu (`admin:openGate`, `admin:closeGate`, `admin:giftSkill`, `admin:damageWall`) trên namespace `/game`.
+  - [x] Validate tất cả command payloads bằng Zod (từ chối số âm, NaN, Infinity, out-of-bounds, invalid IDs).
+  - [x] Thêm Rate Limiter (sliding window) cho các command điều khiển.
+  - [x] Cấu hình CORS allowlist chặt chẽ theo biến môi trường `ALLOWED_ORIGINS`.
+  - [x] Viết bộ security unit/integration test chứng minh guest socket kết nối `/game` không thể làm thay đổi trạng thái trận đấu.
+
+- [x] **P0.2 — Fix CombatEvent Delivery & Event Queue**:
+  - [x] Thiết kế Simulation Event Queue độc lập trong `AuthoritativeGameEngine`: không xóa sự kiện mỗi tick, chỉ drain các sự kiện khi snapshot tương ứng được đóng gói và phát đi.
+  - [x] Đặt namespace `eventId` theo `matchId`: `${matchId}_evt_${tick}_${eventSeq}`.
+  - [x] Đảm bảo Snapshot 10Hz thu thập trọn vẹn 100% sự kiện sinh ra ở cả tick lẻ và tick chẵn (20Hz loop).
+  - [x] Viết unit tests chứng minh: Không mất sự kiện ở tick lẻ, không phát trùng lặp, client deduplicate chuẩn xác kể cả khi reconnect.
+
+- [x] **P0.3 — Fix Gate Collision Teleport (Continuous Contact Resolution)**:
+  - [x] Nâng cấp `BastionCollisionSystem.resolveMovement()`: Thay thế việc dịch chuyển tức thời (snap to 820/960) bằng contact resolution liên tục.
+  - [x] Giới hạn độ dịch chuyển tối đa mỗi tick ($\le \text{speed} \times dt + \epsilon$, không vượt quá 15px/tick).
+  - [x] Zombie đã vượt qua tâm cổng tiếp tục tiến về cứ điểm ($y > 840$); zombie phía ngoài bị chặn/đẩy lùi về phía bắc mà không bị giật lùi xuyên vật cản.
+  - [x] Viết unit tests kiểm tra tính liên tục của vị trí, vận tốc và quỹ đạo qua 30 ticks trong trạng thái `OPENING` và `CLOSING`.
+
+- [x] **P0.4 — Repair Misleading E2E Tests & Robust Assertions**:
+  - [x] C05: Đo lường displacement từng tick trong chu trình `CLOSING`, assert không có tick nào nhảy $> 15$px.
+  - [x] C07: Assert zombie Alpha thực sự vượt qua vạch $y=840$ khi tường trái `BREACHED`.
+  - [x] C08: Client inject duplicate event và assert VFX/damage numbers chỉ hiển thị đúng 1 lần.
+  - [x] C09: Assert death event kích hoạt chính xác tại tick zombie chạm mốc HP $\le 0$.
+  - [x] C10: Client thử gọi mutation trực tiếp và assert trạng thái authoritative trên server không bị thay đổi.
+  - [x] Reconnect test: Xác minh snapshot resync, deduplication và loại bỏ stale packets.
+
+- [x] **P1 — Complete Gameplay Loop & 10 Zombie Types**:
+  - [x] Vòng đời trận đấu tự động: `PREPARING` (20s) ➔ `WAVE_1` (60s) ➔ `WAVE_2` (60s) ➔ `WAVE_3` (60s) ➔ `WAVE_4` (60s) ➔ `WAVE_5` (40s) ➔ `BOSS` (Zombie King) ➔ `RESULTS` (20s) ➔ Tự động sang trận mới (Livestream 24/7).
+  - [x] Vòng lặp server sử dụng monotonic clock (`performance.now()`) thay thế `Date.now()`.
+  - [x] Cấu hình 10 chủng loại Zombie theo chuẩn `docs/GAME_BALANCE.json` (Walker, Runner, Armored, Spitter, Healer, Brute, Shocker, Summoner, Shadow, Zombie King).
+  - [x] Boss Zombie King: 3 giai đoạn chiến đấu (Giai đoạn 1: Giáp kiên cố, Giai đoạn 2: Tăng tốc cuồng bạo, Giai đoạn 3: Tấn công trực diện).
+  - [x] Tính điểm MVP thời gian thực dựa trên đóng góp thực tế (kill, assist, repair, rescue).
+
+## Giai đoạn 04: Live Interaction Engine (PHASE 04)
+> **Mục tiêu**: Biến người xem livestream thành người tham gia chiến đấu thời gian thực thông qua bình luận (Comment Commands) và quà tặng (Gift Skills).
+
+- [x] **1. LiveEventAdapter Architecture (`apps/live-bridge`)**:
+  - [x] `LiveEventAdapter` interface (`connect()`, `disconnect()`, `onEvent()`, `status()`).
+  - [x] `MockAdapter`: Giả lập luồng sự kiện LIVE (comment, gift, like, join).
+  - [x] `ReplayAdapter`: Phát lại log sự kiện từ file ghi hình.
+  - [x] `EventNormalizer`: Chuẩn hóa dữ liệu sang Zod schema thống nhất `NormalizedLiveEvent`.
+  - [x] `LiveEventDispatcher`: Chuyển sự kiện đã chuẩn hóa sang Game Server qua kênh bảo mật nội bộ.
+- [x] **2. Viewer Comment Commands**:
+  - [x] Hỗ trợ các lệnh: `JOIN`, `1` / `2` / `3` (chọn cánh Alpha/Bravo/Charlie), `BẮN` / `BAN` (tăng hỏa lực), `SỬA` / `SUA` (sửa thành), `CỨU` / `CUU` (tiếp viện), `BOSS` (tập trung đánh boss).
+  - [x] Xử lý tiếng Việt có dấu/không dấu (Unicode normalization).
+  - [x] Hệ thống chống spam, cooldown riêng từng lệnh và định danh người chơi bền vững trong trận.
+- [x] **3. Gift Mapping & Skill Activation**:
+  - [x] Hệ thống mapping cấu hình Gift ID $\to$ Kỹ năng (Reinforcements, Turret Upgrade, Shield, Airstrike, Mech Support, Honor).
+  - [x] Xử lý gift streak và bảo toàn tính idempotency (không kích hoạt lặp).
+- [x] **4. Real-time Leaderboard & Missions**:
+  - [x] Bảng xếp hạng trực tiếp: Top đóng góp, Top diệt quái, Top sửa thành, MVP trận đấu.
+  - [x] Cập nhật số người tham gia trực chiến thực tế trên HUD.
+- [x] **5. Mock Interaction Dashboard**:
+  - [x] Công cụ dashboard độc lập giả lập tương tác người xem (10, 50, 100 viewers), gửi comment và gift test tải.
+  - [x] Tách biệt hoàn toàn khỏi route `/overlay`.
+- [x] **6. Acceptance Testing & 60s Demo**:
+  - [x] Test thông lượng $\ge 100$ events/s (đạt 383 events/s).
+  - [x] Ghi video gameplay tương tác $\ge 60$ giây (`phase04_live_interaction_60s.webm`).
+  - [x] Xuất báo cáo telemetry hoàn chỉnh và push commit GitHub.
 - [ ] Giai đoạn 05: Database, profile, missions & leaderboards
 - [ ] Giai đoạn 06: Gift mapping và deterministic skill effects
 - [ ] Giai đoạn 07: Web dashboard quản trị Next.js

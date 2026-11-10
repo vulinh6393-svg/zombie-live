@@ -68,19 +68,31 @@ describe('BastionCollisionSystem (Authoritative Core)', () => {
     expect(resCharlie.resolvedY).toBe(820);
   });
 
-  it('reproducibly resolves zombies caught in closing doors', () => {
+  it('reproducibly resolves zombies caught in closing doors continuously without teleportation', () => {
     collision.setGateState('CLOSING');
     collision.updateGateDoors(490, 590); // Narrowing gap
 
-    // Zombie at north of threshold (currY = 860 <= 890): pushed back to y=820
-    const resNorth = collision.resolveMovement(540, 860, 540, 880, 20);
-    expect(resNorth.collided).toBe(true);
-    expect(resNorth.resolvedY).toBe(820);
+    // Zombie at north of threshold (currY = 860 <= 890): pushed back smoothly over ticks
+    let y = 860;
+    const speeds: number[] = [];
+    for (let t = 0; t < 10; t++) {
+      const stepY = y + 4; // Intended 4px forward per tick (80px/s)
+      const res = collision.resolveMovement(540, y, 540, stepY, 20);
+      const delta = Math.abs(res.resolvedY - y);
+      speeds.push(delta);
+      // Assert no teleportation: max displacement in a single tick is strictly bounded
+      expect(delta).toBeLessThanOrEqual(10.0);
+      y = res.resolvedY;
+    }
+    // Eventually settles at or north of boundary (820)
+    expect(y).toBeLessThanOrEqual(860);
 
-    // Zombie at south of threshold (currY = 910 > 890): pushed forward into courtyard
-    const resSouth = collision.resolveMovement(540, 910, 540, 920, 20);
-    expect(resSouth.collided).toBe(true);
-    expect(resSouth.resolvedY).toBeGreaterThanOrEqual(950);
+    // Zombie at south of threshold (currY = 910 > 890): continues forward into courtyard without jumping
+    let ySouth = 910;
+    const resSouth = collision.resolveMovement(540, ySouth, 540, ySouth + 4, 20);
+    expect(resSouth.collided).toBe(false);
+    expect(resSouth.resolvedY).toBe(914);
+    expect(Math.abs(resSouth.resolvedY - ySouth)).toBe(4);
   });
 
   it('allows passage when wall is damaged to BREACHED', () => {

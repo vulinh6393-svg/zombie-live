@@ -62,6 +62,10 @@ export class SocketSnapshotSource implements GameSnapshotSource {
     return this.connected;
   }
 
+  getSocket(): Socket | null {
+    return this.socket;
+  }
+
   subscribe(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
     return () => {
