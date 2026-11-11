@@ -130,4 +130,83 @@ describe('AuthoritativeGameEngine (20Hz Deterministic Simulation)', () => {
 
     expect(hitEventFound).toBe(true);
   });
+
+  it('Requirement 7: Full 5-Wave Lifecycle transitions correctly through WAVE_1 to WAVE_5, BOSS, and RESULTS', () => {
+    const lifecycleEngine = new AuthoritativeGameEngine({ seed: 100, maxZombies: 2, disableCombat: true });
+    expect(lifecycleEngine.phase).toBe('PREPARING');
+
+    // Fast-forward through PREPARING (20s = 400 ticks)
+    for (let i = 0; i < 400; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('WAVE_1');
+
+    // Fast-forward WAVE_1 (60s = 1200 ticks)
+    for (let i = 0; i < 1200; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('WAVE_2');
+
+    // Fast-forward WAVE_2 (60s = 1200 ticks)
+    for (let i = 0; i < 1200; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('WAVE_3');
+
+    // Fast-forward WAVE_3 (60s = 1200 ticks)
+    for (let i = 0; i < 1200; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('WAVE_4');
+
+    // Fast-forward WAVE_4 (60s = 1200 ticks) -> MUST ENTER WAVE_5!
+    for (let i = 0; i < 1200; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('WAVE_5');
+
+    // Fast-forward WAVE_5 (40s = 800 ticks) -> MUST ENTER BOSS!
+    for (let i = 0; i < 800; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('BOSS');
+
+    const boss = lifecycleEngine.getAllZombies().find((z) => z.isBoss);
+    expect(boss).toBeDefined();
+    expect(boss?.hp).toBe(12000);
+
+    // Fast-forward BOSS timeout (40s = 800 ticks) -> RESULTS
+    for (let i = 0; i < 800; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('RESULTS');
+
+    // Fast-forward RESULTS (20s = 400 ticks) -> Auto restart to PREPARING
+    for (let i = 0; i < 400; i++) lifecycleEngine.step();
+    expect(lifecycleEngine.phase).toBe('PREPARING');
+  });
+
+  it('Requirement 8: Isolates competitiveScore from giftScore and ranks MVP solely by competitive actions', () => {
+    const testEngine = new AuthoritativeGameEngine({ seed: 123, maxZombies: 2, disableCombat: true });
+
+    // User A joins squad Alpha
+    testEngine.handleJoin('user_a', 'AliceTactical', 'alpha');
+    // User A performs tactical combat actions: 1 Assist (+4), 1 Repair (+2)
+    testEngine.handleShoot('user_a');
+    testEngine.handleRepair('user_a');
+
+    // User B sends big gift but does not participate in tactical actions
+    testEngine.handleGift({
+      provider: 'mock',
+      liveSessionId: 'sess_1',
+      providerEventId: 'evt_gift_whale_1',
+      senderId: 'user_b',
+      senderName: 'BobWhale',
+      giftId: 'gift_missile',
+      quantity: 5,
+      timestamp: Date.now(),
+    });
+
+    const playerA = testEngine.getPlayers().find((p) => p.userId === 'user_a')!;
+    const playerB = testEngine.getPlayers().find((p) => p.userId === 'user_b')!;
+
+    // Player A has competitiveScore = 10 (join) + 4 (assist) + 2 (repair) = 16
+    expect(playerA.competitiveScore).toBe(16);
+    expect(playerA.giftScore).toBe(0);
+
+    // Player B has giftScore = 500, but competitiveScore = 0!
+    expect(playerB.giftScore).toBe(500);
+    expect(playerB.competitiveScore).toBe(0);
+
+    // MVP Leaderboard ranks Player A #1, Player B is NOT ranked above Player A!
+    const snap = testEngine.generateSnapshot();
+    expect(snap.mvpPlayers?.[0]?.name).toBe('AliceTactical');
+    expect(snap.mvpPlayers?.[0]?.points).toBe(16);
+  });
 });

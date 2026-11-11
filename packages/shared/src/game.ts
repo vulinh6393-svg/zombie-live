@@ -33,7 +33,10 @@ export interface PlayerContribution {
   userName: string;
   avatarUrl?: string;
   squad: 'alpha' | 'bravo' | 'charlie';
-  score: number;
+  score: number; // Điểm tổng hoặc điểm hiển thị
+  competitiveScore: number; // Điểm xếp hạng thuần túy từ kỹ năng (Kills, Assists, Repairs, Rescues, Boss Dmg)
+  giftScore: number; // Điểm tích lũy từ đóng góp quà tặng
+  hasJoined: boolean; // True nếu người chơi thực sự đã tham chiến qua lệnh JOIN
   kills: number;
   assists: number;
   repairs: number;

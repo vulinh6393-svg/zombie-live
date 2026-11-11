@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { AuthoritativeGameEngine } from './engine/AuthoritativeGameEngine.js';
+import { AuthoritativeGiftEventSchema, AuthoritativeGiftEvent } from '@zombie-live/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +19,7 @@ export interface BuildServerOptions {
   adminSecret?: string;
   allowedOrigins?: string[];
   disableCombat?: boolean;
+  enableMockDashboard?: boolean;
 }
 
 // Zod schemas for Admin / Command Payloads
@@ -30,17 +33,29 @@ const GiftSkillSchema = z.object({
   sender: z.string().min(1).max(50).default('VIP_Gamer99'),
 });
 
-const LiveEventPayloadSchema = z.object({
-  type: z.enum(['COMMENT', 'GIFT']),
+const LiveCommentSchema = z.object({
+  type: z.literal('COMMENT'),
   userId: z.string().min(1).max(100),
   userName: z.string().min(1).max(100),
-  command: z.string().optional(),
-  giftId: z.string().optional(),
-  giftName: z.string().optional(),
-  quantity: z.number().int().positive().optional().default(1),
-  streakId: z.string().optional(),
+  command: z.string().min(1).max(100),
   timestamp: z.number().optional(),
 });
+
+const LiveGiftPayloadSchema = z.object({
+  type: z.literal('GIFT'),
+  provider: z.enum(['mock', 'tiktok', 'replay']).default('mock'),
+  liveSessionId: z.string().min(1).default('live_session_authoritative'),
+  providerEventId: z.string().min(1), // Bắt buộc để bảo đảm Idempotency (P0.3)
+  userId: z.string().min(1).max(100),
+  userName: z.string().min(1).max(100),
+  giftId: z.string().min(1).max(100),
+  quantity: z.number().int().positive().default(1),
+  streakId: z.string().optional(),
+  streakStatus: z.enum(['IN_PROGRESS', 'FINISHED']).optional(),
+  timestamp: z.number().int().positive().default(() => Date.now()),
+});
+
+const LiveEventPayloadSchema = z.discriminatedUnion('type', [LiveCommentSchema, LiveGiftPayloadSchema]);
 
 export function buildServer(opts: BuildServerOptions = {}): {
   app: FastifyInstance;
@@ -48,14 +63,38 @@ export function buildServer(opts: BuildServerOptions = {}): {
   engine: AuthoritativeGameEngine;
   stopEngine: () => void;
   adminSecret: string;
+  dashboardDevToken: string;
 } {
   const app = fastify({ logger: opts.logger ?? false });
-  const adminSecret = opts.adminSecret || process.env.ADMIN_SECRET_KEY || 'zombie_live_admin_secret_dev_2026';
 
-  const allowedOrigins = opts.allowedOrigins || (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['*']);
+  // P0.2 SECURITY: Xóa bỏ hoàn toàn hardcoded default secret.
+  // Ở môi trường production, bắt buộc phải có ADMIN_SECRET_KEY >= 16 ký tự.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const configuredSecret = opts.adminSecret || process.env.ADMIN_SECRET_KEY;
+  if (isProduction && (!configuredSecret || configuredSecret.trim().length < 16)) {
+    throw new Error('FATAL_SECURITY_ERROR: ADMIN_SECRET_KEY must be configured in environment with at least 16 characters in production mode.');
+  }
+
+  // Ở môi trường dev/test, nếu không cấu hình, tự động sinh chuỗi ngẫu nhiên bảo mật cao (không dùng chuỗi đoán trước được)
+  const adminSecret = configuredSecret && configuredSecret.trim().length > 0
+    ? configuredSecret
+    : crypto.randomBytes(32).toString('hex');
+
+  // Token phiên làm việc cho Mock Dashboard (P0.1)
+  const dashboardDevToken = crypto.randomBytes(24).toString('hex');
+  const enableMockDashboard = opts.enableMockDashboard ?? (process.env.ENABLE_MOCK_DASHBOARD === 'true' || !isProduction);
+
+  const rawOrigins = opts.allowedOrigins || (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()) : []);
+  const allowedOrigins = rawOrigins.length > 0 ? rawOrigins : (isProduction ? [] : ['*']);
 
   app.register(cors, {
-    origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Not allowed by CORS'), false);
+      }
+    },
   });
 
   const engine = new AuthoritativeGameEngine({
@@ -105,11 +144,33 @@ export function buildServer(opts: BuildServerOptions = {}): {
     };
   });
 
+  // Rate Limiting HTTP Ingress / Dashboard
+  const httpRateLimits = new Map<string, number[]>();
+  const checkHttpRateLimit = (key: string, limitPerSecond: number = 300): boolean => {
+    const now = Date.now();
+    let timestamps = httpRateLimits.get(key);
+    if (!timestamps) {
+      timestamps = [];
+      httpRateLimits.set(key, timestamps);
+    }
+    const recent = timestamps.filter((t) => now - t < 1000);
+    if (recent.length >= limitPerSecond) {
+      return false;
+    }
+    recent.push(now);
+    httpRateLimits.set(key, recent);
+    return true;
+  };
+
   // Secure HTTP endpoint for Live Bridge / Admin Event Ingestion
   app.post('/api/live/event', async (request, reply) => {
     const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
     if (authHeader !== adminSecret && authHeader !== `Bearer ${adminSecret}`) {
       return reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
+    }
+
+    if (!checkHttpRateLimit('ingress', 400)) {
+      return reply.status(429).send({ error: 'RATE_LIMIT_EXCEEDED' });
     }
 
     const parseRes = LiveEventPayloadSchema.safeParse(request.body);
@@ -126,6 +187,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
         const squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
         const res = engine.handleJoin(ev.userId, ev.userName, squad);
         return reply.send({ accepted: res.success, reason: res.reason, squad });
+      } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
+        const res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
+        return reply.send({ accepted: res.success, reason: res.reason, squad: 'alpha' });
+      } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
+        const res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
+        return reply.send({ accepted: res.success, reason: res.reason, squad: 'bravo' });
+      } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
+        const res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
+        return reply.send({ accepted: res.success, reason: res.reason, squad: 'charlie' });
       } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
         const res = engine.handleShoot(ev.userId);
         return reply.send({ accepted: res.success, reason: res.reason });
@@ -141,16 +211,30 @@ export function buildServer(opts: BuildServerOptions = {}): {
       }
       return reply.send({ accepted: false, reason: 'UNKNOWN_COMMAND' });
     } else if (ev.type === 'GIFT') {
-      const giftId = ev.giftId || 'gift_missile';
-      const res = engine.handleGift(giftId, ev.userId, ev.userName, ev.quantity, ev.streakId);
-      return reply.send({ accepted: res.success, skillName: res.skillName });
+      const res = engine.handleGift({
+        provider: ev.provider,
+        liveSessionId: ev.liveSessionId,
+        providerEventId: ev.providerEventId,
+        senderId: ev.userId,
+        senderName: ev.userName,
+        giftId: ev.giftId,
+        quantity: ev.quantity,
+        streakId: ev.streakId,
+        streakStatus: ev.streakStatus,
+        timestamp: ev.timestamp,
+      });
+      return reply.send({ accepted: res.success, reason: res.reason, skillName: res.skillName });
     }
 
     return reply.status(400).send({ error: 'UNSUPPORTED_EVENT_TYPE' });
   });
 
-  // Mock LIVE Interaction Dashboard (Secure, separated from /overlay)
+  // Mock LIVE Interaction Dashboard (P0.1: Chặn hoàn toàn ở production, bảo vệ bằng session token)
   app.get('/dashboard', async (_request, reply) => {
+    if (!enableMockDashboard) {
+      return reply.status(403).send('FORBIDDEN: Mock dashboard is disabled in production environment.');
+    }
+
     try {
       const candidates = [
         path.join(__dirname, 'dashboard.html'),
@@ -159,7 +243,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
       ];
       for (const p of candidates) {
         if (fs.existsSync(p)) {
-          const html = fs.readFileSync(p, 'utf-8');
+          let html = fs.readFileSync(p, 'utf-8');
+          // Inject ephemeral dashboard dev token into page runtime
+          html = html.replace('<head>', `<head><script>window.__DASHBOARD_TOKEN__ = "${dashboardDevToken}";</script>`);
           return reply.type('text/html').send(html);
         }
       }
@@ -169,8 +255,26 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   });
 
-  // Internal dashboard command endpoint (No admin token needed on frontend)
+  // Internal dashboard command endpoint (P0.1: Bắt buộc xác thực, từ chối unauthenticated 401)
   app.post('/api/dashboard/command', async (request, reply) => {
+    if (!enableMockDashboard) {
+      return reply.status(403).send({ accepted: false, error: 'FORBIDDEN: Mock dashboard is disabled in production.' });
+    }
+
+    const tokenHeader = request.headers['x-dashboard-token'] || request.headers['x-admin-token'] || request.headers.authorization;
+    const isAuthorized =
+      tokenHeader === dashboardDevToken ||
+      tokenHeader === adminSecret ||
+      tokenHeader === `Bearer ${adminSecret}`;
+
+    if (!isAuthorized) {
+      return reply.status(401).send({ accepted: false, error: 'UNAUTHORIZED_DASHBOARD_ACCESS' });
+    }
+
+    if (!checkHttpRateLimit('dashboard', 250)) {
+      return reply.status(429).send({ accepted: false, error: 'RATE_LIMIT_EXCEEDED' });
+    }
+
     const parseRes = LiveEventPayloadSchema.safeParse(request.body);
     if (!parseRes.success) {
       return reply.status(400).send({ accepted: false, error: 'INVALID_PAYLOAD', details: parseRes.error.format() });
@@ -209,12 +313,32 @@ export function buildServer(opts: BuildServerOptions = {}): {
       }
       return reply.send({ accepted: false, reason: 'UNKNOWN_COMMAND' });
     } else if (ev.type === 'GIFT') {
-      const giftId = ev.giftId || 'gift_missile';
-      const res = engine.handleGift(giftId, ev.userId, ev.userName, ev.quantity, ev.streakId);
-      return reply.send({ accepted: res.success, skillName: res.skillName });
+      const res = engine.handleGift({
+        provider: ev.provider,
+        liveSessionId: ev.liveSessionId,
+        providerEventId: ev.providerEventId,
+        senderId: ev.userId,
+        senderName: ev.userName,
+        giftId: ev.giftId,
+        quantity: ev.quantity,
+        streakId: ev.streakId,
+        streakStatus: ev.streakStatus,
+        timestamp: ev.timestamp,
+      });
+      return reply.send({ accepted: res.success, reason: res.reason, skillName: res.skillName });
     }
 
     return reply.status(400).send({ accepted: false, error: 'UNSUPPORTED_EVENT_TYPE' });
+  });
+
+  // Diagnostics & Leaderboard player inspection endpoint
+  app.get('/api/dashboard/player/:userId', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const player = engine.getPlayers().find((p) => p.userId === userId);
+    if (!player) {
+      return reply.status(404).send({ error: 'PLAYER_NOT_FOUND' });
+    }
+    return reply.send(player);
   });
 
   // Socket.IO Server attached to Fastify's raw HTTP server
@@ -386,5 +510,5 @@ export function buildServer(opts: BuildServerOptions = {}): {
     done();
   });
 
-  return { app, io, engine, stopEngine, adminSecret };
+  return { app, io, engine, stopEngine, adminSecret, dashboardDevToken };
 }

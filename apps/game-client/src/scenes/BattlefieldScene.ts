@@ -37,6 +37,7 @@ export class BattlefieldScene extends Phaser.Scene {
 
   // Event Deduplication Cache
   private processedEventIds: Set<string> = new Set();
+  private receivedEventsHistory: CombatEvent[] = [];
   private latestSnapshot: ExtendedMatchSnapshot | null = null;
 
   // Environment & Fortress
@@ -356,6 +357,10 @@ export class BattlefieldScene extends Phaser.Scene {
     // 1. Process Authoritative Combat Events (Deduplicated by eventId)
     if ((snapshot as any).recentEvents && (snapshot as any).recentEvents.length > 0) {
       for (const ev of (snapshot as any).recentEvents as CombatEvent[]) {
+        this.receivedEventsHistory.push(ev);
+        if (this.receivedEventsHistory.length > 100) {
+          this.receivedEventsHistory.shift();
+        }
         if (this.processedEventIds.has(ev.id)) continue;
         this.processedEventIds.add(ev.id);
         if (this.processedEventIds.size > 500) {
@@ -680,10 +685,13 @@ export class BattlefieldScene extends Phaser.Scene {
       snapshotSource: this.snapshotSource,
 
       getProcessedEventsCount: () => this.processedEventIds.size,
+      getReceivedEventsHistory: () => [...this.receivedEventsHistory],
 
       toggleTikTokSafeZone: () => {
         return this.tiktokSafeZone.toggle();
       },
+
+      getFPS: () => Math.round(this.game.loop.actualFps),
 
       getFpsMetrics: () => ({
         actualFps: Math.round(this.game.loop.actualFps),

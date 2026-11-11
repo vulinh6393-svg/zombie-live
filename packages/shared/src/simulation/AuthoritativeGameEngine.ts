@@ -10,6 +10,7 @@ import {
   WaveState,
   PlayerContribution,
 } from '../game.js';
+import { AuthoritativeGiftEvent } from '../events.js';
 import { BASTION_GEOMETRY } from './BastionGeometryConfig.js';
 import { BastionCollisionSystem, GateCollisionState } from './BastionCollisionSystem.js';
 import { SeededRandom } from './SeededRandom.js';
@@ -277,6 +278,7 @@ export class AuthoritativeGameEngine {
     let player = this.players.get(userId);
     if (player) {
       player.userName = userName;
+      player.hasJoined = true;
       return { success: true, reason: 'ALREADY_JOINED' };
     }
 
@@ -285,6 +287,9 @@ export class AuthoritativeGameEngine {
       userName,
       squad,
       score: 10, // Điểm thưởng gia nhập
+      competitiveScore: 10,
+      giftScore: 0,
+      hasJoined: true,
       kills: 0,
       assists: 0,
       repairs: 0,
@@ -307,14 +312,15 @@ export class AuthoritativeGameEngine {
 
   public handleShoot(userId: string): { success: boolean; reason?: string } {
     const player = this.players.get(userId);
-    if (!player) return { success: false, reason: 'NOT_JOINED' };
+    if (!player || !player.hasJoined) return { success: false, reason: 'NOT_JOINED' };
 
     const cd = this.checkCooldown(userId, 'BAN', 200); // 10s cooldown
     if (!cd.ready) return { success: false, reason: `COOLDOWN_${cd.remainingSeconds}s` };
 
     // Tăng hỏa lực cho đội hình của người chơi
     player.assists++;
-    player.score += DEFAULT_GAME_BALANCE.leaderboard.assist;
+    player.competitiveScore += DEFAULT_GAME_BALANCE.leaderboard.assist;
+    player.score = player.competitiveScore;
 
     // Kích hoạt ngay một phát bắn phụ từ tiểu đội tương ứng
     const squadSoldiers = Array.from(this.soldiers.values()).filter((s) => s.squad === player.squad);
@@ -328,7 +334,7 @@ export class AuthoritativeGameEngine {
 
   public handleRepair(userId: string): { success: boolean; reason?: string } {
     const player = this.players.get(userId);
-    if (!player) return { success: false, reason: 'NOT_JOINED' };
+    if (!player || !player.hasJoined) return { success: false, reason: 'NOT_JOINED' };
 
     const cd = this.checkCooldown(userId, 'SUA', 300); // 15s cooldown
     if (!cd.ready) return { success: false, reason: `COOLDOWN_${cd.remainingSeconds}s` };
@@ -344,7 +350,8 @@ export class AuthoritativeGameEngine {
     }
 
     player.repairs++;
-    player.score += DEFAULT_GAME_BALANCE.leaderboard.repair;
+    player.competitiveScore += DEFAULT_GAME_BALANCE.leaderboard.repair;
+    player.score = player.competitiveScore;
 
     this.recordEvent({
       type: 'COMMAND_FEEDBACK',
@@ -359,7 +366,7 @@ export class AuthoritativeGameEngine {
 
   public handleRescue(userId: string): { success: boolean; reason?: string } {
     const player = this.players.get(userId);
-    if (!player) return { success: false, reason: 'NOT_JOINED' };
+    if (!player || !player.hasJoined) return { success: false, reason: 'NOT_JOINED' };
 
     const cd = this.checkCooldown(userId, 'CUU', 400); // 20s cooldown
     if (!cd.ready) return { success: false, reason: `COOLDOWN_${cd.remainingSeconds}s` };
@@ -371,14 +378,15 @@ export class AuthoritativeGameEngine {
     }
 
     player.rescues++;
-    player.score += DEFAULT_GAME_BALANCE.leaderboard.rescue;
+    player.competitiveScore += DEFAULT_GAME_BALANCE.leaderboard.rescue;
+    player.score = player.competitiveScore;
 
     return { success: true };
   }
 
   public handleBossFocus(userId: string): { success: boolean; reason?: string } {
     const player = this.players.get(userId);
-    if (!player) return { success: false, reason: 'NOT_JOINED' };
+    if (!player || !player.hasJoined) return { success: false, reason: 'NOT_JOINED' };
 
     const cd = this.checkCooldown(userId, 'BOSS', 300); // 15s cooldown
     if (!cd.ready) return { success: false, reason: `COOLDOWN_${cd.remainingSeconds}s` };
@@ -394,27 +402,61 @@ export class AuthoritativeGameEngine {
     return { success: true };
   }
 
+  /**
+   * Xử lý quà tặng Live với bảo đảm tính Idempotency chặt chẽ bằng providerEventId (P0.3)
+   */
   public handleGift(
-    giftId: string,
-    senderId: string,
-    senderName: string,
+    giftInput: AuthoritativeGiftEvent | string,
+    senderId?: string,
+    senderName?: string,
     quantity: number = 1,
     streakId?: string
-  ): { success: boolean; skillName: string } {
-    const dedupeKey = streakId ? `${streakId}_${quantity}` : `gift_${senderId}_${this.tick}_${giftId}`;
-    if (this.processedGiftIds.has(dedupeKey)) {
-      return { success: false, skillName: 'ALREADY_PROCESSED' };
-    }
-    this.processedGiftIds.add(dedupeKey);
+  ): { success: boolean; reason?: string; skillName: string } {
+    let event: AuthoritativeGiftEvent;
 
-    // Đảm bảo người gửi quà được ghi nhận trong danh sách người chơi
-    let player = this.players.get(senderId);
+    if (typeof giftInput === 'string') {
+      if (!senderId) return { success: false, reason: 'INVALID_SENDER', skillName: 'UNKNOWN' };
+      event = {
+        provider: 'mock',
+        liveSessionId: this.matchId,
+        providerEventId: streakId ? `${streakId}_${quantity}` : `evt_gift_${senderId}_${Date.now()}_${Math.random()}`,
+        senderId,
+        senderName: senderName || 'VIP_Supporter',
+        giftId: giftInput,
+        quantity: quantity || 1,
+        streakId,
+        timestamp: Date.now(),
+      };
+    } else {
+      event = giftInput;
+    }
+
+    // 1. Kiểm tra bắt buộc providerEventId
+    if (!event.providerEventId) {
+      return { success: false, reason: 'MISSING_PROVIDER_EVENT_ID', skillName: 'UNKNOWN' };
+    }
+
+    // 2. Chống lặp (Idempotency Guard) qua providerEventId
+    if (this.processedGiftIds.has(event.providerEventId)) {
+      return { success: false, reason: 'DUPLICATE_EVENT', skillName: 'ALREADY_PROCESSED' };
+    }
+    this.processedGiftIds.add(event.providerEventId);
+    if (this.processedGiftIds.size > 2000) {
+      const first = this.processedGiftIds.values().next().value;
+      if (first) this.processedGiftIds.delete(first);
+    }
+
+    // 3. Đăng ký thông tin người gửi
+    let player = this.players.get(event.senderId);
     if (!player) {
       player = {
-        userId: senderId,
-        userName: senderName,
+        userId: event.senderId,
+        userName: event.senderName,
         squad: 'bravo',
         score: 0,
+        competitiveScore: 0,
+        giftScore: 0,
+        hasJoined: false, // Spectator donating gifts, not in active infantry squad
         kills: 0,
         assists: 0,
         repairs: 0,
@@ -422,21 +464,23 @@ export class AuthoritativeGameEngine {
         bossDamage: 0,
         lastActionTick: this.tick,
       };
-      this.players.set(senderId, player);
+      this.players.set(event.senderId, player);
     }
 
-    let skillName = 'TÊN LỬA TỔNG LỰC';
+    // 4. Mapping quà tặng nghiêm ngặt — Từ chối gift không xác định, không tự ý mặc định Airstrike
+    const normGiftId = (event.giftId || '').toLowerCase().trim();
+    let skillName = '';
 
-    if (giftId === 'gift_heart' || giftId === 'shield') {
+    if (normGiftId === 'gift_shield' || normGiftId === 'shield') {
       skillName = 'KHIÊN CHẮN NĂNG LƯỢNG';
       this.activeGiftSkill = {
         skillId: 'shield',
         name: skillName,
         remainingSeconds: 10,
-        senderName,
+        senderName: event.senderName,
       };
-      player.score += 50;
-    } else if (giftId === 'gift_doughnut' || giftId === 'machinegun') {
+      player.giftScore += 50 * event.quantity;
+    } else if (normGiftId === 'gift_doughnut' || normGiftId === 'machinegun' || normGiftId === 'overclock') {
       skillName = 'TĂNG TỐC Ụ PHÁO';
       for (const t of this.towers.values()) {
         t.maxCooldownTicks = Math.max(2, Math.floor(t.maxCooldownTicks / 2));
@@ -445,15 +489,30 @@ export class AuthoritativeGameEngine {
         skillId: 'machinegun',
         name: skillName,
         remainingSeconds: 15,
-        senderName,
+        senderName: event.senderName,
       };
-      player.score += 80;
-    } else {
-      // Mặc định: Cruise Missile Airstrike
+      player.giftScore += 80 * event.quantity;
+    } else if (normGiftId === 'gift_missile' || normGiftId === 'airstrike') {
       skillName = 'TÊN LỬA TỔNG LỰC';
-      this.triggerGiftSkill(skillName, senderName, 540, 580);
-      player.score += 100 * quantity;
+      this.triggerGiftSkill(skillName, event.senderName, 540, 580);
+      player.giftScore += 100 * event.quantity;
+    } else if (normGiftId === 'gift_heart' || normGiftId === 'heal' || normGiftId === 'reinforce') {
+      skillName = 'TIẾP TẾ Y TẾ';
+      this.baseHp = Math.min(this.maxBaseHp, this.baseHp + 200 * event.quantity);
+      for (const s of this.soldiers.values()) {
+        s.hp = Math.min(s.maxHp, s.hp + 50);
+      }
+      player.giftScore += 60 * event.quantity;
+    } else {
+      // Từ chối quà tặng không xác định!
+      return { success: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
     }
+
+    // 5. Quy tắc GAME_BALANCE: paidSkillExcludedFromCompetitiveScore
+    if (!DEFAULT_GAME_BALANCE.leaderboard.paidSkillExcludedFromCompetitiveScore) {
+      player.competitiveScore += player.giftScore;
+    }
+    player.score = player.competitiveScore;
 
     return { success: true, skillName };
   }
@@ -586,8 +645,13 @@ export class AuthoritativeGameEngine {
       this.waveTicksRemaining = 20 * 60;
       this.initZombiesForWave(4);
     } else if (this.phase === 'WAVE_4' && this.waveTicksRemaining <= 0) {
-      this.phase = 'BOSS';
+      this.phase = 'WAVE_5';
       this.waveNumber = 5;
+      this.waveTicksRemaining = 20 * 40; // 40s Wave 5
+      this.initZombiesForWave(5);
+    } else if (this.phase === 'WAVE_5' && this.waveTicksRemaining <= 0) {
+      this.phase = 'BOSS';
+      this.waveNumber = 6;
       this.waveTicksRemaining = 20 * 40; // 40s to defeat boss
       this.zombies.clear();
       this.spawnBoss();
@@ -608,7 +672,7 @@ export class AuthoritativeGameEngine {
     }
   }
 
-  private restartMatch(): void {
+  public restartMatch(): void {
     this.phase = 'PREPARING';
     this.result = 'IN_PROGRESS';
     this.baseHp = DEFAULT_GAME_BALANCE.round.baseHp;
@@ -616,6 +680,22 @@ export class AuthoritativeGameEngine {
     this.waveTicksRemaining = 20 * 20;
     this.bossSpawned = false;
     this.bossStage = 1;
+    this.activeGiftSkill = undefined;
+    this.userCooldowns.clear();
+
+    // Reset round scores cho người chơi, giữ nguyên định danh tài khoản
+    for (const p of this.players.values()) {
+      p.score = p.hasJoined ? 10 : 0;
+      p.competitiveScore = p.hasJoined ? 10 : 0;
+      p.giftScore = 0;
+      p.kills = 0;
+      p.assists = 0;
+      p.repairs = 0;
+      p.rescues = 0;
+      p.bossDamage = 0;
+      p.lastActionTick = this.tick;
+    }
+
     this.initTowers();
     this.initSoldiers();
     this.initZombiesForWave(1);
@@ -722,7 +802,8 @@ export class AuthoritativeGameEngine {
         });
 
         if (target.isBoss) {
-          this.awardBossDamageToTopPlayers(damage);
+          const turretSquad = turret.id.includes('alpha') ? 'alpha' : turret.id.includes('charlie') ? 'charlie' : 'bravo';
+          this.awardBossDamageToSquad(damage, turretSquad);
         }
 
         if (target.hp <= 0 && !target.isDead) {
@@ -768,6 +849,10 @@ export class AuthoritativeGameEngine {
           y: target.y,
         });
 
+        if (target.isBoss) {
+          this.awardBossDamageToSquad(damage, soldier.squad);
+        }
+
         if (target.hp <= 0 && !target.isDead) {
           target.isDead = true;
           target.deathTick = this.tick;
@@ -788,18 +873,24 @@ export class AuthoritativeGameEngine {
   }
 
   private awardKillPointsToSquad(squad: 'alpha' | 'bravo' | 'charlie'): void {
-    const squadPlayers = Array.from(this.players.values()).filter((p) => p.squad === squad);
+    const squadPlayers = Array.from(this.players.values()).filter((p) => p.hasJoined && p.squad === squad);
     if (squadPlayers.length > 0) {
       const luckyPlayer = squadPlayers[Math.floor(this.rng.next() * squadPlayers.length)];
       luckyPlayer.kills++;
-      luckyPlayer.score += DEFAULT_GAME_BALANCE.leaderboard.kill;
+      luckyPlayer.competitiveScore += DEFAULT_GAME_BALANCE.leaderboard.kill;
+      luckyPlayer.score = luckyPlayer.competitiveScore;
     }
   }
 
-  private awardBossDamageToTopPlayers(damage: number): void {
-    for (const p of this.players.values()) {
-      p.bossDamage += damage;
-      p.score += Math.round(damage / DEFAULT_GAME_BALANCE.leaderboard.bossDamagePerPoint);
+  private awardBossDamageToSquad(damage: number, squad: 'alpha' | 'bravo' | 'charlie'): void {
+    const squadPlayers = Array.from(this.players.values()).filter((p) => p.hasJoined && p.squad === squad);
+    if (squadPlayers.length === 0) return;
+    const share = Math.ceil(damage / squadPlayers.length);
+    for (const p of squadPlayers) {
+      p.bossDamage += share;
+      const pts = Math.floor(share / DEFAULT_GAME_BALANCE.leaderboard.bossDamagePerPoint);
+      p.competitiveScore += pts;
+      p.score = p.competitiveScore;
     }
   }
 
@@ -985,13 +1076,15 @@ export class AuthoritativeGameEngine {
     };
 
     // Bảng xếp hạng MVP thực tế (Real MVP Leaderboard)
+    // Lọc người chơi đã tham gia chiến đấu (hasJoined) và sắp xếp theo competitiveScore
     const sortedPlayers = Array.from(this.players.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+      .filter((p) => p.hasJoined)
+      .sort((a, b) => b.competitiveScore - a.competitiveScore)
+      .slice(0, 10);
 
     const mvpPlayers = sortedPlayers.map((p) => ({
       name: p.userName,
-      points: p.score,
+      points: p.competitiveScore,
       avatarColor: p.squad === 'alpha' ? 0x00f5d4 : p.squad === 'bravo' ? 0xffbe0b : 0xff006e,
     }));
 
@@ -1039,7 +1132,7 @@ export class AuthoritativeGameEngine {
         : undefined,
       waveState,
       waveRemainingSeconds: Math.ceil(this.waveTicksRemaining / 20),
-      activePlayerCount: Math.max(3, this.players.size), // Ít nhất 3 lính trực chiến
+      activePlayerCount: Math.max(3, Array.from(this.players.values()).filter((p) => p.hasJoined).length), // Lực lượng tham chiến thực tế
       bossHp: boss ? boss.hp : undefined,
       maxBossHp: boss ? boss.maxHp : undefined,
       result: this.result,

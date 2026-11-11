@@ -164,7 +164,7 @@ describe('Game Server Security & Event Ingestion', () => {
     expect(body2.reason).toContain('COOLDOWN');
   });
 
-  it('accepts GIFT skill with idempotency streak preservation', async () => {
+  it('accepts GIFT skill with idempotency providerEventId preservation', async () => {
     const { app, engine, stopEngine, adminSecret } = buildServer();
     stopFn = stopEngine;
 
@@ -174,11 +174,15 @@ describe('Game Server Security & Event Ingestion', () => {
       headers: { 'x-admin-token': adminSecret },
       payload: {
         type: 'GIFT',
+        provider: 'mock',
+        liveSessionId: 'test_session_1',
+        providerEventId: 'gift_unique_evt_1001',
         userId: 'rich_donor',
         userName: 'DonorKing',
         giftId: 'gift_missile',
         quantity: 1,
         streakId: 'streak_1001',
+        timestamp: Date.now(),
       },
     });
 
@@ -187,18 +191,22 @@ describe('Game Server Security & Event Ingestion', () => {
     expect(body1.accepted).toBe(true);
     expect(body1.skillName).toBe('TÊN LỬA TỔNG LỰC');
 
-    // Duplicate streak packet with same streakId & quantity
+    // Duplicate event packet with same providerEventId
     const res2 = await app.inject({
       method: 'POST',
       url: '/api/live/event',
       headers: { 'x-admin-token': adminSecret },
       payload: {
         type: 'GIFT',
+        provider: 'mock',
+        liveSessionId: 'test_session_1',
+        providerEventId: 'gift_unique_evt_1001',
         userId: 'rich_donor',
         userName: 'DonorKing',
         giftId: 'gift_missile',
         quantity: 1,
         streakId: 'streak_1001',
+        timestamp: Date.now(),
       },
     });
 
@@ -206,6 +214,114 @@ describe('Game Server Security & Event Ingestion', () => {
     const body2 = JSON.parse(res2.payload);
     expect(body2.accepted).toBe(false);
     expect(body2.skillName).toBe('ALREADY_PROCESSED');
+  });
+
+  it('rejects unsupported gift types and does NOT fallback to Airstrike', async () => {
+    const { app, stopEngine, adminSecret } = buildServer();
+    stopFn = stopEngine;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/live/event',
+      headers: { 'x-admin-token': adminSecret },
+      payload: {
+        type: 'GIFT',
+        provider: 'mock',
+        liveSessionId: 'test_session_2',
+        providerEventId: 'gift_unknown_evt_9999',
+        userId: 'rich_donor',
+        userName: 'DonorKing',
+        giftId: 'unknown_fake_gift_id',
+        quantity: 1,
+        timestamp: Date.now(),
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.accepted).toBe(false);
+    expect(body.reason).toBe('UNSUPPORTED_GIFT_TYPE');
+    expect(body.skillName).toBe('UNKNOWN');
+  });
+
+  it('rejects unauthenticated requests to /api/dashboard/command with 401 and leaves state untouched', async () => {
+    const { app, engine, stopEngine } = buildServer();
+    stopFn = stopEngine;
+
+    const initialPlayerCount = engine.getPlayers().length;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/dashboard/command',
+      // NO auth headers provided!
+      payload: {
+        type: 'COMMENT',
+        userId: 'unauth_hacker',
+        userName: 'SneakyViewer',
+        command: 'JOIN 1',
+      },
+    });
+
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.payload);
+    expect(body.accepted).toBe(false);
+    expect(body.error).toBe('UNAUTHORIZED_DASHBOARD_ACCESS');
+
+    // Engine state MUST NOT have changed!
+    expect(engine.getPlayers().length).toBe(initialPlayerCount);
+    expect(engine.getPlayers().some((p) => p.userId === 'unauth_hacker')).toBe(false);
+  });
+
+  it('accepts authorized requests to /api/dashboard/command with x-dashboard-token', async () => {
+    const { app, engine, stopEngine, dashboardDevToken } = buildServer();
+    stopFn = stopEngine;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/dashboard/command',
+      headers: { 'x-dashboard-token': dashboardDevToken },
+      payload: {
+        type: 'COMMENT',
+        userId: 'valid_dashboard_user',
+        userName: 'DevTester',
+        command: 'JOIN 2',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.accepted).toBe(true);
+    expect(engine.getPlayers().some((p) => p.userId === 'valid_dashboard_user')).toBe(true);
+  });
+
+  it('blocks /dashboard with 403 when mock dashboard is disabled', async () => {
+    const { app, stopEngine } = buildServer({ enableMockDashboard: false });
+    stopFn = stopEngine;
+
+    const resGet = await app.inject({
+      method: 'GET',
+      url: '/dashboard',
+    });
+    expect(resGet.statusCode).toBe(403);
+
+    const resPost = await app.inject({
+      method: 'POST',
+      url: '/api/dashboard/command',
+      payload: { type: 'COMMENT', userId: 'u1', userName: 'u1', command: 'JOIN 1' },
+    });
+    expect(resPost.statusCode).toBe(403);
+  });
+
+  it('fails fast on startup in production mode when ADMIN_SECRET_KEY is missing or < 16 chars', () => {
+    const origEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => {
+        buildServer({ adminSecret: 'short_key' });
+      }).toThrow(/FATAL_SECURITY_ERROR/);
+    } finally {
+      process.env.NODE_ENV = origEnv;
+    }
   });
 
   it('reliably queues and delivers events between 20Hz ticks to 10Hz snapshots without loss', async () => {

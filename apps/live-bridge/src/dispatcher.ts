@@ -38,7 +38,12 @@ export class LiveEventDispatcher {
 
   constructor(opts: DispatcherOptions = {}) {
     this.serverUrl = opts.serverUrl || process.env.GAME_SERVER_URL || 'http://localhost:3001';
-    this.adminSecret = opts.adminSecret || process.env.ADMIN_SECRET_KEY || 'zombie_live_admin_secret_dev_2026';
+    const isProd = process.env.NODE_ENV === 'production';
+    const secret = opts.adminSecret || process.env.ADMIN_SECRET_KEY;
+    if (isProd && (!secret || secret.trim().length < 16)) {
+      throw new Error('FATAL_SECURITY_ERROR: ADMIN_SECRET_KEY must be configured with at least 16 characters in production mode.');
+    }
+    this.adminSecret = secret || '';
   }
 
   public bindAdapter(adapter: LiveEventAdapter): void {
@@ -102,11 +107,15 @@ export class LiveEventDispatcher {
       } else if (event.type === 'gift' && event.gift) {
         payload = {
           type: 'GIFT',
+          provider: event.provider,
+          liveSessionId: event.liveSessionId,
+          providerEventId: event.eventKey, // Unique providerEventId from eventKey
           userId: event.userId,
           userName: event.username,
           giftId: event.gift.giftId,
           quantity: event.gift.quantity,
           streakId: event.gift.streakGroupId,
+          streakStatus: event.gift.isFinal ? 'FINISHED' : 'IN_PROGRESS',
           timestamp: now,
         };
       }

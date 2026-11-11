@@ -31,6 +31,29 @@ export const NormalizedLiveEventSchema = z.object({
 export type NormalizedLiveEvent = z.infer<typeof NormalizedLiveEventSchema>;
 
 /**
+ * Schema bắt buộc cho mọi sự kiện tặng quà gửi vào Server Authoritative Engine (P0.3 Fix)
+ */
+export const AuthoritativeGiftEventSchema = z.object({
+  provider: LiveProviderSchema.default('mock'),
+  liveSessionId: z.string().min(1),
+  providerEventId: z.string().min(1), // Unique event ID from live platform/bridge (Mandatory for idempotency)
+  senderId: z.string().min(1),
+  senderName: z.string().min(1),
+  giftId: z.string().min(1),
+  quantity: z.number().int().positive().default(1),
+  streakId: z.string().optional(),
+  streakStatus: z.enum(['IN_PROGRESS', 'FINISHED']).optional(),
+  timestamp: z.number().int().positive(),
+});
+export type AuthoritativeGiftEvent = z.infer<typeof AuthoritativeGiftEventSchema>;
+
+export interface IdempotencyStore {
+  has(key: string): boolean;
+  add(key: string): void;
+  clear(): void;
+}
+
+/**
  * Normalizes command text by trimming, converting to uppercase,
  * and replacing common Vietnamese diacritics.
  */

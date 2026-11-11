@@ -500,6 +500,52 @@
   - [x] Test thông lượng $\ge 100$ events/s (đạt 383 events/s).
   - [x] Ghi video gameplay tương tác $\ge 60$ giây (`phase04_live_interaction_60s.webm`).
   - [x] Xuất báo cáo telemetry hoàn chỉnh và push commit GitHub.
+
+## Giai đoạn 04.1: Security & Acceptance Correction (PHASE 04.1) (ĐÃ HOÀN THÀNH TOÀN DIỆN 10/10 PASS)
+> **Mục tiêu**: Khắc phục triệt để 2 lỗ hổng bảo mật P0, tái thiết kế Gift Idempotency với `providerEventId`, hoàn thiện chu trình 5 Wave + Boss, sửa toàn bộ E2E assertions yếu kém và đối soát điểm số leaderboard.
+
+- [x] **TASK 1 — Fix Dashboard Authentication (P0)**:
+  - [x] Bảo vệ toàn bộ `/dashboard` và `POST /api/dashboard/command` bằng server-side authentication (Session/Dev token).
+  - [x] Giới hạn dashboard mock chỉ hoạt động ở môi trường development (`NODE_ENV !== 'production'`) hoặc cờ `ENABLE_MOCK_DASHBOARD=true`.
+  - [x] Khách chưa xác thực không thể gửi JOIN, gift, repair hoặc bất kỳ command nào (trả về 401/403, state không thay đổi).
+  - [x] Viết HTTP integration test kiểm tra cả `/api/live/event` và `/api/dashboard/command` từ chối request unauthenticated.
+- [x] **TASK 2 — Remove Default Admin Secret (P0)**:
+  - [x] Xóa bỏ hoàn toàn fallback `zombie_live_admin_secret_dev_2026` trong `apps/game-server`, `apps/live-bridge`.
+  - [x] Kiểm tra chặt chẽ: Server từ chối khởi động (FAIL FAST) nếu thiếu `ADMIN_SECRET_KEY` hợp lệ ($\ge 16$ ký tự) ở môi trường production.
+  - [x] Tuyệt đối không log secret ra console.
+  - [x] Cấu hình CORS chặt chẽ từ `ALLOWED_ORIGINS` (từ chối `*` khi ở production).
+  - [x] Rate-limit HTTP ingress (`/api/live/event`) và dashboard command endpoint.
+- [x] **TASK 3 — Gift Identity & Idempotency (P0)**:
+  - [x] Mở rộng Zod schema `GiftEventSchema` bắt buộc: `provider`, `liveSessionId`, `providerEventId`, `senderId`, `senderName`, `giftId`, `quantity`, `streakId`, `streakStatus`, `timestamp`.
+  - [x] Phân biệt rõ packet cập nhật streak (`IN_PROGRESS`) với packet kết thúc streak (`FINISHED`).
+  - [x] Tuyệt đối không dùng `tick` làm định danh fallback cho `providerEventId`.
+  - [x] Không tự ý mặc định gift không nhận diện thành Airstrike; reject hoặc map đúng spec quà tặng (`UNSUPPORTED_GIFT_TYPE`).
+  - [x] Idempotency guard bằng `providerEventId`: Gửi lại cùng eventId sẽ bị từ chối `DUPLICATE_EVENT`, không kích hoạt lặp skill hoặc cộng điểm.
+  - [x] Interface `IdempotencyStore` sẵn sàng tích hợp database persistent trong Phase 05.
+- [x] **TASK 4 — Replace Weak E2E Assertions (P0)**:
+  - [x] `C01`: Test cả unauthorized socket (`/game`) VÀ unauthorized HTTP (`POST /api/dashboard/command` -> 401, `/api/live/event` -> 401).
+  - [x] `C02`: Kiểm tra số lượng và thứ tự chuỗi sự kiện tick chẵn/lẻ chính xác, assert mảng sự kiện có phần tử thật (97 sự kiện, 75 đã xử lý).
+  - [x] `C03`: Theo dõi độ dịch chuyển của cùng một zombie ID cụ thể qua từng tick liên tiếp, assert $\le 12$px/tick (đạt 4.1px/tick, loại bỏ snap teleport).
+  - [x] `C04`: Fast-forward engine test qua đủ 5 wave (`PREPARING` ➔ `WAVE_1` ➔ `WAVE_2` ➔ `WAVE_3` ➔ `WAVE_4` ➔ `WAVE_5` ➔ `BOSS` ➔ `RESULTS` ➔ Auto Restart).
+  - [x] `C07`: Test gift replay, streak increment, streak finish, duplicate `providerEventId` và unsupported gift rejection.
+  - [x] `C08`: Đối chiếu công thức điểm số thực tế từng người chơi (TacticalTester 16 pts thi đấu = 10 JOIN + 4 BAN + 2 SUA; điểm quà 50 tách biệt hoàn toàn; MVP Top 10 list verified).
+  - [x] `C09`: Đo throughput tải duy trì 100 sự kiện (150-260 events/s, p50=81ms, p95=193ms, p99=200ms, 100% accepted).
+  - [x] `C10`: Đọc FPS thật từ `getFpsMetrics().actualFps`, trung bình 60.2 FPS qua 57 mẫu runtime, 0 lỗi console.
+  - [x] Toàn bộ kịch bản E2E vượt qua 10/10 tiêu chí và trả về exit code 0.
+- [x] **TASK 5 — Gameplay & Leaderboard Consistency (P1)**:
+  - [x] Bổ sung `WAVE_5` (40s) vào chu trình trận đấu trước khi gặp `BOSS`.
+  - [x] Xác nhận 10 loại zombie được spawn từ `GAME_BALANCE.json`.
+  - [x] Tách biệt `competitiveScore` và `giftScore` khi `paidSkillExcludedFromCompetitiveScore === true`.
+  - [x] Chỉ cộng điểm Boss cho người chơi gây sát thương thật vào Boss qua `awardBossDamageToSquad`.
+  - [x] Định nghĩa minh bạch: `joinedPlayers` (người xem đã JOIN squad) vs `spectators` (chỉ gửi gift).
+  - [x] Kiểm tra reset trạng thái, cooldown, MVP khi sang trận mới qua `restartMatch()`.
+- [x] **TASK 6 — Proof of Real Interaction**:
+  - [x] Kịch bản tương tác hoàn chỉnh: JOIN 2 ➔ BẮN ➔ Spam BẮN (cooldown) ➔ Gift với providerEventId ➔ Duplicate gift rejection ➔ Leaderboard update ➔ Match restart.
+  - [x] Ghi video gameplay $\ge 60$s (`phase04_live_interaction_60s.webm` - 57.08 MB), chụp ảnh 1080x1920 và mobile 360x640.
+  - [x] Xuất báo cáo telemetry hoàn chỉnh `phase04_interaction_telemetry.json`, cập nhật `player.html`.
+  - [x] Toàn bộ unit tests: 50/50 PASS trên cả 7 packages.
+  - [x] Commit Git và push lên GitHub remote `feat/phase02-visual-refinement`.
+
 - [ ] Giai đoạn 05: Database, profile, missions & leaderboards
 - [ ] Giai đoạn 06: Gift mapping và deterministic skill effects
 - [ ] Giai đoạn 07: Web dashboard quản trị Next.js

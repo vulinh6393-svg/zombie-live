@@ -148,9 +148,13 @@
 
     async function sendCommand(payload) {
       try {
+        const token = window.__DASHBOARD_TOKEN__ || '';
         const res = await fetch('/api/dashboard/command', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-dashboard-token': token,
+          },
           body: JSON.stringify(payload)
         });
         const data = await res.json();
@@ -161,7 +165,7 @@
         } else {
           rejected++;
           document.getElementById('rejectedVal').innerText = rejected;
-          log(`${payload.userName || 'Viewer'}: ${payload.command || payload.giftId} -> ${data.reason || 'TỪ CHỐI'}`, false);
+          log(`${payload.userName || 'Viewer'}: ${payload.command || payload.giftId} -> ${data.error || data.reason || 'TỪ CHỐI'}`, false);
         }
       } catch (err) {
         log(`Lỗi kết nối: ${err.message}`, false);
@@ -189,13 +193,19 @@
 
     function sendGift(giftId, qty = 1, isStreak = false) {
       const uid = `vip_${Math.floor(Math.random() * 5) + 1}`;
+      const streakId = isStreak ? `streak_${Date.now()}` : undefined;
       sendCommand({
         type: 'GIFT',
+        provider: 'mock',
+        liveSessionId: 'live_session_authoritative',
+        providerEventId: `gift_evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         userId: uid,
         userName: `VIP_${uid}`,
         giftId,
         quantity: qty,
-        streakId: isStreak ? `streak_${Date.now()}` : undefined
+        streakId,
+        streakStatus: isStreak ? 'IN_PROGRESS' : 'FINISHED',
+        timestamp: Date.now()
       });
     }
 
