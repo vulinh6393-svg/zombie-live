@@ -8,6 +8,14 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { AuthoritativeGameEngine } from './engine/AuthoritativeGameEngine.js';
 import { AuthoritativeGiftEventSchema, AuthoritativeGiftEvent } from '@zombie-live/shared';
+import {
+  getDatabaseClient,
+  PlayerRepository,
+  GiftLedgerRepository,
+  MissionRepository,
+  MatchRepository,
+  OutboxRepository,
+} from '@zombie-live/database';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,6 +170,196 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return true;
   };
 
+  // Database Repositories (Lazy loaded with fallback)
+  let dbClient: any = null;
+  let playerRepo: PlayerRepository | null = null;
+  let giftLedgerRepo: GiftLedgerRepository | null = null;
+  let missionRepo: MissionRepository | null = null;
+  let matchRepo: MatchRepository | null = null;
+  let outboxRepo: OutboxRepository | null = null;
+
+  const initDb = async () => {
+    if (!dbClient) {
+      try {
+        const db = await getDatabaseClient();
+        dbClient = db;
+        playerRepo = new PlayerRepository(db);
+        giftLedgerRepo = new GiftLedgerRepository(db);
+        missionRepo = new MissionRepository(db);
+        matchRepo = new MatchRepository(db);
+        outboxRepo = new OutboxRepository(db);
+      } catch (err: any) {
+        app.log.warn(`[DATABASE] Lazy init warning: ${err.message}`);
+      }
+    }
+  };
+
+  app.addHook('onReady', async () => {
+    await initDb();
+    if (matchRepo) {
+      try {
+        await matchRepo.startMatch(engine.matchId, engine.seed, engine.phase, engine.baseHp);
+      } catch {}
+    }
+  });
+
+  // Background match persistence watcher (Runs when match ends, strictly non-blocking for 20Hz tick)
+  let lastSavedMatchId = '';
+  const matchPersistenceTimer = setInterval(async () => {
+    if (engine.phase === 'RESULTS' && lastSavedMatchId !== engine.matchId) {
+      lastSavedMatchId = engine.matchId;
+      await initDb();
+      if (matchRepo) {
+        try {
+          const snapshot = engine.generateSnapshot();
+          const mvp = snapshot.mvpPlayers?.[0];
+          const contributions = engine.getPlayers().map((p) => ({
+            userId: p.userId,
+            squad: p.squad,
+            score: p.score,
+            competitiveScore: p.competitiveScore,
+            giftScore: p.giftScore,
+            kills: p.kills,
+            assists: p.assists,
+            repairs: p.repairs,
+            rescues: p.rescues,
+            bossDamage: p.bossDamage,
+            hasJoined: p.hasJoined,
+          }));
+
+          await matchRepo.finishMatch(
+            engine.matchId,
+            engine.result,
+            mvp?.name || null,
+            {
+              tick: engine.tick,
+              durationSeconds: Math.floor(engine.tick / 20),
+              activePlayerCount: snapshot.activePlayerCount,
+            },
+            contributions
+          );
+        } catch (err: any) {
+          app.log.warn(`[MATCH_PERSISTENCE] Error saving match: ${err.message}`);
+        }
+      }
+    }
+  }, 1000);
+
+  // Core Event Processing Logic (Shared across HTTP Ingress and Dashboard)
+  const processLiveEvent = async (ev: any) => {
+    if (!dbClient) await initDb();
+
+    if (ev.type === 'COMMENT') {
+      const rawCmd = (ev.command || '').toUpperCase().trim();
+      let res: { success: boolean; reason?: string } = { success: false, reason: 'UNKNOWN_COMMAND' };
+      let squad: 'alpha' | 'bravo' | 'charlie' | undefined;
+      let missionAction: 'JOIN' | 'BAN' | 'SUA' | 'CUU' | 'BOSS' | null = null;
+
+      if (rawCmd.startsWith('JOIN')) {
+        const parts = rawCmd.split(' ');
+        const laneArg = parts[1];
+        squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
+        res = engine.handleJoin(ev.userId, ev.userName, squad);
+        missionAction = 'JOIN';
+      } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
+        squad = 'alpha';
+        res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
+        missionAction = 'JOIN';
+      } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
+        squad = 'bravo';
+        res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
+        missionAction = 'JOIN';
+      } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
+        squad = 'charlie';
+        res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
+        missionAction = 'JOIN';
+      } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
+        res = engine.handleShoot(ev.userId);
+        missionAction = 'BAN';
+      } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
+        res = engine.handleRepair(ev.userId);
+        missionAction = 'SUA';
+      } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
+        res = engine.handleRescue(ev.userId);
+        missionAction = 'CUU';
+      } else if (rawCmd === 'BOSS') {
+        res = engine.handleBossFocus(ev.userId);
+        missionAction = 'BOSS';
+      }
+
+      if (res.success && missionAction && playerRepo && missionRepo) {
+        playerRepo
+          .findOrCreate('mock', ev.userId, ev.userName, squad || 'bravo')
+          .then((p) => missionRepo!.recordAction(p.id, missionAction!))
+          .catch((err) => app.log.warn(`[PERSISTENCE] Error saving mission action: ${err.message}`));
+      }
+
+      return { accepted: res.success, reason: res.reason, squad };
+    } else if (ev.type === 'GIFT') {
+      let deltaQuantity = ev.quantity;
+      let settleReason: string | undefined;
+
+      // 1. Settle in Persistent Gift Ledger
+      if (giftLedgerRepo) {
+        try {
+          const sRes = await giftLedgerRepo.settleGift({
+            provider: ev.provider,
+            liveSessionId: ev.liveSessionId,
+            providerEventId: ev.providerEventId,
+            senderId: ev.userId,
+            senderName: ev.userName,
+            giftId: ev.giftId,
+            quantity: ev.quantity,
+            quantityMode: 'cumulative',
+            streakId: ev.streakId,
+            streakStatus: ev.streakStatus,
+          });
+
+          if (!sRes.success) {
+            return { accepted: false, reason: sRes.reason, skillName: 'ALREADY_PROCESSED' };
+          }
+
+          deltaQuantity = sRes.deltaQuantity;
+          settleReason = sRes.reason;
+        } catch (err: any) {
+          app.log.warn(`[GIFT_LEDGER] Settlement error: ${err.message}`);
+        }
+      }
+
+      // 2. Dispatch to Authoritative Engine if deltaQuantity > 0
+      if (deltaQuantity > 0) {
+        const res = engine.handleGift({
+          provider: ev.provider,
+          liveSessionId: ev.liveSessionId,
+          providerEventId: ev.providerEventId,
+          senderId: ev.userId,
+          senderName: ev.userName,
+          giftId: ev.giftId,
+          quantity: deltaQuantity,
+          streakId: ev.streakId,
+          streakStatus: ev.streakStatus,
+          timestamp: ev.timestamp,
+        });
+
+        return {
+          accepted: res.success,
+          reason: res.reason,
+          skillName: res.skillName,
+          deltaQuantity,
+        };
+      } else {
+        return {
+          accepted: true,
+          reason: settleReason || 'NO_DELTA_QUANTITY',
+          skillName: 'NO_SKILL_TRIGGER',
+          deltaQuantity: 0,
+        };
+      }
+    }
+
+    return { accepted: false, reason: 'UNSUPPORTED_EVENT_TYPE' };
+  };
+
   // Secure HTTP endpoint for Live Bridge / Admin Event Ingestion
   app.post('/api/live/event', async (request, reply) => {
     const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
@@ -178,61 +376,26 @@ export function buildServer(opts: BuildServerOptions = {}): {
       return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseRes.error.format() });
     }
 
-    const ev = parseRes.data;
-    if (ev.type === 'COMMENT') {
-      const rawCmd = (ev.command || '').toUpperCase().trim();
-      if (rawCmd.startsWith('JOIN')) {
-        const parts = rawCmd.split(' ');
-        const laneArg = parts[1];
-        const squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
-        const res = engine.handleJoin(ev.userId, ev.userName, squad);
-        return reply.send({ accepted: res.success, reason: res.reason, squad });
-      } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'alpha' });
-      } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'bravo' });
-      } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'charlie' });
-      } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
-        const res = engine.handleShoot(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
-        const res = engine.handleRepair(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
-        const res = engine.handleRescue(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'BOSS') {
-        const res = engine.handleBossFocus(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      }
-      return reply.send({ accepted: false, reason: 'UNKNOWN_COMMAND' });
-    } else if (ev.type === 'GIFT') {
-      const res = engine.handleGift({
-        provider: ev.provider,
-        liveSessionId: ev.liveSessionId,
-        providerEventId: ev.providerEventId,
-        senderId: ev.userId,
-        senderName: ev.userName,
-        giftId: ev.giftId,
-        quantity: ev.quantity,
-        streakId: ev.streakId,
-        streakStatus: ev.streakStatus,
-        timestamp: ev.timestamp,
-      });
-      return reply.send({ accepted: res.success, reason: res.reason, skillName: res.skillName });
-    }
-
-    return reply.status(400).send({ error: 'UNSUPPORTED_EVENT_TYPE' });
+    const result = await processLiveEvent(parseRes.data);
+    return reply.send(result);
   });
 
-  // Mock LIVE Interaction Dashboard (P0.1: Chặn hoàn toàn ở production, bảo vệ bằng session token)
-  app.get('/dashboard', async (_request, reply) => {
+  // Mock LIVE Interaction Dashboard (P0.1: Chặn hoàn toàn ở production, bảo vệ bằng session/dev token)
+  app.get('/dashboard', async (request, reply) => {
     if (!enableMockDashboard) {
       return reply.status(403).send('FORBIDDEN: Mock dashboard is disabled in production environment.');
+    }
+
+    const tokenHeader = request.headers['x-dashboard-token'] || request.headers['x-admin-token'];
+    const tokenQuery = (request.query as any)?.token;
+    const isAuthed =
+      tokenHeader === dashboardDevToken ||
+      tokenHeader === adminSecret ||
+      tokenQuery === dashboardDevToken ||
+      tokenQuery === adminSecret;
+
+    if (!isAuthed) {
+      return reply.status(401).send('UNAUTHORIZED: Valid dev token is required to access dashboard.');
     }
 
     try {
@@ -243,9 +406,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
       ];
       for (const p of candidates) {
         if (fs.existsSync(p)) {
-          let html = fs.readFileSync(p, 'utf-8');
-          // Inject ephemeral dashboard dev token into page runtime
-          html = html.replace('<head>', `<head><script>window.__DASHBOARD_TOKEN__ = "${dashboardDevToken}";</script>`);
+          const html = fs.readFileSync(p, 'utf-8');
+          // Bảo mật P0.1: Không chèn token công khai vào HTML
           return reply.type('text/html').send(html);
         }
       }
@@ -280,65 +442,116 @@ export function buildServer(opts: BuildServerOptions = {}): {
       return reply.status(400).send({ accepted: false, error: 'INVALID_PAYLOAD', details: parseRes.error.format() });
     }
 
-    const ev = parseRes.data;
-    if (ev.type === 'COMMENT') {
-      const rawCmd = (ev.command || '').toUpperCase().trim();
-      if (rawCmd.startsWith('JOIN')) {
-        const parts = rawCmd.split(' ');
-        const laneArg = parts[1];
-        const squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
-        const res = engine.handleJoin(ev.userId, ev.userName, squad);
-        return reply.send({ accepted: res.success, reason: res.reason, squad });
-      } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'alpha' });
-      } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'bravo' });
-      } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
-        const res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
-        return reply.send({ accepted: res.success, reason: res.reason, squad: 'charlie' });
-      } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
-        const res = engine.handleShoot(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
-        const res = engine.handleRepair(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
-        const res = engine.handleRescue(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      } else if (rawCmd === 'BOSS') {
-        const res = engine.handleBossFocus(ev.userId);
-        return reply.send({ accepted: res.success, reason: res.reason });
-      }
-      return reply.send({ accepted: false, reason: 'UNKNOWN_COMMAND' });
-    } else if (ev.type === 'GIFT') {
-      const res = engine.handleGift({
-        provider: ev.provider,
-        liveSessionId: ev.liveSessionId,
-        providerEventId: ev.providerEventId,
-        senderId: ev.userId,
-        senderName: ev.userName,
-        giftId: ev.giftId,
-        quantity: ev.quantity,
-        streakId: ev.streakId,
-        streakStatus: ev.streakStatus,
-        timestamp: ev.timestamp,
-      });
-      return reply.send({ accepted: res.success, reason: res.reason, skillName: res.skillName });
-    }
-
-    return reply.status(400).send({ accepted: false, error: 'UNSUPPORTED_EVENT_TYPE' });
+    const result = await processLiveEvent(parseRes.data);
+    return reply.send(result);
   });
 
-  // Diagnostics & Leaderboard player inspection endpoint
+  // Diagnostics & Leaderboard player inspection endpoint (P0.1: Bảo vệ quyền truy cập)
   app.get('/api/dashboard/player/:userId', async (request, reply) => {
+    const tokenHeader = request.headers['x-dashboard-token'] || request.headers['x-admin-token'] || request.headers.authorization;
+    const isAuthorized =
+      tokenHeader === dashboardDevToken ||
+      tokenHeader === adminSecret ||
+      tokenHeader === `Bearer ${adminSecret}`;
+
     const { userId } = request.params as { userId: string };
     const player = engine.getPlayers().find((p) => p.userId === userId);
+
     if (!player) {
       return reply.status(404).send({ error: 'PLAYER_NOT_FOUND' });
     }
-    return reply.send(player);
+
+    if (isAuthorized) {
+      await initDb();
+      let persistentProfile: any = null;
+      let missions: any = [];
+      if (playerRepo && missionRepo) {
+        try {
+          persistentProfile = await playerRepo.getProfile('mock', userId);
+          if (persistentProfile) {
+            missions = await missionRepo.getPlayerMissions(persistentProfile.id);
+          }
+        } catch {}
+      }
+
+      return reply.send({
+        ...player,
+        persistent: persistentProfile,
+        missions,
+      });
+    }
+
+    // Public / Unauthenticated: Safe minimal public fields
+    return reply.send({
+      userId: player.userId,
+      userName: player.userName,
+      squad: player.squad,
+      score: player.score,
+      hasJoined: player.hasJoined,
+    });
+  });
+
+  // Player Profile & Daily Mission API (P1)
+  app.get('/api/me', async (request, reply) => {
+    const query = request.query as { provider?: string; userId?: string; username?: string };
+    const provider = query.provider || 'mock';
+    const userId = query.userId;
+    const username = query.username;
+
+    if (!userId) {
+      return reply.status(400).send({ error: 'MISSING_USER_ID' });
+    }
+
+    await initDb();
+    if (!playerRepo || !missionRepo) {
+      return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE' });
+    }
+
+    let profile = await playerRepo.getProfile(provider, userId);
+    if (!profile) {
+      profile = await playerRepo.findOrCreate(provider, userId, username || userId);
+    }
+    const missions = await missionRepo.getPlayerMissions(profile.id);
+
+    return reply.send({
+      player: {
+        id: profile.id,
+        provider: profile.provider,
+        username: profile.username,
+        level: profile.level,
+        xp: profile.xp,
+        squad: profile.squad,
+      },
+      missions,
+    });
+  });
+
+  // Persistent Leaderboards endpoint (P1)
+  app.get('/api/leaderboards', async (request, reply) => {
+    const query = request.query as { scope?: string };
+    const scope = query.scope || 'match';
+
+    if (scope === 'match') {
+      const snap = engine.generateSnapshot();
+      return reply.send({
+        scope: 'match',
+        matchId: snap.matchId,
+        leaderboard: snap.mvpPlayers || [],
+      });
+    }
+
+    await initDb();
+    if (!matchRepo) {
+      return reply.send({ scope, leaderboard: [] });
+    }
+
+    const periodKey = new Date().toISOString().split('T')[0];
+    const snap = await matchRepo.getLeaderboardSnapshot(scope, periodKey);
+    return reply.send({
+      scope,
+      periodKey,
+      leaderboard: snap?.leaderboard || [],
+    });
   });
 
   // Socket.IO Server attached to Fastify's raw HTTP server
@@ -503,6 +716,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
   const stopEngine = () => {
     clearInterval(simulationInterval);
+    clearInterval(matchPersistenceTimer);
   };
 
   app.addHook('onClose', (_instance, done) => {

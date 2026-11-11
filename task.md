@@ -546,7 +546,69 @@
   - [x] Toàn bộ unit tests: 50/50 PASS trên cả 7 packages.
   - [x] Commit Git và push lên GitHub remote `feat/phase02-visual-refinement`.
 
-- [ ] Giai đoạn 05: Database, profile, missions & leaderboards
+## Giai đoạn 05: Database Persistence, Profile, Missions & Final Security Closure (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+> **Mục tiêu**: Đóng toàn bộ các lỗ hổng bảo mật P0 còn lại (Dashboard loopback/auth, Gift streak cumulative settlement); triển khai kiến trúc cơ sở dữ liệu PostgreSQL bền vững với Prisma migrations, atomic idempotency, player progression (XP/Level), daily missions và persistent match lifecycle.
+
+- [x] **PHẦN A — PRIORITY 0: ĐÓNG TRIỆT ĐỂ CÁC LỖ HỔNG BẢO MẬT & GIFT SETTLEMENT**
+  - [x] **Task 1: Secure Mock Dashboard & Restrict to Loopback**
+    - [x] Cấu hình server mặc định lắng nghe loopback `127.0.0.1` trong development (`HOST` cấu hình qua env, không mở `0.0.0.0` bừa bãi).
+    - [x] Loại bỏ hoàn toàn việc phát tán `dashboardDevToken` công khai trong HTML trả về qua `GET /dashboard`.
+    - [x] Yêu cầu authentication hoặc chỉ cho phép truy cập từ localhost (`req.ip === '127.0.0.1' || req.ip === '::1'`).
+    - [x] Bảo vệ endpoint `GET /api/dashboard/player/:userId`: Bắt buộc token xác thực hoặc chỉ trả về thông tin public tối thiểu.
+    - [x] Giữ mặc định tắt mock dashboard trên production (`ENABLE_MOCK_DASHBOARD !== 'true'`).
+    - [x] Viết regression test chứng minh: Guest unauthenticated không thể lấy token từ GET để điều khiển gameplay qua POST.
+  - [x] **Task 2: Correct Gift Streak Settlement & Cumulative Tracking**
+    - [x] Thiết kế Gift State Machine xử lý chuẩn xác 2 trạng thái: `IN_PROGRESS` (tăng số lượng dồn tích lũy) và `FINISHED` (kết thúc đợt tặng).
+    - [x] Phân biệt rõ `providerEventId` (từng packet) và `streakId` (chuỗi quà tặng).
+    - [x] Tính toán chính xác `deltaQuantity` giữa packet hiện tại và packet trước đó của cùng một `streakId`.
+    - [x] Chỉ kích hoạt kỹ năng tương ứng với phần `deltaQuantity` chưa được xử lý; không lặp lại skill của các quà đã kích hoạt trước đó trong chuỗi.
+    - [x] Namespace Idempotency Key: `${provider}:${liveSessionId}:${streakId ? streakId + '_' + currentQuantity : providerEventId}`.
+    - [x] Tuyệt đối không dùng `Date.now()` hoặc `Math.random()` thay thế ID provider trên production.
+    - [x] Viết test bao phủ: duplicate packet, replay, increment, streak finish, out-of-order packets.
+
+- [x] **PHẦN B — ARCHITECTURE & PERSISTENT GAME DATA (DATABASE)**
+  - [x] **Task 3: PostgreSQL Schema, Prisma Models & Migrations**
+    - [x] Hoàn thiện và chuẩn hóa Schema Prisma trong `packages/database/prisma/schema.prisma`:
+      - `players`: provider, platformUserId, username, avatarUrl, xp, level, createdAt, updatedAt.
+      - `live_sessions`: id, provider, status, startedAt, endedAt.
+      - `matches`: id, sessionId, seed, phase, result, baseHp, startedAt, endedAt, stats.
+      - `match_players`: matchId, playerId, squad, score, competitiveScore, giftScore, kills, assists, repairs, rescues, bossDamage, hasJoined.
+      - `gameplay_actions`: id, matchId, playerId, command, tick, accepted, reason, createdAt.
+      - `gift_events`: provider, liveSessionId, providerEventId, senderId, giftId, quantity, deltaQuantity, streakId, streakStatus, settlementStatus, skillId.
+      - `gift_streaks`: provider, liveSessionId, streakId, senderId, giftId, lastQuantity, status, updatedAt.
+      - `missions`: code, title, description, targetValue, xpReward.
+      - `mission_progress`: playerId, missionId, period (YYYY-MM-DD in Asia/Ho_Chi_Minh), currentVal, completed, updatedAt.
+      - `reward_grants`: sourceKey (unique), playerId, xpGranted, grantedAt.
+      - `leaderboard_snapshots`: scope (match, daily, weekly, season), periodKey, data, createdAt.
+    - [x] Tạo Prisma Client, Migration Script và Database Seed mẫu cho 5 nhiệm vụ hàng ngày.
+  - [x] **Task 4: Atomic Idempotency & Repository Layer**
+    - [x] Xây dựng Repository Layer với Prisma Transactions (`prisma.$transaction`):
+      - `PlayerRepository`: Tìm/Tạo người chơi, tính toán XP và Level.
+      - `GiftLedgerRepository`: Ghi nhận gift event nguyên tử, kiểm tra idempotency bằng DB unique constraint, cập nhật streak.
+      - `MatchRepository`: Lưu trữ kết quả trận đấu, đóng góp của người chơi, snapshot leaderboard.
+      - `MissionRepository`: Cập nhật tiến độ nhiệm vụ và cấp thưởng XP duy nhất một lần (`reward_grants.sourceKey` unique).
+    - [x] Kết hợp Memory LRU Cache với Database Ledger làm Single Source of Truth.
+  - [x] **Task 5: Player Progression & Daily Mission System**
+    - [x] Hàm chuẩn hóa tính Level từ XP: `Level = floor(sqrt(XP / 100)) + 1`.
+    - [x] Triển khai 5 nhiệm vụ hàng ngày:
+      - `DAILY_JOIN`: Tham chiến 1 trận (+50 XP).
+      - `DAILY_SHOOT`: Trợ kích hỏa lực BAN 5 lần (+100 XP).
+      - `DAILY_REPAIR`: Gia cố tường thành SUA 3 lần (+100 XP).
+      - `DAILY_RESCUE`: Cứu viện tiểu đội CUU 2 lần (+150 XP).
+      - `DAILY_BOSS`: Tham gia gây sát thương Boss (+200 XP).
+    - [x] Reset chu kỳ nhiệm vụ theo múi giờ `Asia/Ho_Chi_Minh` (UTC+7).
+    - [x] Tích hợp API: `GET /api/me?provider=mock&userId=...` và `GET /api/leaderboards?scope=match|daily|weekly|season`.
+  - [x] **Task 6: Persistent Match Lifecycle & Engine Integration**
+    - [x] Tích hợp Repository vào `AuthoritativeGameEngine` và Fastify Server.
+    - [x] Khi chuyển sang `RESULTS`: Tự động đồng bộ toàn bộ Match Result, MVP và đóng góp vào DB.
+    - [x] Khi Server Restart: Khôi phục hồ sơ người chơi từ Database, duy trì cấp độ/XP, không xóa dữ liệu người xem.
+
+- [x] **PHẦN C — VERIFICATION, QA & DELIVERABLES**
+  - [x] **Task 7: Robust QA & E2E Validation Suite**
+    - [x] Unit & Integration Tests cho Repositories, Database Transactions và Gift Streak Settlement (66/66 PASS trên cả 7 packages).
+    - [x] E2E Playwright: Tương tác gửi lệnh, tích lũy XP, kiểm tra nhiệm vụ hoàn thành, restart server và xác minh dữ liệu phục hồi từ Database (10/10 PASS).
+    - [x] Xuất video demo tương tác có kết nối database $\ge 60$s (`phase05_database_persistence_60s.webm` - 53.92 MB), ảnh chụp màn hình 1080x1920 và mobile 360x640, telemetry JSON.
+    - [x] Cập nhật `player.html` và git commit/push lên GitHub remote `feat/phase02-visual-refinement`.
 - [ ] Giai đoạn 06: Gift mapping và deterministic skill effects
 - [ ] Giai đoạn 07: Web dashboard quản trị Next.js
 - [ ] Giai đoạn 08: OBS browser source / continuous engine

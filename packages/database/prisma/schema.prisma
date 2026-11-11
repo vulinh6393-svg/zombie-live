@@ -12,6 +12,8 @@ model Player {
   provider        String
   platformUserId  String             @map("platform_user_id")
   username        String
+  avatarUrl       String?            @map("avatar_url")
+  squad           String?            @default("bravo")
   level           Int                @default(1)
   xp              Int                @default(0)
   createdAt       DateTime           @default(now()) @map("created_at")
@@ -37,12 +39,14 @@ model LiveSession {
 }
 
 model Match {
-  id             String        @id @default(uuid())
+  id             String        @id
   sessionId      String?       @map("session_id")
   seed           Int
   phase          String
   result         String        @default("IN_PROGRESS")
   baseHp         Int           @map("base_hp")
+  mvpPlayerId    String?       @map("mvp_player_id")
+  stats          Json?
   startedAt      DateTime      @default(now()) @map("started_at")
   endedAt        DateTime?     @map("ended_at")
   session        LiveSession?  @relation(fields: [sessionId], references: [id])
@@ -52,16 +56,21 @@ model Match {
 }
 
 model MatchPlayer {
-  matchId         String   @map("match_id")
-  playerId        String   @map("player_id")
-  kills           Int      @default(0)
-  assists         Int      @default(0)
-  repairs         Int      @default(0)
-  rescues         Int      @default(0)
-  bossDamage      Int      @default(0) @map("boss_damage")
-  giftDamage      Int      @default(0) @map("gift_damage")
-  match           Match    @relation(fields: [matchId], references: [id])
-  player          Player   @relation(fields: [playerId], references: [id])
+  matchId          String   @map("match_id")
+  playerId         String   @map("player_id")
+  squad            String   @default("bravo")
+  score            Int      @default(0)
+  competitiveScore Int      @default(0) @map("competitive_score")
+  giftScore        Int      @default(0) @map("gift_score")
+  hasJoined        Boolean  @default(true) @map("has_joined")
+  kills            Int      @default(0)
+  assists          Int      @default(0)
+  repairs          Int      @default(0)
+  rescues          Int      @default(0)
+  bossDamage       Int      @default(0) @map("boss_damage")
+  giftDamage       Int      @default(0) @map("gift_damage")
+  match            Match    @relation(fields: [matchId], references: [id])
+  player           Player   @relation(fields: [playerId], references: [id])
 
   @@id([matchId, playerId])
   @@map("match_players")
@@ -150,4 +159,74 @@ model LeaderboardSnapshot {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("leaderboard_snapshots")
+}
+
+model GiftEvent {
+  id               String   @id @default(uuid())
+  provider         String
+  liveSessionId    String   @map("live_session_id")
+  providerEventId  String   @unique @map("provider_event_id")
+  senderId         String   @map("sender_id")
+  senderName       String   @map("sender_name")
+  giftId           String   @map("gift_id")
+  quantity         Int      @default(1)
+  deltaQuantity    Int      @default(1) @map("delta_quantity")
+  quantityMode     String   @default("cumulative") @map("quantity_mode")
+  streakId         String?  @map("streak_id")
+  streakStatus     String   @default("FINISHED") @map("streak_status")
+  settlementStatus String   @default("SETTLED") @map("settlement_status")
+  skillId          String?  @map("skill_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([provider, liveSessionId])
+  @@index([senderId])
+  @@index([streakId])
+  @@map("gift_events")
+}
+
+model GiftStreak {
+  id                  String   @id @default(uuid())
+  provider            String
+  liveSessionId       String   @map("live_session_id")
+  streakId            String   @map("streak_id")
+  senderId            String   @map("sender_id")
+  senderName          String   @map("sender_name")
+  giftId              String   @map("gift_id")
+  lastSettledQuantity Int      @default(0) @map("last_settled_quantity")
+  status              String   @default("IN_PROGRESS") @map("status")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, liveSessionId, streakId], name: "provider_liveSession_streak")
+  @@map("gift_streaks")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid())
+  aggregate   String
+  aggregateId String    @map("aggregate_id")
+  eventType   String    @map("event_type")
+  payload     Json
+  status      String    @default("PENDING")
+  retryCount  Int       @default(0) @map("retry_count")
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@map("outbox_events")
+}
+
+model GameplayAction {
+  id        String   @id @default(uuid())
+  matchId   String   @map("match_id")
+  playerId  String   @map("player_id")
+  command   String
+  tick      Int
+  accepted  Boolean  @default(true)
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([matchId, playerId])
+  @@map("gameplay_actions")
 }

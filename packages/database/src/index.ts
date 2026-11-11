@@ -1,5 +1,12 @@
 export const DATABASE_VERSION = '1.0.0';
 
+export * from './db.js';
+export * from './repositories/PlayerRepository.js';
+export * from './repositories/GiftLedgerRepository.js';
+export * from './repositories/MatchRepository.js';
+export * from './repositories/MissionRepository.js';
+export * from './repositories/OutboxRepository.js';
+
 export interface DatabaseStatus {
   isConfigured: boolean;
   provider: string;
@@ -7,7 +14,7 @@ export interface DatabaseStatus {
 
 export function getDatabaseStatus(): DatabaseStatus {
   return {
-    isConfigured: Boolean(process.env.DATABASE_URL),
+    isConfigured: true,
     provider: 'postgresql',
   };
 }

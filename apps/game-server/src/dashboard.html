@@ -146,9 +146,15 @@
       box.innerHTML = `[${time}] ${badge} ${msg}<br/>` + box.innerHTML;
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+    if (tokenFromUrl) {
+      sessionStorage.setItem('dashboard_token', tokenFromUrl);
+    }
+
     async function sendCommand(payload) {
       try {
-        const token = window.__DASHBOARD_TOKEN__ || '';
+        const token = sessionStorage.getItem('dashboard_token') || urlParams.get('token') || '';
         const res = await fetch('/api/dashboard/command', {
           method: 'POST',
           headers: {

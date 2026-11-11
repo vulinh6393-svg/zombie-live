@@ -106,6 +106,7 @@ export class AuthoritativeGameEngine {
   // Người chơi tham gia thực tế (Deduplicated by userId)
   private players: Map<string, PlayerContribution> = new Map();
   private processedGiftIds: Set<string> = new Set();
+  private activeStreaks: Map<string, { lastQuantity: number; status: string }> = new Map();
   private userCooldowns: Map<string, Map<string, number>> = new Map(); // userId -> (command -> expireTick)
 
   // Gate transition state (progress: 0.0 = fully closed, 1.0 = fully open)
@@ -440,6 +441,24 @@ export class AuthoritativeGameEngine {
     if (this.processedGiftIds.has(event.providerEventId)) {
       return { success: false, reason: 'DUPLICATE_EVENT', skillName: 'ALREADY_PROCESSED' };
     }
+
+    // 2.1. Kiểm tra trạng thái streak
+    if (event.streakId) {
+      const activeStreak = this.activeStreaks.get(event.streakId);
+      if (activeStreak && activeStreak.status === 'FINISHED') {
+        return { success: false, reason: 'STREAK_ALREADY_FINISHED', skillName: 'ALREADY_FINISHED' };
+      }
+      if (activeStreak) {
+        activeStreak.status = event.streakStatus || 'IN_PROGRESS';
+        activeStreak.lastQuantity = event.quantity;
+      } else {
+        this.activeStreaks.set(event.streakId, {
+          lastQuantity: event.quantity,
+          status: event.streakStatus || 'IN_PROGRESS',
+        });
+      }
+    }
+
     this.processedGiftIds.add(event.providerEventId);
     if (this.processedGiftIds.size > 2000) {
       const first = this.processedGiftIds.values().next().value;

@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@prisma/client": "6.19.3"
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "prisma": "^6.2.1",
