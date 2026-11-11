@@ -32,7 +32,7 @@ export class PlayerRepository {
   ): Promise<PlayerRecord> {
     const cacheKey = `${provider}:${platformUserId}`;
     const cached = this.playerCache.get(cacheKey);
-    if (cached) {
+    if (cached && (!username || cached.username === username)) {
       return cached;
     }
 

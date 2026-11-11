@@ -15,6 +15,7 @@ import { BASTION_GEOMETRY } from './BastionGeometryConfig.js';
 import { BastionCollisionSystem, GateCollisionState } from './BastionCollisionSystem.js';
 import { SeededRandom } from './SeededRandom.js';
 import { DEFAULT_GAME_BALANCE, ZombieSpec } from './GameBalanceConfig.js';
+import crypto from 'node:crypto';
 
 export interface EngineZombie {
   id: string;
@@ -81,7 +82,7 @@ export interface EngineOptions {
  */
 export class AuthoritativeGameEngine {
   public readonly seed: number;
-  public readonly matchId: string;
+  public matchId: string;
   private rng: SeededRandom;
 
   public tick: number = 0;
@@ -106,6 +107,7 @@ export class AuthoritativeGameEngine {
   // Người chơi tham gia thực tế (Deduplicated by userId)
   private players: Map<string, PlayerContribution> = new Map();
   private processedGiftIds: Set<string> = new Set();
+  private executedCommandIds: Set<string> = new Set();
   private activeStreaks: Map<string, { lastQuantity: number; status: string }> = new Map();
   private userCooldowns: Map<string, Map<string, number>> = new Map(); // userId -> (command -> expireTick)
 
@@ -404,15 +406,19 @@ export class AuthoritativeGameEngine {
   }
 
   /**
-   * Xử lý quà tặng Live với bảo đảm tính Idempotency chặt chẽ bằng providerEventId (P0.3)
+   * Xử lý quà tặng Live với bảo đảm tính Idempotency chặt chẽ bằng providerEventId và commandId
    */
   public handleGift(
     giftInput: AuthoritativeGiftEvent | string,
     senderId?: string,
     senderName?: string,
     quantity: number = 1,
-    streakId?: string
+    streakId?: string,
+    commandId?: string
   ): { success: boolean; reason?: string; skillName: string } {
+    if (commandId && this.executedCommandIds.has(commandId)) {
+      return { success: false, reason: 'COMMAND_ALREADY_EXECUTED', skillName: 'ALREADY_EXECUTED' };
+    }
     let event: AuthoritativeGiftEvent;
 
     if (typeof giftInput === 'string') {
@@ -532,6 +538,14 @@ export class AuthoritativeGameEngine {
       player.competitiveScore += player.giftScore;
     }
     player.score = player.competitiveScore;
+
+    if (commandId) {
+      this.executedCommandIds.add(commandId);
+      if (this.executedCommandIds.size > 2000) {
+        const first = this.executedCommandIds.values().next().value;
+        if (first) this.executedCommandIds.delete(first);
+      }
+    }
 
     return { success: true, skillName };
   }
@@ -691,7 +705,8 @@ export class AuthoritativeGameEngine {
     }
   }
 
-  public restartMatch(): void {
+  public restartMatch(newMatchId?: string): void {
+    this.matchId = newMatchId || `match_${crypto.randomUUID()}`;
     this.phase = 'PREPARING';
     this.result = 'IN_PROGRESS';
     this.baseHp = DEFAULT_GAME_BALANCE.round.baseHp;

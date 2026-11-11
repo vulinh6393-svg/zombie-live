@@ -195,6 +195,8 @@ CREATE TABLE "outbox_events" (
     "payload" JSONB NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
     "retry_count" INTEGER NOT NULL DEFAULT 0,
+    "locked_by" TEXT,
+    "locked_until" TIMESTAMP(3),
     "error" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "processed_at" TIMESTAMP(3),
@@ -235,7 +237,7 @@ CREATE UNIQUE INDEX "mission_progress_player_id_mission_id_period_key" ON "missi
 CREATE UNIQUE INDEX "reward_grants_source_key_key" ON "reward_grants"("source_key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "gift_events_provider_event_id_key" ON "gift_events"("provider_event_id");
+CREATE UNIQUE INDEX "gift_events_provider_live_session_id_provider_event_id_key" ON "gift_events"("provider", "live_session_id", "provider_event_id");
 
 -- CreateIndex
 CREATE INDEX "gift_events_provider_live_session_id_idx" ON "gift_events"("provider", "live_session_id");

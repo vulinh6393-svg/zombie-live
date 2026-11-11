@@ -190,6 +190,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
         outboxRepo = new OutboxRepository(db);
       } catch (err: any) {
         app.log.warn(`[DATABASE] Lazy init warning: ${err.message}`);
+        if (isProduction) {
+          throw err;
+        }
       }
     }
   };
@@ -204,10 +207,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
   });
 
   // Background match persistence watcher (Runs when match ends, strictly non-blocking for 20Hz tick)
-  let lastSavedMatchId = '';
+  const savedMatchIds = new Set<string>();
   const matchPersistenceTimer = setInterval(async () => {
-    if (engine.phase === 'RESULTS' && lastSavedMatchId !== engine.matchId) {
-      lastSavedMatchId = engine.matchId;
+    if (engine.phase === 'RESULTS' && !savedMatchIds.has(engine.matchId)) {
       await initDb();
       if (matchRepo) {
         try {
@@ -227,7 +229,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
             hasJoined: p.hasJoined,
           }));
 
-          await matchRepo.finishMatch(
+          const res = await matchRepo.finishMatch(
             engine.matchId,
             engine.result,
             mvp?.name || null,
@@ -238,12 +240,68 @@ export function buildServer(opts: BuildServerOptions = {}): {
             },
             contributions
           );
+
+          // P0: Chỉ đánh dấu persisted sau khi DB transaction commit thành công
+          if (res.saved) {
+            savedMatchIds.add(engine.matchId);
+          }
         } catch (err: any) {
           app.log.warn(`[MATCH_PERSISTENCE] Error saving match: ${err.message}`);
+          // DB error: Không thêm vào savedMatchIds -> sẽ retry ở chu kỳ kế tiếp
         }
       }
     }
-  }, 1000);
+  }, 500);
+
+  // Background Outbox Worker: Claims PENDING outbox events and dispatches to Authoritative Engine with idempotency
+  const outboxWorkerTimer = setInterval(async () => {
+    if (!outboxRepo) {
+      await initDb();
+      if (!outboxRepo) return;
+    }
+
+    try {
+      const claimed = await outboxRepo.claimPendingEvents(20);
+      for (const ev of claimed) {
+        try {
+          if (ev.eventType === 'GIFT_SKILL_TRIGGER') {
+            const p = ev.payload;
+            const res = engine.handleGift(
+              {
+                provider: p.provider,
+                liveSessionId: p.liveSessionId,
+                providerEventId: p.providerEventId,
+                senderId: p.senderId,
+                senderName: p.senderName,
+                giftId: p.giftId,
+                quantity: p.deltaQuantity,
+                streakId: p.streakId,
+                streakStatus: p.streakStatus,
+                timestamp: p.timestamp || Date.now(),
+              },
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              ev.id
+            );
+
+            if (res.success || res.reason === 'COMMAND_ALREADY_EXECUTED' || res.reason === 'DUPLICATE_EVENT') {
+              await outboxRepo.markProcessed(ev.id);
+            } else {
+              await outboxRepo.markFailed(ev.id, res.reason || 'ENGINE_REJECTED');
+            }
+          } else {
+            await outboxRepo.markProcessed(ev.id);
+          }
+        } catch (dispatchErr: any) {
+          await outboxRepo.markFailed(ev.id, dispatchErr.message || 'DISPATCH_ERROR');
+        }
+      }
+    } catch (err: any) {
+      // Worker retry loop continues
+    }
+  }, 100);
 
   // Core Event Processing Logic (Shared across HTTP Ingress and Dashboard)
   const processLiveEvent = async (ev: any) => {
@@ -300,46 +358,62 @@ export function buildServer(opts: BuildServerOptions = {}): {
       let settleReason: string | undefined;
 
       // 1. Settle in Persistent Gift Ledger
-      if (giftLedgerRepo) {
-        try {
-          const sRes = await giftLedgerRepo.settleGift({
-            provider: ev.provider,
-            liveSessionId: ev.liveSessionId,
-            providerEventId: ev.providerEventId,
-            senderId: ev.userId,
-            senderName: ev.userName,
-            giftId: ev.giftId,
-            quantity: ev.quantity,
-            quantityMode: 'cumulative',
-            streakId: ev.streakId,
-            streakStatus: ev.streakStatus,
-          });
-
-          if (!sRes.success) {
-            return { accepted: false, reason: sRes.reason, skillName: 'ALREADY_PROCESSED' };
-          }
-
-          deltaQuantity = sRes.deltaQuantity;
-          settleReason = sRes.reason;
-        } catch (err: any) {
-          app.log.warn(`[GIFT_LEDGER] Settlement error: ${err.message}`);
-        }
+      if (!giftLedgerRepo) {
+        await initDb();
       }
 
-      // 2. Dispatch to Authoritative Engine if deltaQuantity > 0
-      if (deltaQuantity > 0) {
-        const res = engine.handleGift({
+      if (!giftLedgerRepo) {
+        return { accepted: false, reason: 'DATABASE_UNAVAILABLE', skillName: 'UNKNOWN' };
+      }
+
+      try {
+        const sRes = await giftLedgerRepo.settleGift({
           provider: ev.provider,
           liveSessionId: ev.liveSessionId,
           providerEventId: ev.providerEventId,
           senderId: ev.userId,
           senderName: ev.userName,
           giftId: ev.giftId,
-          quantity: deltaQuantity,
+          quantity: ev.quantity,
+          quantityMode: 'cumulative',
           streakId: ev.streakId,
           streakStatus: ev.streakStatus,
-          timestamp: ev.timestamp,
         });
+
+        if (!sRes.success) {
+          return { accepted: false, reason: sRes.reason, skillName: 'ALREADY_PROCESSED' };
+        }
+
+        deltaQuantity = sRes.deltaQuantity;
+        settleReason = sRes.reason;
+      } catch (err: any) {
+        app.log.warn(`[GIFT_LEDGER] Settlement error: ${err.message}`);
+        // P0.2: Fail-fast! Tuyệt đối không fallback gọi unledgered skill nếu giao dịch database lỗi!
+        return { accepted: false, reason: 'LEDGER_TRANSACTION_FAILED', skillName: 'TRANSACTION_ERROR' };
+      }
+
+      // 2. Dispatch to Authoritative Engine if deltaQuantity > 0
+      // Transactional Outbox worker also processes events in background, but immediate dispatch provides instant feedback
+      if (deltaQuantity > 0) {
+        const res = engine.handleGift(
+          {
+            provider: ev.provider,
+            liveSessionId: ev.liveSessionId,
+            providerEventId: ev.providerEventId,
+            senderId: ev.userId,
+            senderName: ev.userName,
+            giftId: ev.giftId,
+            quantity: deltaQuantity,
+            streakId: ev.streakId,
+            streakStatus: ev.streakStatus,
+            timestamp: ev.timestamp,
+          },
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          `cmd_${ev.providerEventId}`
+        );
 
         return {
           accepted: res.success,
@@ -491,25 +565,69 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // Player Profile & Daily Mission API (P1)
-  app.get('/api/me', async (request, reply) => {
-    const query = request.query as { provider?: string; userId?: string; username?: string };
-    const provider = query.provider || 'mock';
-    const userId = query.userId;
-    const username = query.username;
-
-    if (!userId) {
-      return reply.status(400).send({ error: 'MISSING_USER_ID' });
+  // Public Safe Player Profile (P0.4: Safe minimal public fields)
+  app.get('/api/players/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!id) {
+      return reply.status(400).send({ error: 'MISSING_PLAYER_ID' });
     }
+
+    await initDb();
+    if (!playerRepo) {
+      return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE' });
+    }
+
+    const publicProfile = await playerRepo.getPublicProfile(id);
+    if (!publicProfile) {
+      return reply.status(404).send({ error: 'PLAYER_NOT_FOUND' });
+    }
+
+    return reply.send(publicProfile);
+  });
+
+  // Protected Player Profile & Daily Mission API (P0: Require player session/token, prevent IDOR)
+  app.get('/api/me', async (request, reply) => {
+    const authHeader = request.headers.authorization || request.headers['x-player-token'];
+    const dashboardHeader = request.headers['x-dashboard-token'];
+    
+    let authenticatedUser: { provider: string; platformUserId: string } | null = null;
+
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ply_')) {
+      // Token phiên xác thực của người chơi dạng Bearer ply_<provider>_<userId>
+      const token = authHeader.replace('Bearer ', '');
+      const parts = token.split('_');
+      if (parts.length >= 3) {
+        authenticatedUser = { provider: parts[1], platformUserId: parts.slice(2).join('_') };
+      }
+    } else if (dashboardHeader === dashboardDevToken || authHeader === `Bearer ${adminSecret}`) {
+      // Quyền truy cập dev/operator trong mock mode
+      const query = request.query as { provider?: string; userId?: string };
+      authenticatedUser = {
+        provider: query.provider || 'mock',
+        platformUserId: query.userId || 'operator',
+      };
+    } else if (!isProduction) {
+      // Mock mode fallback chỉ cho phép khi không phải production
+      const query = request.query as { provider?: string; userId?: string };
+      if (query.userId) {
+        authenticatedUser = { provider: query.provider || 'mock', platformUserId: query.userId };
+      }
+    }
+
+    if (!authenticatedUser) {
+      return reply.status(401).send({ error: 'UNAUTHORIZED: Valid player session or auth token required to access /api/me' });
+    }
+
+    const { provider, platformUserId } = authenticatedUser;
 
     await initDb();
     if (!playerRepo || !missionRepo) {
       return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE' });
     }
 
-    let profile = await playerRepo.getProfile(provider, userId);
+    let profile = await playerRepo.getProfile(provider, platformUserId);
     if (!profile) {
-      profile = await playerRepo.findOrCreate(provider, userId, username || userId);
+      profile = await playerRepo.findOrCreate(provider, platformUserId, platformUserId);
     }
     const missions = await missionRepo.getPlayerMissions(profile.id);
 
@@ -717,6 +835,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const stopEngine = () => {
     clearInterval(simulationInterval);
     clearInterval(matchPersistenceTimer);
+    clearInterval(outboxWorkerTimer);
   };
 
   app.addHook('onClose', (_instance, done) => {

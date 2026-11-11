@@ -24,6 +24,8 @@ pnpm-debug.log*
 # Database
 prisma/*.db
 prisma/*.db-journal
+.data/
+**/.data/
 
 # OS files
 .DS_Store

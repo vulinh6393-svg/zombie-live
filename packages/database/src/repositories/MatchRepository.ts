@@ -1,7 +1,10 @@
 import { DatabaseClient } from '../db.js';
 
 export interface PlayerMatchStats {
+  playerId?: string;
   userId: string;
+  username?: string;
+  provider?: string;
   squad: string;
   score: number;
   competitiveScore: number;
@@ -65,14 +68,18 @@ export class MatchRepository {
         );
       }
 
-      // 2. Lưu thành tích từng người chơi trong trận
+      // 2. Lưu thành tích từng người chơi trong trận (chuẩn hóa Player ID theo PlayerRepository)
       for (const p of playerContributions) {
-        // Đảm bảo player đã tồn tại trong bảng players để thỏa mãn FK constraint
+        const provider = p.provider || 'mock';
+        const platformUserId = p.userId.startsWith(`usr_${provider}_`) ? p.userId.replace(`usr_${provider}_`, '') : p.userId;
+        const dbPlayerId = p.playerId || `usr_${provider}_${platformUserId}`;
+
+        // Đảm bảo player đã tồn tại trong bảng players với canonical ID
         await tx.query(
           `INSERT INTO players (id, provider, platform_user_id, username, squad, level, xp, created_at, updated_at)
-           VALUES ($1, 'mock', $1, $1, $2, 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-           ON CONFLICT (id) DO NOTHING`,
-          [p.userId, p.squad || 'bravo']
+           VALUES ($1, $2, $3, $4, $5, 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (provider, platform_user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          [dbPlayerId, provider, platformUserId, p.username || platformUserId, p.squad || 'bravo']
         );
 
         await tx.query(
@@ -91,7 +98,7 @@ export class MatchRepository {
             boss_damage = EXCLUDED.boss_damage`,
           [
             matchId,
-            p.userId,
+            dbPlayerId,
             p.squad || 'bravo',
             p.score || 0,
             p.competitiveScore || 0,

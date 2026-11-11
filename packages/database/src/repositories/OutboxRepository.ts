@@ -8,6 +8,8 @@ export interface OutboxRecord {
   payload: any;
   status: string;
   retryCount: number;
+  lockedBy?: string | null;
+  lockedUntil?: Date | null;
   createdAt: Date;
 }
 
@@ -17,9 +19,10 @@ export class OutboxRepository {
   public async fetchPendingEvents(batchSize: number = 20): Promise<OutboxRecord[]> {
     const res = await this.db.query<any>(
       `SELECT id, aggregate, aggregate_id as "aggregateId", event_type as "eventType", 
-              payload, status, retry_count as "retryCount", created_at as "createdAt"
+              payload, status, retry_count as "retryCount", locked_by as "lockedBy",
+              locked_until as "lockedUntil", created_at as "createdAt"
        FROM outbox_events 
-       WHERE status = 'PENDING' 
+       WHERE status = 'PENDING' OR (status = 'PROCESSING' AND (locked_until IS NOT NULL AND locked_until < CURRENT_TIMESTAMP))
        ORDER BY created_at ASC 
        LIMIT $1`,
       [batchSize]
@@ -31,10 +34,53 @@ export class OutboxRepository {
     }));
   }
 
+  /**
+   * P0: Claim pending/expired events atomically using transaction & row lock.
+   * Sets locked_by and locked_until lease (default 30 seconds) to safely recover after worker crashes.
+   */
+  public async claimPendingEvents(
+    batchSize: number = 20,
+    workerId: string = 'worker_default',
+    leaseSeconds: number = 30
+  ): Promise<OutboxRecord[]> {
+    return this.db.transaction(async (tx) => {
+      const res = await tx.query<any>(
+        `SELECT id, aggregate, aggregate_id as "aggregateId", event_type as "eventType", 
+                payload, status, retry_count as "retryCount", locked_by as "lockedBy",
+                locked_until as "lockedUntil", created_at as "createdAt"
+         FROM outbox_events 
+         WHERE status = 'PENDING' 
+            OR (status = 'PROCESSING' AND (locked_until IS NULL OR locked_until < CURRENT_TIMESTAMP))
+         ORDER BY created_at ASC 
+         LIMIT $1 FOR UPDATE`,
+        [batchSize]
+      );
+
+      if (res.rows.length === 0) return [];
+
+      const ids = res.rows.map((r: any) => r.id);
+      await tx.query(
+        `UPDATE outbox_events 
+         SET status = 'PROCESSING', 
+             locked_by = $1, 
+             locked_until = CURRENT_TIMESTAMP + ($2 || ' seconds')::INTERVAL
+         WHERE id = ANY($3::text[])`,
+        [workerId, leaseSeconds.toString(), ids]
+      );
+
+      return res.rows.map((r: any) => ({
+        ...r,
+        status: 'PROCESSING',
+        lockedBy: workerId,
+        payload: typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload,
+      }));
+    });
+  }
+
   public async markProcessed(id: string): Promise<void> {
     await this.db.query(
       `UPDATE outbox_events 
-       SET status = 'PROCESSED', processed_at = CURRENT_TIMESTAMP 
+       SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
        WHERE id = $1`,
       [id]
     );
@@ -45,6 +91,8 @@ export class OutboxRepository {
       `UPDATE outbox_events 
        SET status = CASE WHEN retry_count >= 3 THEN 'FAILED' ELSE 'PENDING' END,
            retry_count = retry_count + 1,
+           locked_by = NULL,
+           locked_until = NULL,
            error = $1 
        WHERE id = $2`,
       [error, id]

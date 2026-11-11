@@ -609,6 +609,53 @@
     - [x] E2E Playwright: Tương tác gửi lệnh, tích lũy XP, kiểm tra nhiệm vụ hoàn thành, restart server và xác minh dữ liệu phục hồi từ Database (10/10 PASS).
     - [x] Xuất video demo tương tác có kết nối database $\ge 60$s (`phase05_database_persistence_60s.webm` - 53.92 MB), ảnh chụp màn hình 1080x1920 và mobile 360x640, telemetry JSON.
     - [x] Cập nhật `player.html` và git commit/push lên GitHub remote `feat/phase02-visual-refinement`.
+
+## Giai đoạn 05.1: Real Database Persistence & Reliability Gate (PHASE 05.1)
+> **Mục tiêu**: Khắc phục triệt để các phát hiện audit commit `3d8a36b`: Triển khai PostgreSQL client thật qua `DATABASE_URL` với connection pool/retry/shutdown; hỗ trợ persistent filesystem storage cho PGlite (`dataDir`) qua process restart; xây dựng Transactional Outbox Worker với at-least-once delivery và idempotent engine execution; chuẩn hóa Player ID và unique Match ID qua 10 vòng trận; bảo vệ an toàn endpoint `/api/me` chống IDOR; đạt chuẩn 100 events/s và kiểm thử thực tế quá trình khởi động lại process.
+
+- [ ] **P0.1 — REAL POSTGRESQL PERSISTENCE & VERSIONED MIGRATIONS**
+  - [ ] Triển khai `PostgresDatabaseAdapter` (sử dụng `pg.Pool`) kết nối tới PostgreSQL server qua `DATABASE_URL` (có healthcheck `SELECT 1`, retry/backoff, pool management, graceful shutdown).
+  - [ ] Triển khai persistent disk storage cho `PGliteDatabaseAdapter` (`dataDir: path.resolve(process.cwd(), '.data/pglite')`), bảo đảm dữ liệu ghi xuống đĩa, không bao giờ mất khi process dừng và restart.
+  - [ ] Chế độ production: Nếu mất kết nối database hoặc `DATABASE_URL` không hợp lệ, fail-fast ngay lập tức, không được báo READY giả.
+  - [ ] Bổ sung bảng `_migrations` quản lý versioned migrations; không thực thi lại toàn bộ lệnh `CREATE TABLE` mỗi khi khởi động.
+  - [ ] Viết regression test: Tạo user $\rightarrow$ cộng XP $\rightarrow$ ghi nhiệm vụ $\rightarrow$ tắt process $\rightarrow$ restart với cùng database $\rightarrow$ xác minh dữ liệu còn nguyên 100%.
+
+- [ ] **P0.2 — TRANSACTIONAL OUTBOX & ATOMIC GIFT SETTLEMENT**
+  - [ ] Sửa `server.ts`: Nếu giao dịch ghi `giftLedgerRepo.settleGift()` lỗi, reject ngay lập tức (HTTP 500 hoặc `{ accepted: false, reason: 'LEDGER_TRANSACTION_FAILED' }`). Tuyệt đối không fallback gọi `engine.handleGift()` khi DB chưa commit.
+  - [ ] Cam kết nguyên tử: Gift Event + Streak Settlement + Outbox Record (`outbox_events`) được commit trong cùng 1 database transaction.
+  - [ ] Xây dựng Outbox Worker độc lập: định kỳ/sự kiện quét `PENDING` outbox events, claim an toàn bằng status `PROCESSING`, dispatch sang `engine.handleGift(..., commandId)`.
+  - [ ] `AuthoritativeGameEngine`: Lưu danh sách `executedCommandIds` trong bộ nhớ; chỉ kích hoạt skill đúng 1 lần duy nhất cho mỗi `commandId`.
+  - [ ] Cập nhật outbox thành `PROCESSED` sau khi engine thực thi thành công.
+  - [ ] Kiểm tra các điểm crash & recover: trước commit, sau commit trước dispatch, sau dispatch trước outbox ack, và sau server restart.
+
+- [ ] **P0.3 — MATCH ID & PLAYER ID CONSISTENCY**
+  - [ ] Chuẩn hóa `PlayerRepository` là nguồn chuẩn duy nhất tạo Player ID (`usr_${provider}_${platformUserId}`).
+  - [ ] `MatchRepository.finishMatch()` liên kết trực tiếp Player ID chuẩn đã tồn tại trong `players`. Không chèn thêm bản ghi fake hoặc dùng sai ID.
+  - [ ] Lưu trữ `mvpPlayerId` (Foreign Key chuẩn sang `players.id`), không dùng `mvp.name` thay thế ID.
+  - [ ] `engine.restartMatch()`: Tự động sinh `matchId` mới (`match_${Date.now()}_${seed}`) cho từng vòng đấu mới.
+  - [ ] `server.ts`: Loại bỏ phụ thuộc vào biến tĩnh `lastSavedMatchId`, lưu trữ đầy đủ mọi trận đấu khi kết thúc.
+  - [ ] Acceptance: Chạy liên tiếp ít nhất 10 vòng trận và xác nhận PostgreSQL lưu đủ 10 bản ghi matches riêng biệt với đúng kết quả, MVP và đóng góp.
+
+- [ ] **P0.4 — SECURE PLAYER PROFILE & IDOR PROTECTION**
+  - [ ] `GET /api/me`: Yêu cầu xác thực qua token header (`x-dashboard-token` hoặc `Authorization: Bearer`). Không nhận `userId` tùy ý từ client trên production.
+  - [ ] Tách biệt API: `GET /api/players/:id` (public profile: id, username, level, squad) và `GET /api/me` (private profile: full stats, missions, private info).
+  - [ ] Ngăn chặn triệt để tấn công IDOR và xem hồ sơ trái phép.
+  - [ ] Không nhận token quản trị qua URL query parameter (tránh rò rỉ vào access log).
+
+- [ ] **P0.5 — FIX COMPOSITE GIFT EVENT IDENTITY**
+  - [ ] Unique constraint trên `(provider, live_session_id, provider_event_id)` trong Prisma schema và DDL.
+  - [ ] Quản lý streak độc lập cho từng người gửi: không để event lỗi của người này đóng streak của người khác.
+  - [ ] Viết test concurrent duplicate requests trên 2 kết nối đồng thời.
+
+- [ ] **PHẦN D — ACCEPTANCE SUITE & DELIVERABLES (PHASE 05.1)**
+  - [ ] Cập nhật `run-phase05-persistence-qa.ts` kiểm thử toàn diện:
+    * Kết nối PostgreSQL/Persistent PGlite file storage.
+    * Process restart thật và xác minh dữ liệu phục hồi nguyên vẹn.
+    * 10 vòng trận liên tiếp lưu thành công trong DB.
+    * Outbox worker tự động phục hồi sự kiện sau restart.
+    * Stress test duy trì $\ge 100$ events/s với p95/p99.
+    * 60+ giây video gameplay 60 FPS không console error.
+  - [ ] Cập nhật `player.html`, commit git và push GitHub remote `feat/phase02-visual-refinement`.
 - [ ] Giai đoạn 06: Gift mapping và deterministic skill effects
 - [ ] Giai đoạn 07: Web dashboard quản trị Next.js
 - [ ] Giai đoạn 08: OBS browser source / continuous engine

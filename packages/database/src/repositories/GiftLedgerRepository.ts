@@ -45,10 +45,11 @@ export class GiftLedgerRepository {
     }
 
     return this.db.transaction(async (tx) => {
-      // 1. Chống trùng lặp tuyệt đối qua unique provider_event_id
+      // 1. Chống trùng lặp tuyệt đối qua composite (provider, live_session_id, provider_event_id)
       const dupCheck = await tx.query<any>(
-        `SELECT id, provider_event_id FROM gift_events WHERE provider_event_id = $1`,
-        [providerEventId]
+        `SELECT id, provider_event_id FROM gift_events 
+         WHERE provider = $1 AND live_session_id = $2 AND provider_event_id = $3`,
+        [provider, liveSessionId, providerEventId]
       );
 
       if (dupCheck.rows.length > 0) {
@@ -57,12 +58,12 @@ export class GiftLedgerRepository {
 
       let deltaQuantity = quantity;
 
-      // 2. Xử lý Gift Streak State Machine
+      // 2. Xử lý Gift Streak State Machine (cô lập độc lập theo từng sender_id)
       if (streakId) {
         const streakCheck = await tx.query<any>(
           `SELECT id, last_settled_quantity, status FROM gift_streaks 
-           WHERE provider = $1 AND live_session_id = $2 AND streak_id = $3 FOR UPDATE`,
-          [provider, liveSessionId, streakId]
+           WHERE provider = $1 AND live_session_id = $2 AND streak_id = $3 AND sender_id = $4 FOR UPDATE`,
+          [provider, liveSessionId, streakId, senderId]
         );
 
         if (streakCheck.rows.length > 0) {
@@ -162,10 +163,10 @@ export class GiftLedgerRepository {
     });
   }
 
-  public async isEventProcessed(providerEventId: string): Promise<boolean> {
+  public async isEventProcessed(provider: string, liveSessionId: string, providerEventId: string): Promise<boolean> {
     const res = await this.db.query<any>(
-      `SELECT id FROM gift_events WHERE provider_event_id = $1`,
-      [providerEventId]
+      `SELECT id FROM gift_events WHERE provider = $1 AND live_session_id = $2 AND provider_event_id = $3`,
+      [provider, liveSessionId, providerEventId]
     );
     return res.rows.length > 0;
   }

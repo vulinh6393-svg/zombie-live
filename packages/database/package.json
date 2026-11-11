@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.16",
-    "@prisma/client": "6.19.3"
+    "@prisma/client": "6.19.3",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
     "prisma": "^6.2.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

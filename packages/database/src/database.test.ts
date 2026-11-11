@@ -330,5 +330,83 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
       const targetAfter = remaining.find((e) => e.aggregateId === 'evt_outbox_test');
       expect(targetAfter).toBeUndefined();
     });
+
+    it('claims pending events atomically and marks status PROCESSING', async () => {
+      await giftRepo.settleGift({
+        provider: 'mock',
+        liveSessionId: 'sess_claim',
+        providerEventId: 'evt_claim_atomic',
+        senderId: 'usr_claim',
+        senderName: 'Claimer',
+        giftId: 'gift_missile',
+        quantity: 1,
+      });
+
+      const claimed = await outboxRepo.claimPendingEvents(5);
+      const claimedTarget = claimed.find((e) => e.aggregateId === 'evt_claim_atomic');
+      expect(claimedTarget).toBeDefined();
+      expect(claimedTarget?.status).toBe('PROCESSING');
+
+      // Claim lần 2 trong cùng lúc không lấy lại event đang PROCESSING
+      const secondClaim = await outboxRepo.claimPendingEvents(5);
+      const secondTarget = secondClaim.find((e) => e.aggregateId === 'evt_claim_atomic');
+      expect(secondTarget).toBeUndefined();
+
+      // Đánh dấu processed
+      await outboxRepo.markProcessed(claimedTarget!.id);
+    });
+
+    it('recovers data 100% after closing and reopening database connection with persistent storage', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const testDir = path.resolve(process.cwd(), '.data/test_restart_' + Date.now());
+
+      try {
+        // Step 1: Khởi tạo database adapter lưu trên filesystem
+        const persistentDb = new PGliteDatabaseAdapter(testDir);
+        await persistentDb.init({ runMigrations: true, seed: true });
+
+        const pRepo1 = new PlayerRepository(persistentDb);
+        const mRepo1 = new MissionRepository(persistentDb);
+
+        // Tạo player & tăng XP
+        const p = await pRepo1.findOrCreate('tiktok', 'restart_user_1', 'CommanderRestart', 'alpha');
+        await pRepo1.addXp(p.id, 900); // 900 XP -> Level 4
+
+        // Ghi nhận nhiệm vụ
+        const actionRes = await mRepo1.recordAction(p.id, 'JOIN');
+        expect(actionRes.completedNow).toBe(true);
+        expect(actionRes.xpGranted).toBe(50);
+
+        // Đóng adapter (mô phỏng process crash / graceful shutdown)
+        await persistentDb.close();
+
+        // Step 2: Khởi động lại process mới trên cùng dataDir
+        const restartedDb = new PGliteDatabaseAdapter(testDir);
+        await restartedDb.init({ runMigrations: true });
+
+        const pRepo2 = new PlayerRepository(restartedDb);
+        const mRepo2 = new MissionRepository(restartedDb);
+
+        // Kiểm tra dữ liệu người chơi
+        const reloaded = await pRepo2.findOrCreate('tiktok', 'restart_user_1', 'CommanderRestart', 'alpha');
+        expect(reloaded.xp).toBe(950); // 900 + 50 từ mission
+        expect(reloaded.level).toBe(4);
+        expect(reloaded.username).toBe('CommanderRestart');
+
+        // Kiểm tra nhiệm vụ đã hoàn thành và điểm thưởng đã nhận
+        const missions = await mRepo2.getPlayerMissions(p.id);
+        const joinMission = missions.find((m) => m.code === 'DAILY_JOIN');
+        expect(joinMission).toBeDefined();
+        expect(joinMission?.currentValue).toBe(1);
+        expect(joinMission?.completed).toBe(true);
+
+        await restartedDb.close();
+      } finally {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      }
+    });
   });
 });
