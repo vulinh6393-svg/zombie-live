@@ -288,4 +288,53 @@ describe('Phase 05 — Database Persistence, Streak Settlement & Final Security'
       expect(Array.isArray(data.leaderboard)).toBe(true);
     });
   });
+
+  describe('5. P0.1 Player Authentication & Forged Token Rejection', () => {
+    it('strictly rejects forged Bearer ply_tiktok_victimId with 401', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: { authorization: 'Bearer ply_tiktok_victimId' },
+      });
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.payload);
+      expect(body.error).toContain('UNAUTHORIZED');
+    });
+
+    it('issues signed session token and accepts it for /api/me', async () => {
+      // 1. Issue session via privileged bridge endpoint
+      const issueRes = await app.inject({
+        method: 'POST',
+        url: '/api/auth/session',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { provider: 'tiktok', userId: 'real_viewer_101' },
+      });
+      expect(issueRes.statusCode).toBe(200);
+      const { token } = JSON.parse(issueRes.payload);
+      expect(token).toBeDefined();
+      expect(token.startsWith('s_tok_')).toBe(true);
+
+      // 2. Query /api/me with signed token
+      const meRes = await app.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(meRes.statusCode).toBe(200);
+      const meData = JSON.parse(meRes.payload);
+      expect(meData.player).toBeDefined();
+      expect(meData.player.id).toBe('usr_tiktok_real_viewer_101');
+      expect(meData.player.provider).toBe('tiktok');
+    });
+
+    it('strictly rejects tampered session token signature with 401', async () => {
+      const tampered = 's_tok_dGlrdG9rOnZpY3RpbToxNzYyODg3NjYxOTUy.deadbeefinvalidmocksignature';
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: { authorization: `Bearer ${tampered}` },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+  });
 });

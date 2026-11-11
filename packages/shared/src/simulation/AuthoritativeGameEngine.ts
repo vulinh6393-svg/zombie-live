@@ -705,6 +705,8 @@ export class AuthoritativeGameEngine {
     }
   }
 
+  public onMatchStart?: (matchId: string, seed: number, phase: MatchPhase, baseHp: number) => void;
+
   public restartMatch(newMatchId?: string): void {
     this.matchId = newMatchId || `match_${crypto.randomUUID()}`;
     this.phase = 'PREPARING';
@@ -736,6 +738,10 @@ export class AuthoritativeGameEngine {
     this.collisionSystem.setWallState('LEFT', 'INTACT', 1000);
     this.collisionSystem.setWallState('RIGHT', 'INTACT', 1000);
     this.closeGate();
+
+    if (this.onMatchStart) {
+      this.onMatchStart(this.matchId, this.seed, this.phase, this.baseHp);
+    }
   }
 
   private stepGateTransition(): void {

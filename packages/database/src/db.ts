@@ -31,25 +31,44 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
   const appliedSet = new Set(appliedRes.rows.map((r) => r.id));
 
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const migrationCandidates = [
-    path.join(currentDir, '../prisma/migrations/20261111_init/migration.sql'),
-    path.join(currentDir, '../../prisma/migrations/20261111_init/migration.sql'),
-    path.join(process.cwd(), 'packages/database/prisma/migrations/20261111_init/migration.sql'),
-    path.join(process.cwd(), 'prisma/migrations/20261111_init/migration.sql'),
+
+  // Định nghĩa danh sách migrations tuần tự theo thứ tự thời gian
+  const migrationsToRun = [
+    {
+      id: '20261111_init',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261111_init/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261111_init/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261111_init/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261111_init/migration.sql'),
+      ],
+    },
+    {
+      id: '20261111_outbox_leases',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261111_outbox_leases/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261111_outbox_leases/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261111_outbox_leases/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261111_outbox_leases/migration.sql'),
+      ],
+    },
   ];
 
-  let migrationSql = '';
-  for (const p of migrationCandidates) {
-    if (fs.existsSync(p)) {
-      migrationSql = fs.readFileSync(p, 'utf-8');
-      break;
+  for (const mig of migrationsToRun) {
+    if (!appliedSet.has(mig.id)) {
+      let sql = '';
+      for (const p of mig.candidates) {
+        if (fs.existsSync(p)) {
+          sql = fs.readFileSync(p, 'utf-8');
+          break;
+        }
+      }
+      if (sql) {
+        await client.exec(sql);
+        await client.query(`INSERT INTO _migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [mig.id]);
+        appliedSet.add(mig.id);
+      }
     }
-  }
-
-  const migrationId = '20261111_init';
-  if (!appliedSet.has(migrationId) && migrationSql) {
-    await client.exec(migrationSql);
-    await client.query(`INSERT INTO _migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [migrationId]);
   }
 
   // Seed script: Apply default missions & gifts if tables are empty

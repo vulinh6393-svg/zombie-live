@@ -197,6 +197,18 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   };
 
+  // Register onMatchStart callback to persist each new match to DB at its beginning
+  engine.onMatchStart = async (matchId, seed, phase, baseHp) => {
+    await initDb();
+    if (matchRepo) {
+      try {
+        await matchRepo.startMatch(matchId, seed, phase, baseHp);
+      } catch (err: any) {
+        app.log.warn(`[MATCH_PERSISTENCE] Error on match start: ${err.message}`);
+      }
+    }
+  };
+
   app.addHook('onReady', async () => {
     await initDb();
     if (matchRepo) {
@@ -214,9 +226,13 @@ export function buildServer(opts: BuildServerOptions = {}): {
       if (matchRepo) {
         try {
           const snapshot = engine.generateSnapshot();
-          const mvp = snapshot.mvpPlayers?.[0];
+          const mvpName = snapshot.mvpPlayers?.[0]?.name;
+          const mvpPlayer = mvpName ? engine.getPlayers().find((p) => p.userName === mvpName) : undefined;
+          const canonicalMvpPlayerId = mvpPlayer ? `usr_mock_${mvpPlayer.userId}` : null;
+
           const contributions = engine.getPlayers().map((p) => ({
             userId: p.userId,
+            username: p.userName,
             squad: p.squad,
             score: p.score,
             competitiveScore: p.competitiveScore,
@@ -232,7 +248,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
           const res = await matchRepo.finishMatch(
             engine.matchId,
             engine.result,
-            mvp?.name || null,
+            canonicalMvpPlayerId,
             {
               tick: engine.tick,
               durationSeconds: Math.floor(engine.tick / 20),
@@ -253,7 +269,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   }, 500);
 
-  // Background Outbox Worker: Claims PENDING outbox events and dispatches to Authoritative Engine with idempotency
+  // Unique worker ID for Outbox lease management
+  const workerInstanceId = `worker_${process.pid}_${crypto.randomBytes(4).toString('hex')}`;
+
+  // Background Outbox Worker: Sole authoritative path for executing gift skills into engine
   const outboxWorkerTimer = setInterval(async () => {
     if (!outboxRepo) {
       await initDb();
@@ -261,7 +280,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     try {
-      const claimed = await outboxRepo.claimPendingEvents(20);
+      // Claim pending or expired events atomically with row locking (SKIP LOCKED) and 30s lease
+      const claimed = await outboxRepo.claimPendingEvents(20, workerInstanceId, 30);
       for (const ev of claimed) {
         try {
           if (ev.eventType === 'GIFT_SKILL_TRIGGER') {
@@ -287,15 +307,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
             );
 
             if (res.success || res.reason === 'COMMAND_ALREADY_EXECUTED' || res.reason === 'DUPLICATE_EVENT') {
-              await outboxRepo.markProcessed(ev.id);
+              await outboxRepo.markProcessed(ev.id, workerInstanceId);
             } else {
-              await outboxRepo.markFailed(ev.id, res.reason || 'ENGINE_REJECTED');
+              await outboxRepo.markFailed(ev.id, res.reason || 'ENGINE_REJECTED', workerInstanceId);
             }
           } else {
-            await outboxRepo.markProcessed(ev.id);
+            await outboxRepo.markProcessed(ev.id, workerInstanceId);
           }
         } catch (dispatchErr: any) {
-          await outboxRepo.markFailed(ev.id, dispatchErr.message || 'DISPATCH_ERROR');
+          await outboxRepo.markFailed(ev.id, dispatchErr.message || 'DISPATCH_ERROR', workerInstanceId);
         }
       }
     } catch (err: any) {
@@ -357,7 +377,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
       let deltaQuantity = ev.quantity;
       let settleReason: string | undefined;
 
-      // 1. Settle in Persistent Gift Ledger
+      // 1. Settle in Persistent Gift Ledger & Commit Outbox Event (Atomic DB Transaction)
       if (!giftLedgerRepo) {
         await initDb();
       }
@@ -392,33 +412,25 @@ export function buildServer(opts: BuildServerOptions = {}): {
         return { accepted: false, reason: 'LEDGER_TRANSACTION_FAILED', skillName: 'TRANSACTION_ERROR' };
       }
 
-      // 2. Dispatch to Authoritative Engine if deltaQuantity > 0
-      // Transactional Outbox worker also processes events in background, but immediate dispatch provides instant feedback
-      if (deltaQuantity > 0) {
-        const res = engine.handleGift(
-          {
-            provider: ev.provider,
-            liveSessionId: ev.liveSessionId,
-            providerEventId: ev.providerEventId,
-            senderId: ev.userId,
-            senderName: ev.userName,
-            giftId: ev.giftId,
-            quantity: deltaQuantity,
-            streakId: ev.streakId,
-            streakStatus: ev.streakStatus,
-            timestamp: ev.timestamp,
-          },
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          `cmd_${ev.providerEventId}`
-        );
+      // 2. Single Dispatch Path (P0.2):
+      // HTTP ingress chỉ chịu trách nhiệm validate và ghi nhận nguyên tử vào Gift Ledger & Outbox.
+      // Outbox Worker là con đường duy nhất dispatch quà vào Authoritative Game Engine.
+      // Kiểm tra loại quà tặng được hỗ trợ, từ chối quà tặng không xác định!
+      const normGiftId = (ev.giftId || '').toLowerCase().trim();
+      let expectedSkillName = 'UNKNOWN';
+      if (normGiftId.includes('shield')) expectedSkillName = 'KHIÊN CHẮN NĂNG LƯỢNG';
+      else if (normGiftId.includes('doughnut') || normGiftId.includes('machinegun') || normGiftId.includes('overclock')) expectedSkillName = 'TĂNG TỐC Ụ PHÁO';
+      else if (normGiftId.includes('missile') || normGiftId.includes('airstrike')) expectedSkillName = 'TÊN LỬA TỔNG LỰC';
+      else if (normGiftId.includes('heart') || normGiftId.includes('heal') || normGiftId.includes('reinforce')) expectedSkillName = 'TIẾP TẾ Y TẾ';
+      else {
+        return { accepted: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
+      }
 
+      if (deltaQuantity > 0) {
         return {
-          accepted: res.success,
-          reason: res.reason,
-          skillName: res.skillName,
+          accepted: true,
+          reason: settleReason || 'LEDGER_SETTLED_QUEUED_FOR_DISPATCH',
+          skillName: expectedSkillName,
           deltaQuantity,
         };
       } else {
@@ -585,29 +597,94 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return reply.send(publicProfile);
   });
 
-  // Protected Player Profile & Daily Mission API (P0: Require player session/token, prevent IDOR)
+  // Secret key used for signing HMAC tokens
+  const tokenSigningSecret = crypto.createHash('sha256').update(adminSecret).digest('hex');
+
+  // Server-side session store (P0.1: Secure player session management)
+  interface PlayerSession {
+    token: string;
+    provider: string;
+    platformUserId: string;
+    expiresAt: number;
+  }
+  const playerSessions = new Map<string, PlayerSession>();
+
+  // Function to create and issue a secure cryptographically signed player session token
+  const issuePlayerSessionToken = (provider: string, platformUserId: string, ttlMs: number = 24 * 3600 * 1000): string => {
+    const expiresAt = Date.now() + ttlMs;
+    const payload = `${provider}:${platformUserId}:${expiresAt}`;
+    const signature = crypto.createHmac('sha256', tokenSigningSecret).update(payload).digest('hex');
+    const token = `s_tok_${Buffer.from(payload).toString('base64url')}.${signature}`;
+    playerSessions.set(token, { token, provider, platformUserId, expiresAt });
+    return token;
+  };
+
+  // Function to verify a player session token
+  const verifyPlayerSessionToken = (token: string): { provider: string; platformUserId: string } | null => {
+    if (!token || !token.startsWith('s_tok_')) return null;
+    const raw = token.replace('s_tok_', '');
+    const dotIndex = raw.lastIndexOf('.');
+    if (dotIndex === -1) return null;
+    const b64Payload = raw.substring(0, dotIndex);
+    const signature = raw.substring(dotIndex + 1);
+
+    let payload = '';
+    try {
+      payload = Buffer.from(b64Payload, 'base64url').toString('utf-8');
+    } catch {
+      return null;
+    }
+
+    const expectedSig = crypto.createHmac('sha256', tokenSigningSecret).update(payload).digest('hex');
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return null;
+    }
+
+    const [provider, platformUserId, expiresAtStr] = payload.split(':');
+    const expiresAt = parseInt(expiresAtStr, 10);
+    if (isNaN(expiresAt) || Date.now() > expiresAt) {
+      playerSessions.delete(token);
+      return null;
+    }
+
+    return { provider, platformUserId };
+  };
+
+  // Endpoint to issue session token for verified players / login
+  app.post('/api/auth/session', async (request, reply) => {
+    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
+    const isPrivileged = authHeader === adminSecret || authHeader === `Bearer ${adminSecret}`;
+    
+    // In production, session issuance requires Live Bridge / Admin credential or verified webhook
+    if (isProduction && !isPrivileged) {
+      return reply.status(403).send({ error: 'FORBIDDEN: Session issuance requires verified provider bridge credentials' });
+    }
+
+    const body = request.body as { provider?: string; userId?: string };
+    if (!body?.userId) {
+      return reply.status(400).send({ error: 'MISSING_USER_ID' });
+    }
+
+    const provider = body.provider || 'mock';
+    const token = issuePlayerSessionToken(provider, body.userId);
+    return reply.send({ token, provider, userId: body.userId, expiresAt: Date.now() + 24 * 3600 * 1000 });
+  });
+
+  // Protected Player Profile & Daily Mission API (P0: Require verified signed player session, strictly anti-IDOR)
   app.get('/api/me', async (request, reply) => {
     const authHeader = request.headers.authorization || request.headers['x-player-token'];
-    const dashboardHeader = request.headers['x-dashboard-token'];
     
     let authenticatedUser: { provider: string; platformUserId: string } | null = null;
 
-    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ply_')) {
-      // Token phiên xác thực của người chơi dạng Bearer ply_<provider>_<userId>
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer s_tok_')) {
       const token = authHeader.replace('Bearer ', '');
-      const parts = token.split('_');
-      if (parts.length >= 3) {
-        authenticatedUser = { provider: parts[1], platformUserId: parts.slice(2).join('_') };
-      }
-    } else if (dashboardHeader === dashboardDevToken || authHeader === `Bearer ${adminSecret}`) {
-      // Quyền truy cập dev/operator trong mock mode
-      const query = request.query as { provider?: string; userId?: string };
-      authenticatedUser = {
-        provider: query.provider || 'mock',
-        platformUserId: query.userId || 'operator',
-      };
+      authenticatedUser = verifyPlayerSessionToken(token);
+    } else if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('s_tok_')) {
+      authenticatedUser = verifyPlayerSessionToken(authHeader);
     } else if (!isProduction) {
-      // Mock mode fallback chỉ cho phép khi không phải production
+      // Mock mode fallback chỉ cho phép trong môi trường test/development cục bộ (không bật ở production)
       const query = request.query as { provider?: string; userId?: string };
       if (query.userId) {
         authenticatedUser = { provider: query.provider || 'mock', platformUserId: query.userId };
@@ -615,7 +692,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     if (!authenticatedUser) {
-      return reply.status(401).send({ error: 'UNAUTHORIZED: Valid player session or auth token required to access /api/me' });
+      return reply.status(401).send({ error: 'UNAUTHORIZED: Valid signed player session token required to access /api/me' });
     }
 
     const { provider, platformUserId } = authenticatedUser;

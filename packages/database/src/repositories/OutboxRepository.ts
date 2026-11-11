@@ -52,7 +52,7 @@ export class OutboxRepository {
          WHERE status = 'PENDING' 
             OR (status = 'PROCESSING' AND (locked_until IS NULL OR locked_until < CURRENT_TIMESTAMP))
          ORDER BY created_at ASC 
-         LIMIT $1 FOR UPDATE`,
+         LIMIT $1 FOR UPDATE SKIP LOCKED`,
         [batchSize]
       );
 
@@ -77,26 +77,28 @@ export class OutboxRepository {
     });
   }
 
-  public async markProcessed(id: string): Promise<void> {
-    await this.db.query(
+  public async markProcessed(id: string, workerId?: string): Promise<boolean> {
+    const res = await this.db.query(
       `UPDATE outbox_events 
        SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
-       WHERE id = $1`,
-      [id]
+       WHERE id = $1 AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)`,
+      [id, workerId || null]
     );
+    return res.rowCount > 0;
   }
 
-  public async markFailed(id: string, error: string): Promise<void> {
-    await this.db.query(
+  public async markFailed(id: string, error: string, workerId?: string): Promise<boolean> {
+    const res = await this.db.query(
       `UPDATE outbox_events 
        SET status = CASE WHEN retry_count >= 3 THEN 'FAILED' ELSE 'PENDING' END,
            retry_count = retry_count + 1,
            locked_by = NULL,
            locked_until = NULL,
            error = $1 
-       WHERE id = $2`,
-      [error, id]
+       WHERE id = $2 AND ($3::text IS NULL OR locked_by = $3 OR locked_by IS NULL)`,
+      [error, id, workerId || null]
     );
+    return res.rowCount > 0;
   }
 
   public async getQueueMetrics(): Promise<{ pendingCount: number; oldestAgeMs: number }> {

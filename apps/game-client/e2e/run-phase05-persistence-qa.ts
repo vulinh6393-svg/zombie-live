@@ -78,9 +78,9 @@ async function runPhase05PersistenceQA() {
   await page.waitForTimeout(2000);
 
   // -------------------------------------------------------------------------
-  // CRITERION 1: P0.1 - Security & Access Control Hardening
+  // CRITERION 1: P0.1 - Security, Player Authentication & Anti-IDOR Hardening
   // -------------------------------------------------------------------------
-  console.log('\n--- KIỂM TRA CRITERION 1: P0.1 DASHBOARD & PROFILE SECURITY HARDENING ---');
+  console.log('\n--- KIỂM TRA CRITERION 1: P0.1 DASHBOARD, SIGNED SESSION & IDOR PROTECTION ---');
   
   // 1. Unauthenticated GET /dashboard -> strictly 401
   const unauthDashRes = await fetch('http://127.0.0.1:3001/dashboard');
@@ -100,31 +100,54 @@ async function runPhase05PersistenceQA() {
   });
   const unauthCmdStatus = unauthCmdRes.status;
 
-  // 4. Unauthenticated GET /api/dashboard/player/:userId -> safe public fields only
-  const publicPlayerRes = await fetch('http://127.0.0.1:3001/api/dashboard/player/usr_test_public');
+  // 4. Forged Bearer ply_tiktok_victimId -> strictly 401 (P0.1 Authentication Fix)
+  const forgedAuthRes = await fetch('http://127.0.0.1:3001/api/me', {
+    headers: { authorization: 'Bearer ply_tiktok_victim_user_99' },
+  });
+  const forgedAuthStatus = forgedAuthRes.status;
+
+  // 5. Issue genuine signed session token via bridge and access /api/me
+  const sessionIssueRes = await fetch('http://127.0.0.1:3001/api/auth/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+    body: JSON.stringify({ provider: 'tiktok', userId: 'genuine_viewer_777' }),
+  });
+  const sessionData = await sessionIssueRes.json();
+  const genuineToken = sessionData.token;
+
+  const genuineMeRes = await fetch('http://127.0.0.1:3001/api/me', {
+    headers: { authorization: `Bearer ${genuineToken}` },
+  });
+  const genuineMeStatus = genuineMeRes.status;
+  const genuineMeData = await genuineMeRes.json();
+
+  // 6. Safe Public Profile inspection -> only public fields
+  const publicPlayerRes = await fetch('http://127.0.0.1:3001/api/players/usr_tiktok_genuine_viewer_777');
   const publicPlayerData = await publicPlayerRes.json();
   const isSafePublicPlayer =
-    !publicPlayerRes.ok ||
-    (publicPlayerData.id !== undefined &&
-      publicPlayerData.username !== undefined &&
-      publicPlayerData.token === undefined &&
-      publicPlayerData.adminKey === undefined);
+    publicPlayerRes.ok &&
+    publicPlayerData.id === 'usr_tiktok_genuine_viewer_777' &&
+    publicPlayerData.username !== undefined &&
+    publicPlayerData.token === undefined;
 
   const c1Pass =
     unauthDashStatus === 401 &&
     authDashStatus === 200 &&
     !tokenLeakedInHtml &&
     unauthCmdStatus === 401 &&
+    forgedAuthStatus === 401 &&
+    genuineMeStatus === 200 &&
+    genuineMeData.player?.id === 'usr_tiktok_genuine_viewer_777' &&
     isSafePublicPlayer;
 
   criteriaResults.push({
     id: 'C01_SECURITY_ACCESS_CONTROL',
-    name: 'P0.1 Dashboard, Command & Player Profile Security Hardening',
+    name: 'P0.1 Dashboard Security, Signed Player Authentication & Anti-IDOR',
     status: c1Pass ? 'PASS' : 'FAIL',
-    details: `Unauth /dashboard: ${unauthDashStatus} (Expected 401); Auth /dashboard: ${authDashStatus} (Token leaked in HTML: ${tokenLeakedInHtml}); Unauth command: ${unauthCmdStatus} (Expected 401); Safe player inspection: ${isSafePublicPlayer}`,
-    metric: { unauthDashStatus, authDashStatus, tokenLeakedInHtml, unauthCmdStatus, isSafePublicPlayer },
+    details: `Unauth /dashboard: ${unauthDashStatus} (401); Forged ply_ token: ${forgedAuthStatus} (Expected 401); Signed token auth: ${genuineMeStatus} (200); Safe public profile: ${isSafePublicPlayer}`,
+    metric: { unauthDashStatus, authDashStatus, forgedAuthStatus, genuineMeStatus, isSafePublicPlayer },
   });
-  console.log(` [C01] ${c1Pass ? 'PASS' : 'FAIL'}: Security gates strictly enforced (401 unauth, 200 auth without token leakage)`);
+  console.log(` [C01] ${c1Pass ? 'PASS' : 'FAIL'}: Security gates enforced: Forged token rejected (401), signed session accepted (200)`);
 
   // -------------------------------------------------------------------------
   // CRITERION 2: P0.2 - Monotonic Event Queue & Odd/Even Tick Delivery
