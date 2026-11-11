@@ -15,6 +15,7 @@ export class TextureGenerator {
     this.generateTowers(scene);
     this.generateBaseFortress(scene);
     this.generateVFX(scene);
+    this.generateMech(scene);
   }
 
   public static generateProps(scene: Phaser.Scene): void {
@@ -574,6 +575,59 @@ export class TextureGenerator {
     g.fillCircle(70, 70, 64);
     g.generateTexture('vfx_shield', 140, 140);
     g.generateTexture('shield_dome', 140, 140);
+    g.destroy();
+  }
+
+  private static generateMech(scene: Phaser.Scene): void {
+    if (scene.textures.exists('mech_titan')) return;
+
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    // Drop shadow
+    g.fillStyle(0x000000, 0.5);
+    g.fillEllipse(50, 85, 75, 25);
+
+    // Mechanical Legs & Footpads
+    g.fillStyle(0x1e293b, 1);
+    g.fillRoundedRect(18, 55, 20, 32, 6);
+    g.fillRoundedRect(62, 55, 20, 32, 6);
+    g.fillStyle(0x334155, 1);
+    g.fillRect(15, 80, 26, 8);
+    g.fillRect(59, 80, 26, 8);
+
+    // Heavy Armored Torso Chassis
+    g.fillStyle(0x0f172a, 1);
+    g.fillRoundedRect(20, 22, 60, 48, 8);
+    g.lineStyle(3, 0x0284c7, 1);
+    g.strokeRoundedRect(20, 22, 60, 48, 8);
+
+    // Glowing Power Core (Arc Reactor)
+    g.fillStyle(0x0ea5e9, 0.4);
+    g.fillCircle(50, 44, 14);
+    g.fillStyle(0x38bdf8, 1);
+    g.fillCircle(50, 44, 8);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(50, 44, 4);
+
+    // Visor Sensor Array
+    g.fillStyle(0xef4444, 1);
+    g.fillRoundedRect(36, 26, 28, 6, 2);
+
+    // Twin Autocannon Arms
+    g.fillStyle(0x475569, 1);
+    g.fillRect(6, 12, 12, 40);
+    g.fillRect(82, 12, 12, 40);
+
+    // Heavy Muzzle Barrels
+    g.fillStyle(0x94a3b8, 1);
+    g.fillRect(8, 2, 8, 14);
+    g.fillRect(84, 2, 8, 14);
+
+    // Shoulder Missile Pods
+    g.fillStyle(0xf59e0b, 1);
+    g.fillCircle(12, 28, 4);
+    g.fillCircle(88, 28, 4);
+
+    g.generateTexture('mech_titan', 100, 100);
     g.destroy();
   }
 }

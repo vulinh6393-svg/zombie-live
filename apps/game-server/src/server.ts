@@ -7,7 +7,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { AuthoritativeGameEngine } from './engine/AuthoritativeGameEngine.js';
-import { AuthoritativeGiftEventSchema, AuthoritativeGiftEvent } from '@zombie-live/shared';
+import { AuthoritativeGiftEventSchema, AuthoritativeGiftEvent, resolveGiftSkill, SKILL_REGISTRY } from '@zombie-live/shared';
 import {
   getDatabaseClient,
   PlayerRepository,
@@ -15,6 +15,7 @@ import {
   MissionRepository,
   MatchRepository,
   OutboxRepository,
+  CommandJournalRepository,
 } from '@zombie-live/database';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -123,7 +124,27 @@ export function buildServer(opts: BuildServerOptions = {}): {
     };
   });
 
-  app.get('/ready', async () => {
+  app.get('/ready', async (req, reply) => {
+    let dbAlive = true;
+    try {
+      if (!dbClient) await initDb();
+      if (dbClient) {
+        dbAlive = await dbClient.healthCheck();
+      }
+    } catch {
+      dbAlive = false;
+    }
+
+    if (!dbAlive) {
+      reply.status(503);
+      return {
+        status: 'degraded',
+        reason: 'DATABASE_UNHEALTHY',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     const hasDbUrl = Boolean(process.env.DATABASE_URL);
     const hasRedisUrl = Boolean(process.env.REDIS_URL);
     return {
@@ -137,11 +158,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
         gateState: engine.getGateCollisionState(),
         zombieCount: engine.getAllZombies().length,
         playerCount: engine.getPlayers().length,
+        shieldActive: engine.isShieldActive(),
+        overclockActive: engine.isOverclockActive(),
+        mechActive: Boolean(engine.getActiveMech()),
       },
       dependencies: {
         database: {
           configured: hasDbUrl,
           mode: hasDbUrl ? 'postgresql' : 'in_memory_fallback',
+          healthy: dbAlive,
         },
         redis: {
           configured: hasRedisUrl,
@@ -177,6 +202,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   let missionRepo: MissionRepository | null = null;
   let matchRepo: MatchRepository | null = null;
   let outboxRepo: OutboxRepository | null = null;
+  let journalRepo: CommandJournalRepository | null = null;
 
   const initDb = async () => {
     if (!dbClient) {
@@ -188,11 +214,23 @@ export function buildServer(opts: BuildServerOptions = {}): {
         missionRepo = new MissionRepository(db);
         matchRepo = new MatchRepository(db);
         outboxRepo = new OutboxRepository(db);
+        journalRepo = new CommandJournalRepository(db);
       } catch (err: any) {
         app.log.warn(`[DATABASE] Lazy init warning: ${err.message}`);
         if (isProduction) {
           throw err;
         }
+      }
+    }
+  };
+
+  // Wire command execution callback from engine to persistent journal
+  engine.onCommandApplied = async (cmd, tick) => {
+    if (journalRepo) {
+      try {
+        await journalRepo.markCommandApplied(cmd.matchId, cmd.commandId, tick);
+      } catch (err: any) {
+        app.log.warn(`[JOURNAL] Failed to mark command applied: ${err.message}`);
       }
     }
   };
@@ -215,6 +253,35 @@ export function buildServer(opts: BuildServerOptions = {}): {
       try {
         await matchRepo.startMatch(engine.matchId, engine.seed, engine.phase, engine.baseHp);
       } catch {}
+    }
+
+    // P0 Recovery: Kiểm tra xem có Checkpoint hợp lệ cho match hiện tại không
+    if (journalRepo) {
+      try {
+        const latestCheckpoint = await journalRepo.getLatestCheckpoint(engine.matchId);
+        if (latestCheckpoint) {
+          app.log.info(`[RECOVERY] Restoring simulation checkpoint for match ${engine.matchId} at tick ${latestCheckpoint.tick}`);
+          engine.loadSimulationState(latestCheckpoint.stateSnapshot);
+
+          // Replay các command journal sau sequence của checkpoint
+          const unapplied = await journalRepo.getCommandsToReplay(engine.matchId, latestCheckpoint.lastJournalSeq);
+          for (const cmdEntry of unapplied) {
+            engine.applySkillCommand({
+              commandId: cmdEntry.commandId,
+              matchId: cmdEntry.matchId,
+              seq: cmdEntry.seq,
+              targetTick: cmdEntry.tick,
+              sourceUserId: cmdEntry.payload.senderId,
+              sourceUserName: cmdEntry.payload.senderName,
+              skillId: cmdEntry.payload.skillId,
+              quantity: cmdEntry.payload.deltaQuantity,
+              streakId: cmdEntry.payload.streakId,
+            });
+          }
+        }
+      } catch (recoveryErr: any) {
+        app.log.warn(`[RECOVERY] Checkpoint recovery failed: ${recoveryErr.message}`);
+      }
     }
   });
 
@@ -267,6 +334,23 @@ export function buildServer(opts: BuildServerOptions = {}): {
         }
       }
     }
+
+    // P0 Checkpointing: Lưu trạng thái Authoritative Engine định kỳ mỗi 100 ticks (5 giây)
+    if (engine.tick > 0 && engine.tick % 100 === 0 && journalRepo) {
+      try {
+        const simState = engine.getSimulationState();
+        const stateHash = engine.getStateHash();
+        await journalRepo.saveCheckpoint({
+          matchId: engine.matchId,
+          tick: engine.tick,
+          lastJournalSeq: engine.tick,
+          stateSnapshot: simState,
+          stateHash,
+        });
+      } catch (chkErr: any) {
+        app.log.warn(`[CHECKPOINT] Periodic save warning: ${chkErr.message}`);
+      }
+    }
   }, 500);
 
   // Unique worker ID for Outbox lease management
@@ -286,30 +370,35 @@ export function buildServer(opts: BuildServerOptions = {}): {
         try {
           if (ev.eventType === 'GIFT_SKILL_TRIGGER') {
             const p = ev.payload;
-            const res = engine.handleGift(
-              {
-                provider: p.provider,
-                liveSessionId: p.liveSessionId,
-                providerEventId: p.providerEventId,
-                senderId: p.senderId,
-                senderName: p.senderName,
-                giftId: p.giftId,
-                quantity: p.deltaQuantity,
-                streakId: p.streakId,
-                streakStatus: p.streakStatus,
-                timestamp: p.timestamp || Date.now(),
-              },
-              undefined,
-              undefined,
-              undefined,
-              undefined,
-              ev.id
-            );
+            const targetMatchId = (p.matchId && p.matchId === engine.matchId) ? p.matchId : engine.matchId;
 
-            if (res.success || res.reason === 'COMMAND_ALREADY_EXECUTED' || res.reason === 'DUPLICATE_EVENT') {
+            // P0: Ghi nhận vào Command Journal trước khi đẩy vào engine queue (Durable Command Journal)
+            if (journalRepo) {
+              await journalRepo.appendCommand({
+                matchId: targetMatchId,
+                commandId: ev.id,
+                tick: engine.tick + 1,
+                commandType: 'GIFT_SKILL',
+                payload: p,
+              });
+            }
+
+            // P0: Đưa vào hàng đợi lệnh theo tick của Authoritative Engine (Tick-Ordered Queue)
+            const queueRes = engine.queueSkillCommand({
+              commandId: ev.id,
+              matchId: targetMatchId,
+              targetTick: engine.tick + 1,
+              sourceUserId: p.senderId,
+              sourceUserName: p.senderName,
+              skillId: p.skillId,
+              quantity: p.deltaQuantity,
+              streakId: p.streakId,
+            });
+
+            if (queueRes.queued || queueRes.reason === 'DEFERRED_FOR_NEXT_MATCH' || queueRes.reason === 'COMMAND_ALREADY_EXECUTED') {
               await outboxRepo.markProcessed(ev.id, workerInstanceId);
             } else {
-              await outboxRepo.markFailed(ev.id, res.reason || 'ENGINE_REJECTED', workerInstanceId);
+              await outboxRepo.markFailed(ev.id, queueRes.reason || 'ENGINE_QUEUE_REJECTED', workerInstanceId);
             }
           } else {
             await outboxRepo.markProcessed(ev.id, workerInstanceId);
@@ -377,19 +466,31 @@ export function buildServer(opts: BuildServerOptions = {}): {
       let deltaQuantity = ev.quantity;
       let settleReason: string | undefined;
 
+      // P0.2 Vấn đề A2: Validate Gift ID & Skill Mapping TRƯỚC KHI tạo transaction settlement vào DB
+      const resolvedSkill = resolveGiftSkill(ev.giftId);
+      if (!resolvedSkill) {
+        return {
+          accepted: false,
+          reason: 'UNSUPPORTED_GIFT_TYPE',
+          skillName: 'UNKNOWN',
+          deltaQuantity: 0,
+        };
+      }
+
       // 1. Settle in Persistent Gift Ledger & Commit Outbox Event (Atomic DB Transaction)
       if (!giftLedgerRepo) {
         await initDb();
       }
 
       if (!giftLedgerRepo) {
-        return { accepted: false, reason: 'DATABASE_UNAVAILABLE', skillName: 'UNKNOWN' };
+        return { accepted: false, reason: 'DATABASE_UNAVAILABLE', skillName: resolvedSkill.name };
       }
 
       try {
         const sRes = await giftLedgerRepo.settleGift({
           provider: ev.provider,
           liveSessionId: ev.liveSessionId,
+          matchId: engine.matchId,
           providerEventId: ev.providerEventId,
           senderId: ev.userId,
           senderName: ev.userName,
@@ -398,6 +499,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
           quantityMode: 'cumulative',
           streakId: ev.streakId,
           streakStatus: ev.streakStatus,
+          skillId: resolvedSkill.id,
         });
 
         if (!sRes.success) {
@@ -408,29 +510,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
         settleReason = sRes.reason;
       } catch (err: any) {
         app.log.warn(`[GIFT_LEDGER] Settlement error: ${err.message}`);
-        // P0.2: Fail-fast! Tuyệt đối không fallback gọi unledgered skill nếu giao dịch database lỗi!
+        // Fail-fast! Tuyệt đối không fallback gọi unledgered skill nếu giao dịch database lỗi!
         return { accepted: false, reason: 'LEDGER_TRANSACTION_FAILED', skillName: 'TRANSACTION_ERROR' };
-      }
-
-      // 2. Single Dispatch Path (P0.2):
-      // HTTP ingress chỉ chịu trách nhiệm validate và ghi nhận nguyên tử vào Gift Ledger & Outbox.
-      // Outbox Worker là con đường duy nhất dispatch quà vào Authoritative Game Engine.
-      // Kiểm tra loại quà tặng được hỗ trợ, từ chối quà tặng không xác định!
-      const normGiftId = (ev.giftId || '').toLowerCase().trim();
-      let expectedSkillName = 'UNKNOWN';
-      if (normGiftId.includes('shield')) expectedSkillName = 'KHIÊN CHẮN NĂNG LƯỢNG';
-      else if (normGiftId.includes('doughnut') || normGiftId.includes('machinegun') || normGiftId.includes('overclock')) expectedSkillName = 'TĂNG TỐC Ụ PHÁO';
-      else if (normGiftId.includes('missile') || normGiftId.includes('airstrike')) expectedSkillName = 'TÊN LỬA TỔNG LỰC';
-      else if (normGiftId.includes('heart') || normGiftId.includes('heal') || normGiftId.includes('reinforce')) expectedSkillName = 'TIẾP TẾ Y TẾ';
-      else {
-        return { accepted: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
       }
 
       if (deltaQuantity > 0) {
         return {
           accepted: true,
           reason: settleReason || 'LEDGER_SETTLED_QUEUED_FOR_DISPATCH',
-          skillName: expectedSkillName,
+          skillName: resolvedSkill.name,
           deltaQuantity,
         };
       } else {
@@ -463,6 +551,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     const result = await processLiveEvent(parseRes.data);
+    if (!result.accepted && result.reason === 'UNSUPPORTED_GIFT_TYPE') {
+      return reply.status(400).send({ error: 'UNSUPPORTED_GIFT_SKILL', reason: 'UNSUPPORTED_GIFT_TYPE', accepted: false });
+    }
     return reply.send(result);
   });
 
@@ -529,6 +620,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     const result = await processLiveEvent(parseRes.data);
+    if (!result.accepted && result.reason === 'UNSUPPORTED_GIFT_TYPE') {
+      return reply.status(400).send({ error: 'UNSUPPORTED_GIFT_SKILL', reason: 'UNSUPPORTED_GIFT_TYPE', accepted: false });
+    }
     return reply.send(result);
   });
 

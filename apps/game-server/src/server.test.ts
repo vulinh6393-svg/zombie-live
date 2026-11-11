@@ -168,6 +168,8 @@ describe('Game Server Security & Event Ingestion', () => {
     const { app, engine, stopEngine, adminSecret } = buildServer();
     stopFn = stopEngine;
 
+    const uniqueEvtId = 'gift_unique_evt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const uniqueStreakId = 'streak_' + uniqueEvtId;
     const res1 = await app.inject({
       method: 'POST',
       url: '/api/live/event',
@@ -176,12 +178,12 @@ describe('Game Server Security & Event Ingestion', () => {
         type: 'GIFT',
         provider: 'mock',
         liveSessionId: 'test_session_1',
-        providerEventId: 'gift_unique_evt_1001',
+        providerEventId: uniqueEvtId,
         userId: 'rich_donor',
         userName: 'DonorKing',
         giftId: 'gift_missile',
         quantity: 1,
-        streakId: 'streak_1001',
+        streakId: uniqueStreakId,
         timestamp: Date.now(),
       },
     });
@@ -200,12 +202,12 @@ describe('Game Server Security & Event Ingestion', () => {
         type: 'GIFT',
         provider: 'mock',
         liveSessionId: 'test_session_1',
-        providerEventId: 'gift_unique_evt_1001',
+        providerEventId: uniqueEvtId,
         userId: 'rich_donor',
         userName: 'DonorKing',
         giftId: 'gift_missile',
         quantity: 1,
-        streakId: 'streak_1001',
+        streakId: uniqueStreakId,
         timestamp: Date.now(),
       },
     });

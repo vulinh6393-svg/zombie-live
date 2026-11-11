@@ -15,7 +15,59 @@ import { BASTION_GEOMETRY } from './BastionGeometryConfig.js';
 import { BastionCollisionSystem, GateCollisionState } from './BastionCollisionSystem.js';
 import { SeededRandom } from './SeededRandom.js';
 import { DEFAULT_GAME_BALANCE, ZombieSpec } from './GameBalanceConfig.js';
-import crypto from 'node:crypto';
+import { resolveGiftSkill, SKILL_REGISTRY, SkillConfig } from './SkillRegistry.js';
+
+export interface SkillCommand {
+  commandId: string;
+  matchId: string;
+  seq?: number;
+  targetTick: number;
+  sourceUserId: string;
+  sourceUserName: string;
+  skillId: string;
+  quantity: number;
+  streakId?: string;
+  targetX?: number;
+  targetY?: number;
+}
+
+export interface ActiveAirstrike {
+  id: string;
+  commandId: string;
+  senderName: string;
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  warningEndTick: number;
+  hasDetonated: boolean;
+}
+
+export interface ActiveShieldBuff {
+  commandId: string;
+  expirationTick: number;
+  damageReduction: number;
+}
+
+export interface ActiveOverclockBuff {
+  commandId: string;
+  expirationTick: number;
+  fireRateMultiplier: number;
+  originalTowerCooldowns: Map<string, number>;
+}
+
+export interface ActiveMechUnit {
+  id: string;
+  commandId: string;
+  senderName: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  expirationTick: number;
+  cooldownTicks: number;
+  maxCooldownTicks: number;
+}
 
 export interface EngineZombie {
   id: string;
@@ -117,6 +169,18 @@ export class AuthoritativeGameEngine {
   private readonly gateTransitionTicks: number = 20; // 1.0s at 20Hz
 
   private activeGiftSkill?: GiftSkillState & { triggerTick?: number; shieldEndTime?: number };
+
+  // Phase 06 Deterministic Command Queue & Authoritative Skill State
+  private commandQueue: SkillCommand[] = [];
+  private deferredSkillCommands: SkillCommand[] = [];
+  private activeAirstrikes: ActiveAirstrike[] = [];
+  private activeShieldBuff?: ActiveShieldBuff;
+  private activeOverclockBuff?: ActiveOverclockBuff;
+  private activeMechUnit?: ActiveMechUnit;
+  private skillActivationCounts: Map<string, number> = new Map();
+  private skillCooldowns: Map<string, number> = new Map();
+  private reinforcementSoldierLifespans: Map<string, number> = new Map();
+  public onCommandApplied?: (cmd: SkillCommand, appliedTick: number) => void;
 
   private waveNumber: number = 1;
   private waveTicksRemaining: number = 20 * 20; // 20s for PREPARING
@@ -405,6 +469,365 @@ export class AuthoritativeGameEngine {
     return { success: true };
   }
 
+  public isShieldActive(): boolean {
+    return !!this.activeShieldBuff && this.tick < this.activeShieldBuff.expirationTick;
+  }
+
+  public isOverclockActive(): boolean {
+    return !!this.activeOverclockBuff && this.tick < this.activeOverclockBuff.expirationTick;
+  }
+
+  public getActiveMech(): ActiveMechUnit | undefined {
+    return this.activeMechUnit;
+  }
+
+  /**
+   * Đưa lệnh kích hoạt kỹ năng vào hàng đợi xử lý theo tick đơn điệu (Monotonic Tick Queue).
+   */
+  public queueSkillCommand(cmd: SkillCommand): { queued: boolean; reason?: string } {
+    if (cmd.matchId && cmd.matchId !== this.matchId) {
+      if (this.phase === 'RESULTS') {
+        this.deferredSkillCommands.push(cmd);
+        return { queued: true, reason: 'DEFERRED_FOR_NEXT_MATCH' };
+      }
+      return { queued: false, reason: 'MISMATCHED_MATCH_ID' };
+    }
+
+    if (this.executedCommandIds.has(cmd.commandId) || this.commandQueue.some((c) => c.commandId === cmd.commandId)) {
+      return { queued: false, reason: 'COMMAND_ALREADY_EXECUTED' };
+    }
+
+    if (this.commandQueue.length >= 500) {
+      return { queued: false, reason: 'COMMAND_QUEUE_OVERFLOW' };
+    }
+
+    this.commandQueue.push(cmd);
+    this.commandQueue.sort((a, b) => {
+      if (a.targetTick !== b.targetTick) return a.targetTick - b.targetTick;
+      if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq;
+      return a.commandId.localeCompare(b.commandId);
+    });
+
+    return { queued: true };
+  }
+
+  /**
+   * Xử lý tối đa 10 lệnh kỹ năng theo tick hiện tại (Cap per tick để chống nghẽn CPU/OBS)
+   */
+  private processQueuedCommandsForTick(): void {
+    const maxCommandsPerTick = 10;
+    let processed = 0;
+
+    while (this.commandQueue.length > 0 && processed < maxCommandsPerTick) {
+      const nextCmd = this.commandQueue[0];
+      if (nextCmd.targetTick > this.tick) break;
+
+      this.commandQueue.shift();
+      this.applySkillCommand(nextCmd);
+      processed++;
+    }
+  }
+
+  /**
+   * Áp dụng lệnh kỹ năng vào thế giới Authoritative với validation, per-match cap, cooldown, stacking.
+   */
+  public applySkillCommand(cmd: SkillCommand): { success: boolean; reason?: string; skillName: string } {
+    if (this.executedCommandIds.has(cmd.commandId)) {
+      return { success: false, reason: 'COMMAND_ALREADY_EXECUTED', skillName: 'ALREADY_EXECUTED' };
+    }
+
+    const config = SKILL_REGISTRY[cmd.skillId];
+    if (!config) {
+      return { success: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
+    }
+
+    // 1. Kiểm tra per-match cap
+    const currentCount = this.skillActivationCounts.get(cmd.skillId) || 0;
+    if (currentCount >= config.perMatchCap) {
+      return { success: false, reason: 'PER_MATCH_CAP_REACHED', skillName: config.name };
+    }
+
+    // 2. Kiểm tra Stacking & Concurrency policy
+    if (cmd.skillId === 'shield') {
+      if (this.isShieldActive() && config.stackPolicy === 'reject') {
+        return { success: false, reason: 'STACK_POLICY_REJECT', skillName: config.name };
+      }
+    } else if (cmd.skillId === 'overclock') {
+      if (this.isOverclockActive() && config.stackPolicy === 'reject') {
+        return { success: false, reason: 'STACK_POLICY_REJECT', skillName: config.name };
+      }
+    } else if (cmd.skillId === 'mech') {
+      if (this.activeMechUnit && this.activeMechUnit.hp > 0) {
+        return { success: false, reason: 'MAX_MECH_CONCURRENT_REACHED', skillName: config.name };
+      }
+    } else if (cmd.skillId === 'reinforcements') {
+      let activeReinfCount = 0;
+      for (const id of this.soldiers.keys()) {
+        if (id.startsWith('reinf_')) activeReinfCount++;
+      }
+      if (activeReinfCount >= (config.maxSoldiers || 4)) {
+        return { success: false, reason: 'MAX_REINFORCEMENTS_REACHED', skillName: config.name };
+      }
+    }
+
+    // 3. Kiểm tra cooldown
+    const expireTick = this.skillCooldowns.get(cmd.skillId) || 0;
+    if (this.tick < expireTick) {
+      return { success: false, reason: 'SKILL_ON_COOLDOWN', skillName: config.name };
+    }
+
+    // Đăng ký/lấy profile đóng góp của người gửi
+    let player = this.players.get(cmd.sourceUserId);
+    if (!player) {
+      player = {
+        userId: cmd.sourceUserId,
+        userName: cmd.sourceUserName,
+        squad: 'bravo',
+        score: 0,
+        competitiveScore: 0,
+        giftScore: 0,
+        hasJoined: false,
+        kills: 0,
+        assists: 0,
+        repairs: 0,
+        rescues: 0,
+        bossDamage: 0,
+        lastActionTick: this.tick,
+      };
+      this.players.set(cmd.sourceUserId, player);
+    }
+
+    const qty = Math.max(1, cmd.quantity || 1);
+    const durationTicks = config.durationSeconds * 20;
+
+    // 4. Áp dụng hiệu ứng gameplay Authoritative
+    switch (cmd.skillId) {
+      case 'airstrike': {
+        const tx = cmd.targetX ?? 540;
+        const ty = cmd.targetY ?? 580;
+        const warningTicks = config.warningDelayTicks || 20;
+        const airstrike: ActiveAirstrike = {
+          id: `ast_${this.tick}_${cmd.commandId}`,
+          commandId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: tx,
+          y: ty,
+          radius: config.damageRadius || 280,
+          damage: (config.damageAoE || 450) * Math.min(qty, 3),
+          warningEndTick: this.tick + warningTicks,
+          hasDetonated: false,
+        };
+        this.activeAirstrikes.push(airstrike);
+        this.recordEvent({
+          type: 'SKILL_AIRSTRIKE_WARNING',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: tx,
+          y: ty,
+          radius: airstrike.radius,
+          color: config.bannerColor,
+          duration: warningTicks,
+        });
+        player.giftScore += 100 * qty;
+        break;
+      }
+
+      case 'shield': {
+        const remainingTicks = this.isShieldActive() ? this.activeShieldBuff!.expirationTick - this.tick : 0;
+        const newExpiration = config.stackPolicy === 'extend'
+          ? this.tick + remainingTicks + durationTicks
+          : this.tick + durationTicks;
+
+        this.activeShieldBuff = {
+          commandId: cmd.commandId,
+          expirationTick: newExpiration,
+          damageReduction: config.damageReductionPercent || 0.5,
+        };
+        this.recordEvent({
+          type: 'SKILL_SHIELD_ACTIVATED',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: 540,
+          y: 1200,
+          duration: config.durationSeconds,
+          color: config.bannerColor,
+        });
+        player.giftScore += 50 * qty;
+        break;
+      }
+
+      case 'overclock': {
+        const origCooldowns = new Map<string, number>();
+        for (const [id, t] of this.towers.entries()) {
+          origCooldowns.set(id, t.maxCooldownTicks);
+          t.maxCooldownTicks = Math.max(2, Math.floor(t.maxCooldownTicks / 2));
+        }
+        const remainingTicks = this.isOverclockActive() ? this.activeOverclockBuff!.expirationTick - this.tick : 0;
+        const newExpiration = config.stackPolicy === 'extend'
+          ? this.tick + remainingTicks + durationTicks
+          : this.tick + durationTicks;
+
+        this.activeOverclockBuff = {
+          commandId: cmd.commandId,
+          expirationTick: newExpiration,
+          fireRateMultiplier: config.turretFireRateMultiplier || 2.0,
+          originalTowerCooldowns: this.activeOverclockBuff?.originalTowerCooldowns || origCooldowns,
+        };
+        this.recordEvent({
+          type: 'SKILL_OVERCLOCK_ACTIVATED',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: 540,
+          y: 950,
+          duration: config.durationSeconds,
+          color: config.bannerColor,
+        });
+        player.giftScore += 80 * qty;
+        break;
+      }
+
+      case 'reinforcements': {
+        const spawnCount = Math.min(2, config.maxSoldiers || 4);
+        const lifespanTicks = config.durationSeconds * 20;
+        for (let i = 0; i < spawnCount; i++) {
+          const sId = `reinf_${this.tick}_${i}_${Math.random().toString(36).substring(2, 6)}`;
+          const soldier: EngineSoldier = {
+            id: sId,
+            userId: `ai_reinf_${cmd.sourceUserId}`,
+            name: `Biệt Kích (${cmd.sourceUserName})`,
+            x: 480 + i * 120,
+            y: 1180,
+            hp: 100,
+            maxHp: 100,
+            cooldownTicks: 0,
+            maxCooldownTicks: 20,
+            squad: i % 2 === 0 ? 'alpha' : 'bravo',
+          };
+          this.soldiers.set(sId, soldier);
+          this.reinforcementSoldierLifespans.set(sId, this.tick + lifespanTicks);
+        }
+        this.recordEvent({
+          type: 'SKILL_REINFORCEMENTS_SPAWNED',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: 540,
+          y: 1180,
+          quantity: spawnCount,
+          color: config.bannerColor,
+        });
+        player.giftScore += 60 * qty;
+        break;
+      }
+
+      case 'mech': {
+        const lifespanTicks = config.durationSeconds * 20;
+        this.activeMechUnit = {
+          id: `mech_${cmd.commandId}`,
+          commandId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: 540,
+          y: 1350,
+          hp: config.mechHp || 1500,
+          maxHp: config.mechHp || 1500,
+          expirationTick: this.tick + lifespanTicks,
+          cooldownTicks: 10,
+          maxCooldownTicks: 30, // Bắn đại bác mỗi 1.5s
+        };
+        this.recordEvent({
+          type: 'SKILL_MECH_DEPLOYED',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          x: 540,
+          y: 1350,
+          duration: config.durationSeconds,
+          color: config.bannerColor,
+        });
+        player.giftScore += 150 * qty;
+        break;
+      }
+
+      case 'healing': {
+        const healAmt = (config.healAmount || 400) * qty;
+        const soldierHeal = config.soldierHealAmount || 100;
+        this.baseHp = Math.min(this.maxBaseHp, this.baseHp + healAmt);
+        for (const s of this.soldiers.values()) {
+          s.hp = Math.min(s.maxHp, s.hp + soldierHeal);
+        }
+        this.recordEvent({
+          type: 'SKILL_HEALING_APPLIED',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          damage: healAmt,
+          x: 540,
+          y: 1400,
+          color: config.bannerColor,
+        });
+        player.giftScore += 50 * qty;
+        break;
+      }
+
+      case 'honor': {
+        this.recordEvent({
+          type: 'SKILL_HONOR_CELEBRATION',
+          sourceId: cmd.commandId,
+          senderName: cmd.sourceUserName,
+          text: `Vinh danh VIP: ${cmd.sourceUserName}!`,
+          x: 540,
+          y: 600,
+          color: config.bannerColor,
+        });
+        player.giftScore += 40 * qty;
+        break;
+      }
+    }
+
+    // Phát sự kiện GIFT_BANNER cho Stream Overlay hiển thị trong vùng an toàn (safe area)
+    this.recordEvent({
+      type: 'GIFT_BANNER',
+      sourceId: cmd.commandId,
+      senderName: cmd.sourceUserName,
+      skillId: config.id,
+      text: config.name,
+      quantity: qty,
+      color: config.bannerColor,
+      duration: 3,
+      x: 540,
+      y: 1300,
+    });
+
+    // Cập nhật activeGiftSkill cho snapshot tương thích ngược client
+    this.activeGiftSkill = {
+      skillId: config.id,
+      name: config.name,
+      remainingSeconds: config.durationSeconds,
+      senderName: cmd.sourceUserName,
+      targetX: cmd.targetX ?? 540,
+      targetY: cmd.targetY ?? 580,
+    };
+
+    // Cập nhật cooldown và số lần kích hoạt per-match
+    this.skillActivationCounts.set(cmd.skillId, currentCount + 1);
+    this.skillCooldowns.set(cmd.skillId, this.tick + config.cooldownSeconds * 20);
+
+    // Tính điểm leaderboard
+    if (!DEFAULT_GAME_BALANCE.leaderboard.paidSkillExcludedFromCompetitiveScore) {
+      player.competitiveScore += player.giftScore;
+    }
+    player.score = player.competitiveScore;
+
+    this.executedCommandIds.add(cmd.commandId);
+    if (this.executedCommandIds.size > 2000) {
+      const first = this.executedCommandIds.values().next().value;
+      if (first) this.executedCommandIds.delete(first);
+    }
+
+    if (this.onCommandApplied) {
+      this.onCommandApplied(cmd, this.tick);
+    }
+
+    return { success: true, skillName: config.name };
+  }
+
   /**
    * Xử lý quà tặng Live với bảo đảm tính Idempotency chặt chẽ bằng providerEventId và commandId
    */
@@ -416,9 +839,6 @@ export class AuthoritativeGameEngine {
     streakId?: string,
     commandId?: string
   ): { success: boolean; reason?: string; skillName: string } {
-    if (commandId && this.executedCommandIds.has(commandId)) {
-      return { success: false, reason: 'COMMAND_ALREADY_EXECUTED', skillName: 'ALREADY_EXECUTED' };
-    }
     let event: AuthoritativeGiftEvent;
 
     if (typeof giftInput === 'string') {
@@ -436,6 +856,11 @@ export class AuthoritativeGameEngine {
       };
     } else {
       event = giftInput;
+    }
+
+    const cmdId = commandId || event.providerEventId;
+    if (cmdId && this.executedCommandIds.has(cmdId)) {
+      return { success: false, reason: 'COMMAND_ALREADY_EXECUTED', skillName: 'ALREADY_EXECUTED' };
     }
 
     // 1. Kiểm tra bắt buộc providerEventId
@@ -471,83 +896,24 @@ export class AuthoritativeGameEngine {
       if (first) this.processedGiftIds.delete(first);
     }
 
-    // 3. Đăng ký thông tin người gửi
-    let player = this.players.get(event.senderId);
-    if (!player) {
-      player = {
-        userId: event.senderId,
-        userName: event.senderName,
-        squad: 'bravo',
-        score: 0,
-        competitiveScore: 0,
-        giftScore: 0,
-        hasJoined: false, // Spectator donating gifts, not in active infantry squad
-        kills: 0,
-        assists: 0,
-        repairs: 0,
-        rescues: 0,
-        bossDamage: 0,
-        lastActionTick: this.tick,
-      };
-      this.players.set(event.senderId, player);
-    }
-
-    // 4. Mapping quà tặng nghiêm ngặt — Từ chối gift không xác định, không tự ý mặc định Airstrike
-    const normGiftId = (event.giftId || '').toLowerCase().trim();
-    let skillName = '';
-
-    if (normGiftId === 'gift_shield' || normGiftId === 'shield') {
-      skillName = 'KHIÊN CHẮN NĂNG LƯỢNG';
-      this.activeGiftSkill = {
-        skillId: 'shield',
-        name: skillName,
-        remainingSeconds: 10,
-        senderName: event.senderName,
-      };
-      player.giftScore += 50 * event.quantity;
-    } else if (normGiftId === 'gift_doughnut' || normGiftId === 'machinegun' || normGiftId === 'overclock') {
-      skillName = 'TĂNG TỐC Ụ PHÁO';
-      for (const t of this.towers.values()) {
-        t.maxCooldownTicks = Math.max(2, Math.floor(t.maxCooldownTicks / 2));
-      }
-      this.activeGiftSkill = {
-        skillId: 'machinegun',
-        name: skillName,
-        remainingSeconds: 15,
-        senderName: event.senderName,
-      };
-      player.giftScore += 80 * event.quantity;
-    } else if (normGiftId === 'gift_missile' || normGiftId === 'airstrike') {
-      skillName = 'TÊN LỬA TỔNG LỰC';
-      this.triggerGiftSkill(skillName, event.senderName, 540, 580);
-      player.giftScore += 100 * event.quantity;
-    } else if (normGiftId === 'gift_heart' || normGiftId === 'heal' || normGiftId === 'reinforce') {
-      skillName = 'TIẾP TẾ Y TẾ';
-      this.baseHp = Math.min(this.maxBaseHp, this.baseHp + 200 * event.quantity);
-      for (const s of this.soldiers.values()) {
-        s.hp = Math.min(s.maxHp, s.hp + 50);
-      }
-      player.giftScore += 60 * event.quantity;
-    } else {
-      // Từ chối quà tặng không xác định!
+    // 3. Tra cứu kỹ năng từ SkillRegistry (Exact match)
+    const resolvedSkill = resolveGiftSkill(event.giftId);
+    if (!resolvedSkill) {
       return { success: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
     }
 
-    // 5. Quy tắc GAME_BALANCE: paidSkillExcludedFromCompetitiveScore
-    if (!DEFAULT_GAME_BALANCE.leaderboard.paidSkillExcludedFromCompetitiveScore) {
-      player.competitiveScore += player.giftScore;
-    }
-    player.score = player.competitiveScore;
+    const cmd: SkillCommand = {
+      commandId: cmdId,
+      matchId: event.liveSessionId || this.matchId,
+      targetTick: this.tick,
+      sourceUserId: event.senderId,
+      sourceUserName: event.senderName,
+      skillId: resolvedSkill.id,
+      quantity: event.quantity,
+      streakId: event.streakId,
+    };
 
-    if (commandId) {
-      this.executedCommandIds.add(commandId);
-      if (this.executedCommandIds.size > 2000) {
-        const first = this.executedCommandIds.values().next().value;
-        if (first) this.executedCommandIds.delete(first);
-      }
-    }
-
-    return { success: true, skillName };
+    return this.applySkillCommand(cmd);
   }
 
   private checkCooldown(userId: string, cmd: string, cooldownTicks: number): { ready: boolean; remainingSeconds: number } {
@@ -587,6 +953,20 @@ export class AuthoritativeGameEngine {
     targetX: number = 540,
     targetY: number = 580
   ): void {
+    const cmdId = `gift_missile_${this.tick}_${Math.random().toString(36).substring(2, 6)}`;
+    const ast: ActiveAirstrike = {
+      id: `ast_${this.tick}_${cmdId}`,
+      commandId: 'gift_missile',
+      senderName: sender,
+      x: targetX,
+      y: targetY,
+      radius: 280,
+      damage: 1400,
+      warningEndTick: this.tick + 15,
+      hasDetonated: false,
+    };
+    this.activeAirstrikes.push(ast);
+
     this.activeGiftSkill = {
       skillId: 'airstrike',
       name,
@@ -607,11 +987,15 @@ export class AuthoritativeGameEngine {
   }
 
   public damageWall(id: 'LEFT' | 'RIGHT', amount: number): void {
-    const updated = this.collisionSystem.damageWall(id, amount);
+    let effectiveAmount = amount;
+    if (this.isShieldActive()) {
+      effectiveAmount = Math.ceil(amount * (1 - this.activeShieldBuff!.damageReduction));
+    }
+    const updated = this.collisionSystem.damageWall(id, effectiveAmount);
     this.recordEvent({
       type: 'WALL_HIT',
       sourceId: 'admin',
-      damage: amount,
+      damage: effectiveAmount,
       x: id === 'LEFT' ? 240 : 840,
       y: 840,
     });
@@ -627,6 +1011,9 @@ export class AuthoritativeGameEngine {
   public step(): void {
     this.tick++;
     const dt = 0.05; // 50ms
+
+    // 0. Xử lý hàng đợi lệnh kỹ năng theo tick đơn điệu (Deterministic Tick-Ordered Command Queue)
+    this.processQueuedCommandsForTick();
 
     // 1. Quản lý trạng thái và đếm ngược chu kỳ Wave
     this.stepMatchLifecycle();
@@ -646,8 +1033,8 @@ export class AuthoritativeGameEngine {
     // 4. Xử lý chiến đấu: Ụ pháo & Lính khóa mục tiêu và bắn
     this.stepCombat();
 
-    // 5. Kích hoạt kỹ năng Gift Airstrike / Shield
-    this.stepGiftSkill();
+    // 5. Cập nhật kỹ năng chiến đấu 7 loại (Skills, Buffs, Airstrike AoE, Mech, Overclock)
+    this.stepSkills();
 
     // 6. Quản lý vòng đời Zombie & Respawn
     this.stepZombieLifecycle();
@@ -718,6 +1105,13 @@ export class AuthoritativeGameEngine {
     this.bossStage = 1;
     this.activeGiftSkill = undefined;
     this.userCooldowns.clear();
+    this.skillCooldowns.clear();
+    this.skillActivationCounts.clear();
+    this.activeAirstrikes = [];
+    this.activeShieldBuff = undefined;
+    this.activeOverclockBuff = undefined;
+    this.activeMechUnit = undefined;
+    this.reinforcementSoldierLifespans.clear();
 
     // Reset round scores cho người chơi, giữ nguyên định danh tài khoản
     for (const p of this.players.values()) {
@@ -738,6 +1132,16 @@ export class AuthoritativeGameEngine {
     this.collisionSystem.setWallState('LEFT', 'INTACT', 1000);
     this.collisionSystem.setWallState('RIGHT', 'INTACT', 1000);
     this.closeGate();
+
+    // P0: Chuyển toàn bộ deferred commands từ vòng RESULTS sang trận mới mà không đánh mất quà của người xem!
+    if (this.deferredSkillCommands.length > 0) {
+      for (const cmd of this.deferredSkillCommands) {
+        cmd.matchId = this.matchId;
+        cmd.targetTick = this.tick + 5;
+        this.commandQueue.push(cmd);
+      }
+      this.deferredSkillCommands = [];
+    }
 
     if (this.onMatchStart) {
       this.onMatchStart(this.matchId, this.seed, this.phase, this.baseHp);
@@ -795,7 +1199,11 @@ export class AuthoritativeGameEngine {
 
       // Gây sát thương vào Base khi tiến sâu vào cứ điểm (y >= 1400)
       if (z.y >= 1400) {
-        this.baseHp = Math.max(0, this.baseHp - (z.isBoss ? 20 : 5));
+        let baseDmg = z.isBoss ? 20 : 5;
+        if (this.isShieldActive()) {
+          baseDmg = Math.ceil(baseDmg * (1 - this.activeShieldBuff!.damageReduction));
+        }
+        this.baseHp = Math.max(0, this.baseHp - baseDmg);
       }
     }
   }
@@ -934,50 +1342,170 @@ export class AuthoritativeGameEngine {
     }
   }
 
-  private stepGiftSkill(): void {
-    if (!this.activeGiftSkill) return;
+  private stepSkills(): void {
+    const liveZombies = Array.from(this.zombies.values()).filter((z) => !z.isDead);
 
-    if (this.activeGiftSkill.triggerTick && this.tick >= this.activeGiftSkill.triggerTick) {
-      const tx = this.activeGiftSkill.targetX ?? 540;
-      const ty = this.activeGiftSkill.targetY ?? 580;
-      const aoeRadius = 260;
-
-      for (const z of this.zombies.values()) {
-        if (z.isDead) continue;
-        const dist = Math.hypot(z.x - tx, z.y - ty);
-        if (dist <= aoeRadius) {
-          const dmg = this.rng.nextInt(1200, 1600);
-          z.hp = Math.max(0, z.hp - dmg);
-
-          this.recordEvent({
-            type: 'HIT',
-            sourceId: 'gift_missile',
-            targetId: z.id,
-            damage: dmg,
-            isCritical: true,
-            x: z.x,
-            y: z.y,
-          });
-
-          if (z.hp <= 0 && !z.isDead) {
-            z.isDead = true;
-            z.deathTick = this.tick;
+    // 1. Step Active Airstrikes (warning marker delay -> AoE detonation)
+    for (let i = this.activeAirstrikes.length - 1; i >= 0; i--) {
+      const ast = this.activeAirstrikes[i];
+      if (!ast.hasDetonated && this.tick >= ast.warningEndTick) {
+        ast.hasDetonated = true;
+        for (const z of liveZombies) {
+          if (z.isDead) continue;
+          const dist = Math.hypot(z.x - ast.x, z.y - ast.y);
+          if (dist <= ast.radius) {
+            z.hp = Math.max(0, z.hp - ast.damage);
             this.recordEvent({
-              type: 'DEATH',
-              sourceId: 'gift_missile',
+              type: 'HIT',
+              sourceId: ast.commandId,
               targetId: z.id,
-              damage: 0,
+              damage: ast.damage,
+              isCritical: true,
               x: z.x,
               y: z.y,
             });
+
+            if (z.hp <= 0 && !z.isDead) {
+              z.isDead = true;
+              z.deathTick = this.tick;
+              this.recordEvent({
+                type: 'DEATH',
+                sourceId: ast.commandId,
+                targetId: z.id,
+                damage: 0,
+                x: z.x,
+                y: z.y,
+              });
+            }
+          }
+        }
+
+        this.recordEvent({
+          type: 'SKILL_AIRSTRIKE_DETONATED',
+          sourceId: ast.commandId,
+          senderName: ast.senderName,
+          damage: ast.damage,
+          radius: ast.radius,
+          x: ast.x,
+          y: ast.y,
+          color: '#ff0055',
+        });
+      }
+
+      // Cleanup sau khi chớp nổ kết thúc (sau 20 ticks = 1s)
+      if (ast.hasDetonated && this.tick >= ast.warningEndTick + 20) {
+        this.activeAirstrikes.splice(i, 1);
+      }
+    }
+
+    // 2. Step Active Shield Buff
+    if (this.activeShieldBuff) {
+      if (this.tick >= this.activeShieldBuff.expirationTick) {
+        this.recordEvent({
+          type: 'SKILL_SHIELD_EXPIRED',
+          sourceId: this.activeShieldBuff.commandId,
+          x: 540,
+          y: 1200,
+          color: '#00f5d4',
+        });
+        this.activeShieldBuff = undefined;
+      }
+    }
+
+    // 3. Step Active Overclock Buff
+    if (this.activeOverclockBuff) {
+      if (this.tick >= this.activeOverclockBuff.expirationTick) {
+        // Phục hồi tốc độ bắn và maxCooldownTicks nguyên bản
+        for (const [tId, origCd] of this.activeOverclockBuff.originalTowerCooldowns.entries()) {
+          const t = this.towers.get(tId);
+          if (t) t.maxCooldownTicks = origCd;
+        }
+        this.recordEvent({
+          type: 'SKILL_OVERCLOCK_EXPIRED',
+          sourceId: this.activeOverclockBuff.commandId,
+          x: 540,
+          y: 950,
+          color: '#ffbe0b',
+        });
+        this.activeOverclockBuff = undefined;
+      }
+    }
+
+    // 4. Step Active Mech Unit
+    if (this.activeMechUnit) {
+      if (this.tick >= this.activeMechUnit.expirationTick || this.activeMechUnit.hp <= 0) {
+        this.recordEvent({
+          type: 'DEATH',
+          sourceId: this.activeMechUnit.id,
+          x: this.activeMechUnit.x,
+          y: this.activeMechUnit.y,
+        });
+        this.activeMechUnit = undefined;
+      } else {
+        // Mech tiến dần ra cứ điểm trung tâm
+        if (this.activeMechUnit.y > 1100) {
+          this.activeMechUnit.y = Math.max(1100, this.activeMechUnit.y - 1.5);
+        }
+
+        if (this.activeMechUnit.cooldownTicks > 0) {
+          this.activeMechUnit.cooldownTicks--;
+        } else {
+          const target = this.getClosestZombie(this.activeMechUnit.x, this.activeMechUnit.y, liveZombies);
+          if (target && Math.hypot(target.x - this.activeMechUnit.x, target.y - this.activeMechUnit.y) <= 450) {
+            const cannonRadius = 160;
+            const cannonDmg = 80;
+            for (const z of liveZombies) {
+              if (z.isDead) continue;
+              if (Math.hypot(z.x - target.x, z.y - target.y) <= cannonRadius) {
+                z.hp = Math.max(0, z.hp - cannonDmg);
+                this.recordEvent({
+                  type: 'HIT',
+                  sourceId: this.activeMechUnit.id,
+                  targetId: z.id,
+                  damage: cannonDmg,
+                  isCritical: true,
+                  x: z.x,
+                  y: z.y,
+                });
+                if (z.hp <= 0 && !z.isDead) {
+                  z.isDead = true;
+                  z.deathTick = this.tick;
+                  this.recordEvent({
+                    type: 'DEATH',
+                    sourceId: this.activeMechUnit.id,
+                    targetId: z.id,
+                    damage: 0,
+                    x: z.x,
+                    y: z.y,
+                  });
+                }
+              }
+            }
+            this.recordEvent({
+              type: 'SHOOT',
+              sourceId: this.activeMechUnit.id,
+              targetId: target.id,
+              damage: cannonDmg,
+              x: target.x,
+              y: target.y,
+            });
+            this.activeMechUnit.cooldownTicks = this.activeMechUnit.maxCooldownTicks;
           }
         }
       }
-
-      this.activeGiftSkill.triggerTick = undefined;
     }
 
-    if (this.tick % 20 === 0) {
+    // 5. Step Reinforcements Lifespans
+    for (const [sId, expireTick] of this.reinforcementSoldierLifespans.entries()) {
+      const s = this.soldiers.get(sId);
+      if (!s || s.hp <= 0 || this.tick >= expireTick) {
+        this.soldiers.delete(sId);
+        this.reinforcementSoldierLifespans.delete(sId);
+      }
+    }
+
+    // 6. Active Gift Skill snapshot update
+    if (this.activeGiftSkill && this.tick % 20 === 0) {
       this.activeGiftSkill.remainingSeconds = Math.max(0, this.activeGiftSkill.remainingSeconds - 1);
       if (this.activeGiftSkill.remainingSeconds <= 0) {
         this.activeGiftSkill = undefined;
@@ -1170,6 +1698,16 @@ export class AuthoritativeGameEngine {
             senderName: this.activeGiftSkill.senderName,
           }
         : undefined,
+      activeMech: this.activeMechUnit
+        ? {
+            id: this.activeMechUnit.id,
+            x: Math.round(this.activeMechUnit.x),
+            y: Math.round(this.activeMechUnit.y),
+            hp: this.activeMechUnit.hp,
+            maxHp: this.activeMechUnit.maxHp,
+            remainingSeconds: Math.ceil(Math.max(0, this.activeMechUnit.expirationTick - this.tick) / 20),
+          }
+        : undefined,
       waveState,
       waveRemainingSeconds: Math.ceil(this.waveTicksRemaining / 20),
       activePlayerCount: Math.max(3, Array.from(this.players.values()).filter((p) => p.hasJoined).length), // Lực lượng tham chiến thực tế
@@ -1206,8 +1744,133 @@ export class AuthoritativeGameEngine {
     return Array.from(this.players.values());
   }
 
+  /**
+   * Lưu trọn vẹn trạng thái Authoritative Simulation phục vụ Checkpoint & Crash Recovery
+   */
+  public getSimulationState(): any {
+    return {
+      matchId: this.matchId,
+      seed: this.seed,
+      tick: this.tick,
+      sequenceId: this.sequenceId,
+      rngState: this.rng.getState(),
+      phase: this.phase,
+      result: this.result,
+      baseHp: this.baseHp,
+      maxBaseHp: this.maxBaseHp,
+      waveNumber: this.waveNumber,
+      waveTicksRemaining: this.waveTicksRemaining,
+      bossSpawned: this.bossSpawned,
+      bossStage: this.bossStage,
+      gateState: this.gateState,
+      gateProgress: this.gateProgress,
+      wallLeft: this.collisionSystem.getWallState('LEFT'),
+      wallRight: this.collisionSystem.getWallState('RIGHT'),
+      towers: Array.from(this.towers.values()),
+      soldiers: Array.from(this.soldiers.values()),
+      zombies: Array.from(this.zombies.values()),
+      players: Array.from(this.players.values()),
+      executedCommandIds: Array.from(this.executedCommandIds),
+      activeAirstrikes: this.activeAirstrikes,
+      activeShieldBuff: this.activeShieldBuff,
+      activeOverclockBuff: this.activeOverclockBuff
+        ? {
+            commandId: this.activeOverclockBuff.commandId,
+            expirationTick: this.activeOverclockBuff.expirationTick,
+            fireRateMultiplier: this.activeOverclockBuff.fireRateMultiplier,
+            originalTowerCooldowns: Array.from(this.activeOverclockBuff.originalTowerCooldowns.entries()),
+          }
+        : undefined,
+      activeMechUnit: this.activeMechUnit,
+      skillActivationCounts: Array.from(this.skillActivationCounts.entries()),
+      skillCooldowns: Array.from(this.skillCooldowns.entries()),
+    };
+  }
+
+  /**
+   * Khôi phục toàn bộ trạng thái Authoritative Simulation từ Checkpoint Snapshot
+   */
+  public loadSimulationState(state: any): void {
+    if (!state) return;
+    this.matchId = state.matchId || this.matchId;
+    this.tick = state.tick ?? this.tick;
+    this.sequenceId = state.sequenceId ?? this.sequenceId;
+    if (state.rngState !== undefined) this.rng.setState(state.rngState);
+    this.phase = state.phase ?? this.phase;
+    this.result = state.result ?? this.result;
+    this.baseHp = state.baseHp ?? this.baseHp;
+    this.maxBaseHp = state.maxBaseHp ?? this.maxBaseHp;
+    this.waveNumber = state.waveNumber ?? this.waveNumber;
+    this.waveTicksRemaining = state.waveTicksRemaining ?? this.waveTicksRemaining;
+    this.bossSpawned = state.bossSpawned ?? this.bossSpawned;
+    this.bossStage = state.bossStage ?? this.bossStage;
+    this.gateState = state.gateState ?? this.gateState;
+    this.gateProgress = state.gateProgress ?? this.gateProgress;
+    this.collisionSystem.setGateState(this.gateState);
+
+    if (state.wallLeft) {
+      this.collisionSystem.setWallState('LEFT', state.wallLeft.state, state.wallLeft.hp);
+    }
+    if (state.wallRight) {
+      this.collisionSystem.setWallState('RIGHT', state.wallRight.state, state.wallRight.hp);
+    }
+
+    if (Array.isArray(state.towers)) {
+      this.towers.clear();
+      for (const t of state.towers) this.towers.set(t.id, { ...t });
+    }
+    if (Array.isArray(state.soldiers)) {
+      this.soldiers.clear();
+      for (const s of state.soldiers) this.soldiers.set(s.id, { ...s });
+    }
+    if (Array.isArray(state.zombies)) {
+      this.zombies.clear();
+      for (const z of state.zombies) this.zombies.set(z.id, { ...z });
+    }
+    if (Array.isArray(state.players)) {
+      this.players.clear();
+      for (const p of state.players) this.players.set(p.userId, { ...p });
+    }
+    if (Array.isArray(state.executedCommandIds)) {
+      this.executedCommandIds = new Set(state.executedCommandIds);
+    }
+    if (Array.isArray(state.activeAirstrikes)) {
+      this.activeAirstrikes = state.activeAirstrikes.map((a: any) => ({ ...a }));
+    }
+    this.activeShieldBuff = state.activeShieldBuff ? { ...state.activeShieldBuff } : undefined;
+    if (state.activeOverclockBuff) {
+      this.activeOverclockBuff = {
+        commandId: state.activeOverclockBuff.commandId,
+        expirationTick: state.activeOverclockBuff.expirationTick,
+        fireRateMultiplier: state.activeOverclockBuff.fireRateMultiplier,
+        originalTowerCooldowns: new Map(state.activeOverclockBuff.originalTowerCooldowns),
+      };
+    } else {
+      this.activeOverclockBuff = undefined;
+    }
+    this.activeMechUnit = state.activeMechUnit ? { ...state.activeMechUnit } : undefined;
+    if (Array.isArray(state.skillActivationCounts)) {
+      this.skillActivationCounts = new Map(state.skillActivationCounts);
+    }
+    if (Array.isArray(state.skillCooldowns)) {
+      this.skillCooldowns = new Map(state.skillCooldowns);
+    }
+  }
+
   public getStateHash(): string {
     const snap = this.generateSnapshot();
-    return `${snap.tick}_${snap.baseHp}_${snap.phase}_${snap.gate.state}_${snap.walls.left.hp}_${snap.walls.right.hp}_${snap.zombies.map(z => `${z.id}:${z.hp}:${z.y}`).join('|')}`;
+    const raw = `${snap.tick}_${snap.baseHp}_${snap.phase}_${snap.gate.state}_${snap.walls.left.hp}_${snap.walls.right.hp}_${snap.zombies.map((z) => `${z.id}:${z.hp}:${Math.round(z.y)}`).join('|')}_${this.activeAirstrikes.length}_${this.isShieldActive() ? 1 : 0}_${this.isOverclockActive() ? 1 : 0}_${this.activeMechUnit ? this.activeMechUnit.hp : 0}_${Array.from(this.executedCommandIds).sort().join(',')}`;
+
+    // Fast deterministic 64-bit FNV-1a / Murmur hash (universal for both Node & Browser)
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const hashVal = (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(16, '0');
+    return hashVal.substring(0, 16);
   }
 }

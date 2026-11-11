@@ -613,52 +613,124 @@
 ## Giai đoạn 05.1: Real Database Persistence & Reliability Gate (PHASE 05.1)
 > **Mục tiêu**: Khắc phục triệt để các phát hiện audit commit `3d8a36b`: Triển khai PostgreSQL client thật qua `DATABASE_URL` với connection pool/retry/shutdown; hỗ trợ persistent filesystem storage cho PGlite (`dataDir`) qua process restart; xây dựng Transactional Outbox Worker với at-least-once delivery và idempotent engine execution; chuẩn hóa Player ID và unique Match ID qua 10 vòng trận; bảo vệ an toàn endpoint `/api/me` chống IDOR; đạt chuẩn 100 events/s và kiểm thử thực tế quá trình khởi động lại process.
 
-- [ ] **P0.1 — REAL POSTGRESQL PERSISTENCE & VERSIONED MIGRATIONS**
-  - [ ] Triển khai `PostgresDatabaseAdapter` (sử dụng `pg.Pool`) kết nối tới PostgreSQL server qua `DATABASE_URL` (có healthcheck `SELECT 1`, retry/backoff, pool management, graceful shutdown).
-  - [ ] Triển khai persistent disk storage cho `PGliteDatabaseAdapter` (`dataDir: path.resolve(process.cwd(), '.data/pglite')`), bảo đảm dữ liệu ghi xuống đĩa, không bao giờ mất khi process dừng và restart.
-  - [ ] Chế độ production: Nếu mất kết nối database hoặc `DATABASE_URL` không hợp lệ, fail-fast ngay lập tức, không được báo READY giả.
-  - [ ] Bổ sung bảng `_migrations` quản lý versioned migrations; không thực thi lại toàn bộ lệnh `CREATE TABLE` mỗi khi khởi động.
-  - [ ] Viết regression test: Tạo user $\rightarrow$ cộng XP $\rightarrow$ ghi nhiệm vụ $\rightarrow$ tắt process $\rightarrow$ restart với cùng database $\rightarrow$ xác minh dữ liệu còn nguyên 100%.
+- [x] **P0.1 — REAL POSTGRESQL PERSISTENCE & VERSIONED MIGRATIONS**
+  - [x] Triển khai `PostgresDatabaseAdapter` (sử dụng `pg.Pool`) kết nối tới PostgreSQL server qua `DATABASE_URL` (có healthcheck `SELECT 1`, retry/backoff, pool management, graceful shutdown).
+  - [x] Triển khai persistent disk storage cho `PGliteDatabaseAdapter` (`dataDir: path.resolve(process.cwd(), '.data/pglite')`), bảo đảm dữ liệu ghi xuống đĩa, không bao giờ mất khi process dừng và restart.
+  - [x] Chế độ production: Nếu mất kết nối database hoặc `DATABASE_URL` không hợp lệ, fail-fast ngay lập tức, không được báo READY giả.
+  - [x] Bổ sung bảng `_migrations` quản lý versioned migrations; không thực thi lại toàn bộ lệnh `CREATE TABLE` mỗi khi khởi động.
+  - [x] Viết regression test: Tạo user $\rightarrow$ cộng XP $\rightarrow$ ghi nhiệm vụ $\rightarrow$ tắt process $\rightarrow$ restart với cùng database $\rightarrow$ xác minh dữ liệu còn nguyên 100%.
 
-- [ ] **P0.2 — TRANSACTIONAL OUTBOX & ATOMIC GIFT SETTLEMENT**
-  - [ ] Sửa `server.ts`: Nếu giao dịch ghi `giftLedgerRepo.settleGift()` lỗi, reject ngay lập tức (HTTP 500 hoặc `{ accepted: false, reason: 'LEDGER_TRANSACTION_FAILED' }`). Tuyệt đối không fallback gọi `engine.handleGift()` khi DB chưa commit.
-  - [ ] Cam kết nguyên tử: Gift Event + Streak Settlement + Outbox Record (`outbox_events`) được commit trong cùng 1 database transaction.
-  - [ ] Xây dựng Outbox Worker độc lập: định kỳ/sự kiện quét `PENDING` outbox events, claim an toàn bằng status `PROCESSING`, dispatch sang `engine.handleGift(..., commandId)`.
-  - [ ] `AuthoritativeGameEngine`: Lưu danh sách `executedCommandIds` trong bộ nhớ; chỉ kích hoạt skill đúng 1 lần duy nhất cho mỗi `commandId`.
-  - [ ] Cập nhật outbox thành `PROCESSED` sau khi engine thực thi thành công.
-  - [ ] Kiểm tra các điểm crash & recover: trước commit, sau commit trước dispatch, sau dispatch trước outbox ack, và sau server restart.
+- [x] **P0.2 — TRANSACTIONAL OUTBOX & ATOMIC GIFT SETTLEMENT**
+  - [x] Sửa `server.ts`: Nếu giao dịch ghi `giftLedgerRepo.settleGift()` lỗi, reject ngay lập tức (HTTP 500 hoặc `{ accepted: false, reason: 'LEDGER_TRANSACTION_FAILED' }`). Tuyệt đối không fallback gọi `engine.handleGift()` khi DB chưa commit.
+  - [x] Cam kết nguyên tử: Gift Event + Streak Settlement + Outbox Record (`outbox_events`) được commit trong cùng 1 database transaction.
+  - [x] Xây dựng Outbox Worker độc lập: định kỳ/sự kiện quét `PENDING` outbox events, claim an toàn bằng status `PROCESSING`, dispatch sang `engine.handleGift(..., commandId)`.
+  - [x] `AuthoritativeGameEngine`: Lưu danh sách `executedCommandIds` trong bộ nhớ; chỉ kích hoạt skill đúng 1 lần duy nhất cho mỗi `commandId`.
+  - [x] Cập nhật outbox thành `PROCESSED` sau khi engine thực thi thành công.
+  - [x] Kiểm tra các điểm crash & recover: trước commit, sau commit trước dispatch, sau dispatch trước outbox ack, và sau server restart.
 
-- [ ] **P0.3 — MATCH ID & PLAYER ID CONSISTENCY**
-  - [ ] Chuẩn hóa `PlayerRepository` là nguồn chuẩn duy nhất tạo Player ID (`usr_${provider}_${platformUserId}`).
-  - [ ] `MatchRepository.finishMatch()` liên kết trực tiếp Player ID chuẩn đã tồn tại trong `players`. Không chèn thêm bản ghi fake hoặc dùng sai ID.
-  - [ ] Lưu trữ `mvpPlayerId` (Foreign Key chuẩn sang `players.id`), không dùng `mvp.name` thay thế ID.
-  - [ ] `engine.restartMatch()`: Tự động sinh `matchId` mới (`match_${Date.now()}_${seed}`) cho từng vòng đấu mới.
-  - [ ] `server.ts`: Loại bỏ phụ thuộc vào biến tĩnh `lastSavedMatchId`, lưu trữ đầy đủ mọi trận đấu khi kết thúc.
-  - [ ] Acceptance: Chạy liên tiếp ít nhất 10 vòng trận và xác nhận PostgreSQL lưu đủ 10 bản ghi matches riêng biệt với đúng kết quả, MVP và đóng góp.
+- [x] **P0.3 — MATCH ID & PLAYER ID CONSISTENCY**
+  - [x] Chuẩn hóa `PlayerRepository` là nguồn chuẩn duy nhất tạo Player ID (`usr_${provider}_${platformUserId}`).
+  - [x] `MatchRepository.finishMatch()` liên kết trực tiếp Player ID chuẩn đã tồn tại trong `players`. Không chèn thêm bản ghi fake hoặc dùng sai ID.
+  - [x] Lưu trữ `mvpPlayerId` (Foreign Key chuẩn sang `players.id`), không dùng `mvp.name` thay thế ID.
+  - [x] `engine.restartMatch()`: Tự động sinh `matchId` mới (`match_${Date.now()}_${seed}`) cho từng vòng đấu mới.
+  - [x] `server.ts`: Loại bỏ phụ thuộc vào biến tĩnh `lastSavedMatchId`, lưu trữ đầy đủ mọi trận đấu khi kết thúc.
+  - [x] Acceptance: Chạy liên tiếp ít nhất 10 vòng trận và xác nhận PostgreSQL lưu đủ 10 bản ghi matches riêng biệt với đúng kết quả, MVP và đóng góp.
 
-- [ ] **P0.4 — SECURE PLAYER PROFILE & IDOR PROTECTION**
-  - [ ] `GET /api/me`: Yêu cầu xác thực qua token header (`x-dashboard-token` hoặc `Authorization: Bearer`). Không nhận `userId` tùy ý từ client trên production.
-  - [ ] Tách biệt API: `GET /api/players/:id` (public profile: id, username, level, squad) và `GET /api/me` (private profile: full stats, missions, private info).
-  - [ ] Ngăn chặn triệt để tấn công IDOR và xem hồ sơ trái phép.
-  - [ ] Không nhận token quản trị qua URL query parameter (tránh rò rỉ vào access log).
+- [x] **P0.4 — SECURE PLAYER PROFILE & IDOR PROTECTION**
+  - [x] `GET /api/me`: Yêu cầu xác thực qua HMAC session token (`s_tok_...`). Không nhận `userId` tùy ý từ client trên production.
+  - [x] Tách biệt API: `GET /api/players/:id` (public profile: id, username, level, squad) và `GET /api/me` (private profile: full stats, missions, private info).
+  - [x] Ngăn chặn triệt để tấn công IDOR và xem hồ sơ trái phép.
+  - [x] Không nhận token quản trị qua URL query parameter (tránh rò rỉ vào access log).
 
-- [ ] **P0.5 — FIX COMPOSITE GIFT EVENT IDENTITY**
-  - [ ] Unique constraint trên `(provider, live_session_id, provider_event_id)` trong Prisma schema và DDL.
-  - [ ] Quản lý streak độc lập cho từng người gửi: không để event lỗi của người này đóng streak của người khác.
-  - [ ] Viết test concurrent duplicate requests trên 2 kết nối đồng thời.
+- [x] **P0.5 — FIX COMPOSITE GIFT EVENT IDENTITY**
+  - [x] Unique constraint trên `(provider, live_session_id, provider_event_id)` trong Prisma schema và DDL.
+  - [x] Quản lý streak độc lập cho từng người gửi: không để event lỗi của người này đóng streak của người khác.
+  - [x] Viết test concurrent duplicate requests trên 2 kết nối đồng thời.
 
-- [ ] **PHẦN D — ACCEPTANCE SUITE & DELIVERABLES (PHASE 05.1)**
-  - [ ] Cập nhật `run-phase05-persistence-qa.ts` kiểm thử toàn diện:
+- [x] **PHẦN D — ACCEPTANCE SUITE & DELIVERABLES (PHASE 05.1)**
+  - [x] Cập nhật `run-phase05-persistence-qa.ts` kiểm thử toàn diện:
     * Kết nối PostgreSQL/Persistent PGlite file storage.
     * Process restart thật và xác minh dữ liệu phục hồi nguyên vẹn.
     * 10 vòng trận liên tiếp lưu thành công trong DB.
     * Outbox worker tự động phục hồi sự kiện sau restart.
     * Stress test duy trì $\ge 100$ events/s với p95/p99.
     * 60+ giây video gameplay 60 FPS không console error.
-  - [ ] Cập nhật `player.html`, commit git và push GitHub remote `feat/phase02-visual-refinement`.
-- [ ] Giai đoạn 06: Gift mapping và deterministic skill effects
-- [ ] Giai đoạn 07: Web dashboard quản trị Next.js
-- [ ] Giai đoạn 08: OBS browser source / continuous engine
-- [ ] Giai đoạn 09: QA, load testing và security audit
-- [ ] Giai đoạn 10: TikTok LIVE adapter (khi có ủy quyền chính thức)
-- [ ] Giai đoạn 11: Final review & handoff
+  - [x] Cập nhật `player.html`, commit git `85ea842` và push GitHub remote `feat/phase02-visual-refinement`.
+
+## Giai đoạn 06: Config-Driven Gift Skills & Deterministic Effects với Reliability Hardening (PHASE 06)
+> **Mục tiêu**: Đóng các vấn đề P0/P1 còn lại từ audit `85ea842` (Durable Command Execution chống crash replay, Pre-settlement validation loại bỏ outbox pollution, Match-scoped Outbox events chống leak sang trận sau, Outbox Lease & Status verification, Real DB Health Check). Đồng thời triển khai trọn vẹn Config-Driven Skill Engine cho 7 kỹ năng chiến đấu với mô phỏng 20Hz tất định (deterministic), cơ chế cân bằng & chống lạm dụng, hiệu ứng hình ảnh Phaser VFX trên Fortified Bastion Layout B, Stream Overlay Gift Banner trong vùng an toàn, và Mock Dashboard toàn diện.
+
+- [ ] **PHẦN A — P0/P1 RELIABILITY & OUTBOX HARDENING**
+  - [ ] **Task 1: Pre-Settlement Gift Validation (Ngăn chặn Outbox Pollution)**
+    - [ ] Di chuyển bước kiểm tra `resolveGiftSkill(ev.giftId)` lên TRƯỚC KHI gọi `giftLedgerRepo.settleGift()`.
+    - [ ] Nếu gift không được hỗ trợ: từ chối ngay với `{ accepted: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' }`.
+    - [ ] Đảm bảo 0 bản ghi `SETTLED` và 0 bản ghi outbox nào được sinh ra cho quà không hợp lệ.
+  - [ ] **Task 2: Durable Command Execution & Match Isolation (Chống Crash Replay)**
+    - [ ] Tạo bảng `executed_match_commands (match_id, command_id, executed_at, payload)` trong database schema / migration.
+    - [ ] `AuthoritativeGameEngine`: Bổ sung cơ chế đồng bộ danh sách `executedCommandIds` với database persistence; khi khởi động lại, engine có thể nạp lại danh sách commands đã chạy cho match hiện tại.
+    - [ ] Outbox Event Payload: Gắn chặt chẽ `matchId` (hoặc `liveSessionId`).
+    - [ ] Outbox Worker: Nếu sự kiện thuộc về `matchId` đã kết thúc (không khớp `engine.matchId` hiện tại), tự động đánh dấu `DISCARDED_OBSOLETE_MATCH` thay vì áp dụng bừa bãi vào trận mới.
+  - [ ] **Task 3: Outbox Worker Lease & Status Verification**
+    - [ ] `markProcessed(id, workerId)`: Cập nhật SQL có điều kiện `WHERE id = $1 AND status = 'PROCESSING' AND locked_by = $2 AND locked_until >= NOW()`.
+    - [ ] `markFailed(id, workerId, reason)`: Kiểm tra tương tự, chỉ worker sở hữu lease hợp lệ mới được cập nhật status.
+  - [ ] **Task 4: Real Database Health Check & Atomic Migration Runner**
+    - [ ] Bổ sung hàm `healthCheck(): Promise<boolean>` (`SELECT 1`) vào `DatabaseClient`.
+    - [ ] Sửa `/ready` endpoint: Thực hiện health check thực sự; nếu DB mất kết nối trả về HTTP 503 `status: 'degraded'`.
+    - [ ] Đảm bảo runner migration bọc việc ghi log `_migrations` trong cùng transaction với DDL.
+
+- [ ] **PHẦN B — CONFIG-DRIVEN SKILL REGISTRY & DETERMINISTIC ENGINE**
+  - [ ] **Task 5: Complete Config-Driven Skill Registry (`SkillRegistry.ts`)**
+    - [ ] Định nghĩa 7 kỹ năng chiến đấu với Zod schemas & exact lookup:
+      1. `airstrike`: Bão tên lửa AoE (warning 20 ticks, radius 280px, damage 450).
+      2. `shield`: Khiên bảo vệ Base & Wall (giảm 50% sát thương nhận vào, duration 12s / 240 ticks).
+      3. `reinforcements`: Tiểu đội chi viện (triệu hồi 2 lính công phá tiền tuyến).
+      4. `overclock`: Gia tốc ụ pháo (tăng 100% tốc độ bắn / giảm 50% cooldown ụ pháo trong 15s / 300 ticks, khôi phục gốc khi hết hạn).
+      5. `mech`: Robot Mech hỗ trợ hạng nặng (triệu hồi 1 Titan Mech 1500 HP, 25s, đại bác AoE).
+      6. `healing`: Tiếp tế y tế & sửa thành (hồi 400 HP Base, hồi 100 HP lính, tối đa không vượt max HP).
+      7. `honor`: Hào quang vinh danh (pháo hoa rực rỡ, thông báo VIP Supporter, 0 ảnh hưởng chiến thuật).
+    - [x] Cấu hình per-match cap, per-skill cooldown, stacking policy (`refresh`, `extend`, `reject`, `independent`).
+  - [x] **Task 6: Deterministic 20Hz Skill Simulation in `AuthoritativeGameEngine`**
+    - [x] Quản lý trạng thái kỹ năng theo tick: `activeSkills`, `queuedSkills` với `castTick`, `activationTick`, `expirationTick`.
+    - [x] Authoritative State Tracking:
+      - Quản lý warning delay và vòng cảnh báo trước khi Airstrike nổ.
+      - Quản lý shield active buff và áp dụng giảm 50% sát thương trong `damageBase()` / `damageWall()`.
+      - Quản lý turret overclock buff và tính toán lại tốc độ bắn 2x, khôi phục chính xác khi hết hạn.
+      - Quản lý Mech entity & Reinforcement soldiers với HP, targetting và di chuyển.
+      - Quản lý Healing và khống chế không cho vượt trần `maxHp`.
+    - [x] Snapshot & Combat Events: Phát sự kiện combat (`SKILL_ACTIVATED`, `SKILL_AIRSTRIKE_DETONATED`, `SKILL_SHIELD_EXPIRED`, `SKILL_OVERCLOCK_EXPIRED`, v.v.).
+    - [x] Replay Determinism: Cùng seed + cùng command stream cho ra 100% cùng state hash.
+
+- [x] **PHẦN C — PHASER VISUAL EFFECTS & STREAM OVERLAY**
+  - [x] **Task 7: Visual Effects on BattlefieldScene (Fortified Bastion Layout B)**
+    - [x] Airstrike: Vòng cảnh báo đỏ mở rộng $\rightarrow$ đường đạn rơi $\rightarrow$ chớp nổ bão lửa và khói bụi.
+    - [x] Shield: Mái vòm năng lượng bán nguyệt màu Cyan bao phủ pháo đài khiên chắn, hiệu ứng gợn sóng khi cản đòn, biến mất khi hết hạn.
+    - [x] Overclock: Tia sét / tia lửa điện vàng rực quanh 3 ụ pháo tiền duyên, tia lửa đạn kép.
+    - [x] Mech Support: Hiệu ứng rơi từ trên không xuống đường chính, bước di chuyển cơ giới, nòng pháo đôi khai hỏa.
+    - [x] Reinforcements: 2 chiến binh đổ bộ chạy ra chiến hào tiền tuyến.
+    - [x] Healing: Hạt ánh sáng xanh ngọc bích bay lên từ Base và tường thành, số HP phục hồi màu xanh lá.
+    - [x] Honor: Pháo hoa bùng nổ, banner vinh danh VIP rực rỡ.
+  - [x] **Task 8: Stream Overlay Gift Banner (TikTok 9:16 Safe Zone)**
+    - [x] Hiển thị thông báo quà tặng nổi bật: Sender Avatar/Name, Tên Quà Tặng, Tên Kỹ Năng, Số lượng.
+    - [x] Đặt trong vùng an toàn livestream (y: 1250 - 1350px, canh giữa), không che khuất pháo đài hoặc thanh máu.
+    - [x] Thời lượng hiển thị tối đa 3.0s, tự động mờ dần và trượt lên.
+  - [x] **Task 9: Mock Dashboard Enhanced Controls**
+    - [x] Bổ sung các nút kích hoạt nhanh cho cả 7 kỹ năng với icon và thông số.
+    - [x] Bổ sung mô phỏng gift streak (1x, 5x, 10x, 20x).
+    - [x] Giả lập 10–100 người xem đồng thời tương tác.
+    - [x] Hiển thị real-time Cooldowns, Active Buffs, MVP contribution và Live Event Feed.
+
+- [x] **PHẦN D — QA, VERIFICATION & DELIVERABLES**
+  - [x] **Task 10: Unit & Integration Tests (100% Coverage cho Skills)**
+    - [x] Viết `SkillRegistry.test.ts` & `SkillEngine.test.ts`: Kiểm tra cả 7 kỹ năng, cooldown, caps, stacking, và khôi phục stat khi hết hạn.
+    - [x] Viết `SkillDeterminism.test.ts`: Deterministic replay assertion (2 engines chạy song song với cùng seed + command sequence $\rightarrow$ cùng state hash).
+    - [x] Sửa timeout kiểm thử `database.test.ts` trên Windows (tăng timeout lên 30.000ms cho bài test restart PGlite disk storage).
+    - [x] Chạy `pnpm test` toàn monorepo: đảm bảo 100% test files PASS (89/89 tests passed).
+  - [x] **Task 11: E2E Playwright Suite & Deliverables (`run-phase06-skills-qa.ts`)**
+    - [x] Kiểm thử E2E: Kích hoạt cả 7 kỹ năng qua Gift Ingress $\rightarrow$ Outbox Worker $\rightarrow$ Engine $\rightarrow$ Snapshot Socket $\rightarrow$ Client VFX.
+    - [x] Stress test: Đạt throughput $\ge 100$ events/s (đo được 446 events/s) với p50/p95/p99 latency (221ms / 229ms / 230ms).
+    - [x] Đo đạc FPS thực tế duy trì mượt mà ($\ge 55$ FPS, thực tế đạt 60 FPS trung bình) khi nhiều hiệu ứng diễn ra đồng thời.
+    - [x] Xuất video demo gameplay $\ge 60$ giây (`phase06_skills_gameplay_60s.webm`).
+    - [x] Chụp ảnh screenshot 1080x1920 (`phase06_skills_1080x1920.png`) và mobile 360x640 (`phase06_skills_mobile_360x640.png`).
+    - [x] Xuất báo cáo Telemetry JSON (`phase06_skills_telemetry.json`).
+    - [x] Cập nhật giao diện `player.html` với video/ảnh/telemetry Phase 06.
+    - [x] Git commit và push lên remote `feat/phase02-visual-refinement`.

@@ -233,3 +233,33 @@ model GameplayAction {
   @@index([matchId, playerId])
   @@map("gameplay_actions")
 }
+
+model MatchCommandJournal {
+  id          String   @id @default(uuid())
+  matchId     String   @map("match_id")
+  commandId   String   @map("command_id")
+  seq         BigInt   @map("seq")
+  tick        Int      @map("tick")
+  commandType String   @map("command_type")
+  payload     Json     @map("payload")
+  status      String   @default("PENDING") @map("status")
+  appliedTick Int?     @map("applied_tick")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([matchId, commandId], name: "match_command_unique")
+  @@index([matchId, seq])
+  @@map("match_command_journal")
+}
+
+model MatchCheckpoint {
+  id             String   @id @default(uuid())
+  matchId        String   @map("match_id")
+  tick           Int      @map("tick")
+  lastJournalSeq BigInt   @map("last_journal_seq")
+  stateSnapshot  Json     @map("state_snapshot")
+  stateHash      String   @map("state_hash")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([matchId, tick])
+  @@map("match_checkpoints")
+}

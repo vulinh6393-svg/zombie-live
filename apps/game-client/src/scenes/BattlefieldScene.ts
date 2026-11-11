@@ -56,6 +56,21 @@ export class BattlefieldScene extends Phaser.Scene {
   private debugEntities: boolean = false;
   private currentFormationMode: FormationMode = 'C';
 
+  // Phase 06 — Config-Driven Gift Skills & VFX Tracking
+  private activeShieldGraphic?: Phaser.GameObjects.Graphics;
+  private activeOverclockGraphics: Phaser.GameObjects.Graphics[] = [];
+  private activeMechContainer?: Phaser.GameObjects.Container;
+  private activeAirstrikeMarkers: Map<string, Phaser.GameObjects.Container> = new Map();
+  private activeGiftToast?: Phaser.GameObjects.Container;
+  private giftToastQueue: Array<{
+    senderName: string;
+    skillId: string;
+    skillName: string;
+    quantity: number;
+    color: string;
+  }> = [];
+  private isProcessingToast: boolean = false;
+
   constructor() {
     super({ key: 'BattlefieldScene' });
   }
@@ -83,7 +98,7 @@ export class BattlefieldScene extends Phaser.Scene {
 
     // 2. Character & Weapon Sprite Sheets
     SpriteAssetLoader.loadAll(this);
-    TextureGenerator.generateProps(this);
+    TextureGenerator.generateAll(this);
   }
 
   create() {
@@ -346,6 +361,28 @@ export class BattlefieldScene extends Phaser.Scene {
       this.triggerGiftSkillVFX('TÊN LỬA TỔNG LỰC', ev.x, ev.y);
     } else if (ev.type === 'COMMAND_FEEDBACK') {
       this.triggerCommandFeedbackVFX(ev.sourceId, ev.x, ev.y);
+    } else if (ev.type === 'SKILL_AIRSTRIKE_WARNING') {
+      this.showAirstrikeWarning(ev);
+    } else if (ev.type === 'SKILL_AIRSTRIKE_DETONATED') {
+      this.triggerAirstrikeDetonation(ev);
+    } else if (ev.type === 'SKILL_SHIELD_ACTIVATED') {
+      this.activateShieldVisual();
+    } else if (ev.type === 'SKILL_SHIELD_EXPIRED') {
+      this.deactivateShieldVisual();
+    } else if (ev.type === 'SKILL_OVERCLOCK_ACTIVATED') {
+      this.activateOverclockVisual();
+    } else if (ev.type === 'SKILL_OVERCLOCK_EXPIRED') {
+      this.deactivateOverclockVisual();
+    } else if (ev.type === 'SKILL_REINFORCEMENTS_SPAWNED') {
+      this.triggerReinforcementsSpawn(ev);
+    } else if (ev.type === 'SKILL_MECH_DEPLOYED') {
+      this.syncMechVisual({ x: ev.x ?? 540, y: ev.y ?? 1100, hp: 1500, maxHp: 1500 });
+    } else if (ev.type === 'SKILL_HEALING_APPLIED') {
+      this.triggerHealingVisual(ev);
+    } else if (ev.type === 'SKILL_HONOR_CELEBRATION') {
+      this.triggerHonorCelebration(ev);
+    } else if (ev.type === 'GIFT_BANNER') {
+      this.showGiftBanner(ev);
     }
   }
 
@@ -420,6 +457,25 @@ export class BattlefieldScene extends Phaser.Scene {
 
     // 5. Update HUD
     this.hud.update(snapshot);
+
+    // 6. Synchronize Persistent Buffs & Mech from Authoritative Snapshot
+    if ((snapshot as any).activeMech) {
+      this.syncMechVisual((snapshot as any).activeMech);
+    } else if (this.activeMechContainer) {
+      this.destroyMechVisual();
+    }
+
+    if ((snapshot as any).activeShieldBuff) {
+      this.activateShieldVisual();
+    } else if (this.activeShieldGraphic) {
+      this.deactivateShieldVisual();
+    }
+
+    if ((snapshot as any).activeOverclockBuff) {
+      this.activateOverclockVisual();
+    } else if (this.activeOverclockGraphics.length > 0) {
+      this.deactivateOverclockVisual();
+    }
   }
 
   // LOCALIZED BASE HIT REACTION (P0 Fix: Never covers full screen in red!)
@@ -575,6 +631,526 @@ export class BattlefieldScene extends Phaser.Scene {
   }
 
   // =========================================================================
+  // PHASE 06 — CONFIG-DRIVEN SKILLS VISUAL EFFECTS & TOAST BANNERS
+  // =========================================================================
+
+  // 1. AIRSTRIKE WARNING: Red sonar circle & warning text
+  private showAirstrikeWarning(ev: CombatEvent): void {
+    const x = ev.x ?? 540;
+    const y = ev.y ?? 580;
+    const radius = ev.radius ?? 280;
+    const id = ev.id || `airstrike_${Date.now()}`;
+
+    const container = this.add.container(x, y).setDepth(42);
+
+    const circle = this.add.graphics();
+    circle.lineStyle(3, 0xff0055, 0.85);
+    circle.strokeCircle(0, 0, radius);
+    circle.fillStyle(0xff0055, 0.12);
+    circle.fillCircle(0, 0, radius);
+
+    const reticle = this.add.image(0, 0, 'tactical_reticle').setScale(1.1).setAlpha(0.9);
+
+    const warningText = this.add.text(0, -radius - 20, '⚠️ KHÔNG KÍCH SẮP ĐẾN!', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ff0055',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    container.add([circle, reticle, warningText]);
+    this.activeAirstrikeMarkers.set(id, container);
+
+    this.tweens.add({
+      targets: reticle,
+      angle: 180,
+      scale: 1.3,
+      yoyo: true,
+      repeat: 3,
+      duration: 300,
+    });
+  }
+
+  // 2. AIRSTRIKE DETONATION: Cruise missile, shockwave, explosion, screen shake
+  private triggerAirstrikeDetonation(ev: CombatEvent): void {
+    const targetX = ev.x ?? 540;
+    const targetY = ev.y ?? 580;
+    const radius = ev.radius ?? 280;
+
+    // Clear any active markers
+    for (const marker of this.activeAirstrikeMarkers.values()) {
+      marker.destroy();
+    }
+    this.activeAirstrikeMarkers.clear();
+
+    // Cruise Missile projectile streak
+    const startX = targetX - 220;
+    const startY = targetY - 500;
+    const missile = this.add.image(startX, startY, 'gift_missile')
+      .setScale(1.3)
+      .setRotation(0.45)
+      .setDepth(47);
+
+    const exhaustGlow = this.add.graphics().setDepth(46);
+    this.tweens.add({
+      targets: missile,
+      x: targetX,
+      y: targetY,
+      duration: 400,
+      ease: 'Quad.easeIn',
+      onUpdate: () => {
+        exhaustGlow.clear();
+        exhaustGlow.fillStyle(0xff7700, 0.6);
+        exhaustGlow.fillCircle(missile.x - 10, missile.y - 20, 16);
+      },
+      onComplete: () => {
+        missile.destroy();
+        exhaustGlow.destroy();
+
+        // High Impact Detonation
+        this.cameras.main.shake(280, 0.018);
+
+        // Expanding shockwave ring
+        const shockwave = this.add.graphics().setDepth(48);
+        this.tweens.addCounter({
+          from: 20,
+          to: radius,
+          duration: 350,
+          ease: 'Cubic.easeOut',
+          onUpdate: (tween) => {
+            const r = tween.getValue() ?? 20;
+            shockwave.clear();
+            shockwave.lineStyle(4, 0xff0055, Math.max(0, 1 - (r - 20) / (radius - 20)));
+            shockwave.strokeCircle(targetX, targetY, r);
+          },
+          onComplete: () => shockwave.destroy(),
+        });
+
+        // Massive Explosion Fireball
+        const boom = this.add.image(targetX, targetY, 'hit_explosion')
+          .setScale(3.5)
+          .setDepth(49);
+        this.tweens.add({
+          targets: boom,
+          scale: 4.5,
+          alpha: 0,
+          duration: 450,
+          ease: 'Cubic.easeOut',
+          onComplete: () => boom.destroy(),
+        });
+
+        // Floating damage on nearby zombies
+        for (const zombie of this.zombies.values()) {
+          const zX = zombie.container.x;
+          const zY = zombie.container.y;
+          const dist = Phaser.Math.Distance.Between(targetX, targetY, zX, zY);
+          if (dist <= radius && !zombie.isDead) {
+            zombie.triggerHitFlash();
+            this.damagePool.showDamage(zX, zY - 25, 450, true);
+          }
+        }
+      },
+    });
+  }
+
+  // 3. SHIELD VISUAL: Glowing cyan translucent hexagonal dome over Bastion
+  private activateShieldVisual(): void {
+    if (this.activeShieldGraphic) return;
+
+    const g = this.add.graphics().setDepth(32);
+    this.activeShieldGraphic = g;
+
+    const drawShield = (alpha: number) => {
+      g.clear();
+      // Glowing outer rim
+      g.lineStyle(5, 0x00f5d4, alpha);
+      g.strokeRoundedRect(50, 780, 980, 180, 24);
+      // Soft translucent fill
+      g.fillStyle(0x00f5d4, alpha * 0.22);
+      g.fillRoundedRect(50, 780, 980, 180, 24);
+      // Hex grid lines
+      g.lineStyle(1.5, 0x38bdf8, alpha * 0.45);
+      for (let x = 90; x < 1000; x += 60) {
+        g.beginPath();
+        g.moveTo(x, 785);
+        g.lineTo(x + 25, 870);
+        g.lineTo(x, 955);
+        g.strokePath();
+      }
+    };
+
+    drawShield(0.9);
+
+    this.tweens.addCounter({
+      from: 0.6,
+      to: 1.0,
+      yoyo: true,
+      repeat: -1,
+      duration: 800,
+      ease: 'Sine.easeInOut',
+      onUpdate: (tw) => {
+        if (this.activeShieldGraphic) {
+          drawShield(tw.getValue() ?? 0.8);
+        }
+      },
+    });
+  }
+
+  private deactivateShieldVisual(): void {
+    if (!this.activeShieldGraphic) return;
+    const g = this.activeShieldGraphic;
+    this.activeShieldGraphic = undefined;
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 350,
+      ease: 'Cubic.easeOut',
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  // 4. OVERCLOCK VISUAL: Electric yellow arcs on 3 Turrets
+  private activateOverclockVisual(): void {
+    if (this.activeOverclockGraphics.length > 0) return;
+
+    const turretCoords = [
+      { x: 280, y: 580 },
+      { x: 540, y: 580 },
+      { x: 800, y: 580 },
+    ];
+
+    for (const tc of turretCoords) {
+      const g = this.add.graphics().setDepth(33);
+      this.activeOverclockGraphics.push(g);
+
+      this.tweens.addCounter({
+        from: 0,
+        to: 360,
+        repeat: -1,
+        duration: 900,
+        onUpdate: (tw) => {
+          g.clear();
+          const angle = (tw.getValue() ?? 0) * (Math.PI / 180);
+          // Rotating electric aura
+          g.lineStyle(3, 0xfee440, 0.85);
+          g.strokeCircle(tc.x, tc.y, 44);
+          // Spark spikes
+          g.fillStyle(0xffffff, 0.9);
+          for (let i = 0; i < 4; i++) {
+            const a = angle + i * (Math.PI / 2);
+            const sx = tc.x + Math.cos(a) * 44;
+            const sy = tc.y + Math.sin(a) * 44;
+            g.fillCircle(sx, sy, 4);
+          }
+        },
+      });
+    }
+  }
+
+  private deactivateOverclockVisual(): void {
+    for (const g of this.activeOverclockGraphics) {
+      g.destroy();
+    }
+    this.activeOverclockGraphics = [];
+  }
+
+  // 5. REINFORCEMENTS: Visual infantry soldiers & smoke
+  private triggerReinforcementsSpawn(ev: CombatEvent): void {
+    const x = ev.x ?? 540;
+    const y = ev.y ?? 820;
+
+    // Tactical green smoke
+    const smoke = this.add.graphics().setDepth(36);
+    smoke.fillStyle(0x00f5d4, 0.4);
+    smoke.fillCircle(x, y, 40);
+
+    this.tweens.add({
+      targets: smoke,
+      scale: 1.8,
+      alpha: 0,
+      duration: 600,
+      onComplete: () => smoke.destroy(),
+    });
+
+    const msg = this.add.text(x, y - 30, '🪖 2 CHIẾN BINH CHI VIỆN ĐÃ ĐẾN!', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#00f5d4',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(60);
+
+    this.tweens.add({
+      targets: msg,
+      y: y - 70,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Cubic.easeOut',
+      onComplete: () => msg.destroy(),
+    });
+  }
+
+  // 6. MECH UNIT: Visual container synchronized with authoritative state
+  private syncMechVisual(mechSnapshot: any): void {
+    if (!mechSnapshot) {
+      this.destroyMechVisual();
+      return;
+    }
+
+    if (!this.activeMechContainer) {
+      const c = this.add.container(mechSnapshot.x, mechSnapshot.y).setDepth(34);
+      const sprite = this.add.image(0, 0, 'mech_titan').setScale(1.1);
+
+      const hpBg = this.add.graphics();
+      hpBg.fillStyle(0x000000, 0.7);
+      hpBg.fillRoundedRect(-40, -65, 80, 10, 4);
+
+      const hpFill = this.add.graphics();
+
+      const label = this.add.text(0, -78, '🤖 TITAN MECH', {
+        fontFamily: GAME_FONTS.TACTICAL,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#38bdf8',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5);
+
+      c.add([sprite, hpBg, hpFill, label]);
+      (c as any).hpFill = hpFill;
+      this.activeMechContainer = c;
+    }
+
+    // Smooth lerp to authoritative coordinate
+    this.activeMechContainer.x = Phaser.Math.Linear(this.activeMechContainer.x, mechSnapshot.x, 0.25);
+    this.activeMechContainer.y = Phaser.Math.Linear(this.activeMechContainer.y, mechSnapshot.y, 0.25);
+
+    // Update HP bar
+    const hpFill = (this.activeMechContainer as any).hpFill as Phaser.GameObjects.Graphics;
+    if (hpFill) {
+      hpFill.clear();
+      const ratio = Math.max(0, Math.min(1, mechSnapshot.hp / (mechSnapshot.maxHp || 1500)));
+      hpFill.fillStyle(ratio > 0.4 ? 0x00f5d4 : 0xff0055, 1);
+      hpFill.fillRoundedRect(-38, -63, 76 * ratio, 6, 3);
+    }
+  }
+
+  private destroyMechVisual(): void {
+    if (this.activeMechContainer) {
+      const c = this.activeMechContainer;
+      this.activeMechContainer = undefined;
+      // Scrap explosion
+      const boom = this.add.image(c.x, c.y, 'hit_explosion').setScale(1.8).setDepth(49);
+      this.tweens.add({
+        targets: boom,
+        alpha: 0,
+        scale: 2.2,
+        duration: 350,
+        onComplete: () => boom.destroy(),
+      });
+      c.destroy();
+    }
+  }
+
+  // 7. HEALING VISUAL: Emerald sparkles & floating +HP
+  private triggerHealingVisual(ev: CombatEvent): void {
+    const x = ev.x ?? 540;
+    const y = ev.y ?? 880;
+
+    // Green glow along fortress
+    const glow = this.add.graphics().setDepth(35);
+    glow.fillStyle(0x10b981, 0.35);
+    glow.fillRoundedRect(50, 840, 980, 100, 16);
+
+    this.tweens.add({
+      targets: glow,
+      alpha: 0,
+      duration: 600,
+      onComplete: () => glow.destroy(),
+    });
+
+    // Floating +400 Base HP
+    const baseText = this.add.text(x, y - 20, '+400 HP (HỒI MÁU THÀNH)', {
+      fontFamily: GAME_FONTS.DISPLAY,
+      fontSize: '20px',
+      fontStyle: 'bold',
+      color: '#10b981',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(60);
+
+    this.tweens.add({
+      targets: baseText,
+      y: y - 60,
+      alpha: 0,
+      duration: 1100,
+      ease: 'Cubic.easeOut',
+      onComplete: () => baseText.destroy(),
+    });
+
+    // Floating +100 Soldier HP
+    const soldiers = this.squadVisualizer.getAllSoldiers();
+    for (const soldier of soldiers.slice(0, 3)) {
+      const bounds = soldier.getVisualBounds();
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const topY = bounds.minY;
+      const sText = this.add.text(centerX, topY - 25, '+100', {
+        fontFamily: GAME_FONTS.TACTICAL,
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#34d399',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(60);
+
+      this.tweens.add({
+        targets: sText,
+        y: topY - 50,
+        alpha: 0,
+        duration: 900,
+        ease: 'Cubic.easeOut',
+        onComplete: () => sText.destroy(),
+      });
+    }
+  }
+
+  // 8. HONOR CELEBRATION: Fireworks bursts and golden banner
+  private triggerHonorCelebration(ev: CombatEvent): void {
+    const sender = ev.senderName || 'VIP';
+
+    // Fireworks bursts in the upper area (y: 350 - 550)
+    const burstPositions = [
+      { x: 340, y: 400, color: 0xfee440 },
+      { x: 540, y: 320, color: 0xf72585 },
+      { x: 740, y: 420, color: 0x00f5d4 },
+    ];
+
+    for (const bp of burstPositions) {
+      const g = this.add.graphics().setDepth(52);
+      g.fillStyle(bp.color, 0.9);
+      for (let i = 0; i < 16; i++) {
+        const angle = (i * Math.PI * 2) / 16;
+        const dist = Phaser.Math.Between(15, 65);
+        g.fillCircle(bp.x + Math.cos(angle) * dist, bp.y + Math.sin(angle) * dist, Phaser.Math.Between(3, 6));
+      }
+      this.tweens.add({
+        targets: g,
+        alpha: 0,
+        scale: 1.5,
+        duration: 800,
+        ease: 'Cubic.easeOut',
+        onComplete: () => g.destroy(),
+      });
+    }
+
+    // Floating Golden VIP Banner
+    const banner = this.add.container(540, 480).setDepth(55);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x2d1a00, 0.95);
+    bg.fillRoundedRect(-260, -26, 520, 52, 14);
+    bg.lineStyle(2, 0xffbe0b, 1);
+    bg.strokeRoundedRect(-260, -26, 520, 52, 14);
+
+    const txt = this.add.text(0, 0, `👑 ĐẠI TƯỚNG ${sender.toUpperCase()} VINH DANH! 👑`, {
+      fontFamily: GAME_FONTS.DISPLAY,
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#fee440',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    banner.add([bg, txt]);
+
+    this.tweens.add({
+      targets: banner,
+      y: 450,
+      scale: 1.05,
+      yoyo: true,
+      duration: 1000,
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner,
+          alpha: 0,
+          duration: 400,
+          onComplete: () => banner.destroy(),
+        });
+      },
+    });
+  }
+
+  // 9. GIFT BANNER (TikTok 9:16 Safe Zone centered at y: 1280px, <= 3s auto fade)
+  private showGiftBanner(ev: CombatEvent): void {
+    const sender = ev.senderName || 'Người Xem';
+    const skillName = ev.text || ev.skillId || 'Kỹ Năng';
+    const qty = ev.quantity ?? 1;
+    const colorHex = ev.color || '#00f5d4';
+    const colorNum = parseInt(colorHex.replace('#', '0x'), 16) || 0x00f5d4;
+
+    // Toast Card at y: 1280 (Verified TikTok 9:16 safe zone, above comments, below fortress)
+    const card = this.add.container(540, 1320).setDepth(160);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0a1128, 0.94);
+    bg.fillRoundedRect(-260, -28, 520, 56, 16);
+    bg.lineStyle(2, colorNum, 1);
+    bg.strokeRoundedRect(-260, -28, 520, 56, 16);
+
+    const avatar = this.add.graphics();
+    avatar.fillStyle(colorNum, 1);
+    avatar.fillCircle(-220, 0, 18);
+
+    const star = this.add.text(-220, 0, '🎁', { fontSize: '16px' }).setOrigin(0.5);
+
+    const mainText = this.add.text(-190, -8, `${sender} tặng ${skillName}`, {
+      fontFamily: GAME_FONTS.DISPLAY,
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    });
+
+    const subText = this.add.text(-190, 10, qty > 1 ? `Combo x${qty} kích hoạt hỏa lực!` : 'Hỗ trợ chiến trường!', {
+      fontFamily: GAME_FONTS.TACTICAL,
+      fontSize: '12px',
+      color: colorHex,
+    });
+
+    const qtyBadge = this.add.text(230, 0, `x${qty}`, {
+      fontFamily: GAME_FONTS.DISPLAY,
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#fee440',
+    }).setOrigin(0.5);
+
+    card.add([bg, avatar, star, mainText, subText, qtyBadge]);
+
+    // Animate: Slide up from 1320 to 1280, wait, fade out
+    this.tweens.add({
+      targets: card,
+      y: 1280,
+      alpha: 1,
+      duration: 300,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.time.delayedCall(2000, () => {
+          this.tweens.add({
+            targets: card,
+            alpha: 0,
+            y: 1260,
+            duration: 400,
+            ease: 'Cubic.easeIn',
+            onComplete: () => card.destroy(),
+          });
+        });
+      },
+    });
+  }
+
+  // =========================================================================
   // WINDOW AUTOMATION & QA BENCHMARK API (Restricted to Debug / Dev Test only!)
   // =========================================================================
   private setupWindowBattlefieldAPI(): void {
@@ -724,6 +1300,29 @@ export class BattlefieldScene extends Phaser.Scene {
     this.zombies.forEach((z) => z.destroy());
     this.zombies.clear();
     this.towers.clear();
+
+    // Clean Phase 06 Visuals
+    if (this.activeShieldGraphic) {
+      this.activeShieldGraphic.destroy();
+      this.activeShieldGraphic = undefined;
+    }
+    for (const g of this.activeOverclockGraphics) {
+      g.destroy();
+    }
+    this.activeOverclockGraphics = [];
+    if (this.activeMechContainer) {
+      this.activeMechContainer.destroy();
+      this.activeMechContainer = undefined;
+    }
+    for (const marker of this.activeAirstrikeMarkers.values()) {
+      marker.destroy();
+    }
+    this.activeAirstrikeMarkers.clear();
+    if (this.activeGiftToast) {
+      this.activeGiftToast.destroy();
+      this.activeGiftToast = undefined;
+    }
+
     if ((window as any).battlefield) {
       delete (window as any).battlefield;
     }

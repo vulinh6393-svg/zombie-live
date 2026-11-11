@@ -6,6 +6,7 @@ export * from './repositories/GiftLedgerRepository.js';
 export * from './repositories/MatchRepository.js';
 export * from './repositories/MissionRepository.js';
 export * from './repositories/OutboxRepository.js';
+export * from './repositories/CommandJournalRepository.js';
 
 export interface DatabaseStatus {
   isConfigured: boolean;

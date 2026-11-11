@@ -52,6 +52,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261111_outbox_leases/migration.sql'),
       ],
     },
+    {
+      id: '20261111_command_journal',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261111_command_journal/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261111_command_journal/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261111_command_journal/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261111_command_journal/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {
@@ -64,8 +73,11 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         }
       }
       if (sql) {
-        await client.exec(sql);
-        await client.query(`INSERT INTO _migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [mig.id]);
+        // Atomic migration execution: DDL and _migrations record committed together
+        await client.transaction(async (tx) => {
+          await tx.exec(sql);
+          await tx.query(`INSERT INTO _migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [mig.id]);
+        });
         appliedSet.add(mig.id);
       }
     }
@@ -304,8 +316,22 @@ export async function getDatabaseClient(options?: GetDatabaseOptions | string): 
     const defaultDataDir = path.resolve(process.cwd(), '.data/pglite');
     const targetDataDir = opts.dataDir || defaultDataDir;
 
-    const pgliteAdapter = new PGliteDatabaseAdapter(targetDataDir);
-    await runVersionedMigrations(pgliteAdapter);
+    let pgliteAdapter: PGliteDatabaseAdapter;
+    try {
+      pgliteAdapter = new PGliteDatabaseAdapter(targetDataDir);
+      await runVersionedMigrations(pgliteAdapter);
+    } catch (err: any) {
+      if (!isProduction && targetDataDir !== ':memory:') {
+        // Tự động phục hồi khi process trước bị kill/crash đột ngột để lại lock
+        try {
+          fs.rmSync(targetDataDir, { recursive: true, force: true });
+        } catch {}
+        pgliteAdapter = new PGliteDatabaseAdapter(targetDataDir);
+        await runVersionedMigrations(pgliteAdapter);
+      } else {
+        throw err;
+      }
+    }
     defaultInstance = pgliteAdapter;
     return pgliteAdapter;
   })();

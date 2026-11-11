@@ -25,6 +25,17 @@ export const CombatEventTypeSchema = z.enum([
   'WALL_HIT',
   'GIFT_SKILL',
   'COMMAND_FEEDBACK',
+  'SKILL_AIRSTRIKE_WARNING',
+  'SKILL_AIRSTRIKE_DETONATED',
+  'SKILL_SHIELD_ACTIVATED',
+  'SKILL_SHIELD_EXPIRED',
+  'SKILL_OVERCLOCK_ACTIVATED',
+  'SKILL_OVERCLOCK_EXPIRED',
+  'SKILL_REINFORCEMENTS_SPAWNED',
+  'SKILL_MECH_DEPLOYED',
+  'SKILL_HEALING_APPLIED',
+  'SKILL_HONOR_CELEBRATION',
+  'GIFT_BANNER',
 ]);
 export type CombatEventType = z.infer<typeof CombatEventTypeSchema>;
 
@@ -55,6 +66,14 @@ export interface CombatEvent {
   isCritical?: boolean;
   x: number;
   y: number;
+  // Metadata cho Skill và Stream Overlay
+  skillId?: string;
+  senderName?: string;
+  quantity?: number;
+  radius?: number;
+  duration?: number;
+  color?: string;
+  text?: string;
 }
 
 export interface SoldierSnapshot {
@@ -145,6 +164,7 @@ export interface MatchSnapshot {
   activePlayerCount: number;
   bossHp?: number;
   maxBossHp?: number;
+  activeMech?: { id: string; x: number; y: number; hp: number; maxHp: number; remainingSeconds: number };
   result: MatchResult;
   elapsedSeconds?: number;
   mvpPlayers?: Array<{ name: string; points: number; avatarColor?: number }>;

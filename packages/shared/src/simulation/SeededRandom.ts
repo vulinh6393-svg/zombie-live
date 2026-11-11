@@ -36,4 +36,12 @@ export class SeededRandom {
   public getSeed(): number {
     return this.state;
   }
+
+  public getState(): number {
+    return this.state;
+  }
+
+  public setState(state: number): void {
+    this.state = state >>> 0;
+  }
 }

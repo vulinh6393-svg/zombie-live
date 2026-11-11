@@ -81,7 +81,10 @@ export class OutboxRepository {
     const res = await this.db.query(
       `UPDATE outbox_events 
        SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
-       WHERE id = $1 AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)`,
+       WHERE id = $1 
+         AND (status = 'PROCESSING' OR status = 'PENDING')
+         AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)
+         AND (locked_until IS NULL OR locked_until >= CURRENT_TIMESTAMP)`,
       [id, workerId || null]
     );
     return res.rowCount > 0;
@@ -95,7 +98,9 @@ export class OutboxRepository {
            locked_by = NULL,
            locked_until = NULL,
            error = $1 
-       WHERE id = $2 AND ($3::text IS NULL OR locked_by = $3 OR locked_by IS NULL)`,
+       WHERE id = $2 
+         AND (status = 'PROCESSING' OR status = 'PENDING')
+         AND ($3::text IS NULL OR locked_by = $3 OR locked_by IS NULL)`,
       [error, id, workerId || null]
     );
     return res.rowCount > 0;

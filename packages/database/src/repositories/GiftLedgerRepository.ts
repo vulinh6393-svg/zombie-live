@@ -3,6 +3,7 @@ import { DatabaseClient } from '../db.js';
 export interface SettleGiftParams {
   provider: string;
   liveSessionId: string;
+  matchId?: string;
   providerEventId: string;
   senderId: string;
   senderName: string;
@@ -137,6 +138,7 @@ export class GiftLedgerRepository {
       const payloadJson = JSON.stringify({
         provider,
         liveSessionId,
+        matchId: params.matchId || liveSessionId,
         providerEventId,
         senderId,
         senderName,

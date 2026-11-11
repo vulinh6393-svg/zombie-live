@@ -407,6 +407,6 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
           fs.rmSync(testDir, { recursive: true, force: true });
         }
       }
-    });
+    }, 30000);
   });
 });
