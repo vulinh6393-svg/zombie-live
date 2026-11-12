@@ -13,7 +13,8 @@
     "e2e:recovery": "tsx e2e/run-recovery-e2e.ts",
     "e2e:phase02-3-2": "tsx e2e/run-phase02-3-2-e2e.ts",
     "e2e:phase03-socket": "tsx e2e/run-phase03-socket-qa.ts",
-    "qa:phase06": "tsx e2e/run-phase06-skills-qa.ts"
+    "qa:phase06": "tsx e2e/run-phase06-skills-qa.ts",
+    "qa:phase07": "tsx e2e/run-phase07-obs-live-qa.ts"
   },
   "dependencies": {
     "@zombie-live/shared": "workspace:*",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@playwright/test": "^1.65.0",
     "@types/node": "^22.10.2",
+    "@zombie-live/admin": "workspace:*",
     "@zombie-live/database": "workspace:*",
     "playwright": "^1.65.0",
     "sharp": "^0.35.5",

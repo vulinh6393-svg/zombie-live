@@ -603,12 +603,188 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return { accepted: false, reason: 'UNSUPPORTED_EVENT_TYPE' };
   };
 
-  // Admin Read-Only Database Inspection Endpoint (For QA, Health & Verification)
-  app.post('/api/admin/query', async (request, reply) => {
+  // Helper to authenticate administrative access via x-admin-token or Bearer token
+  const verifyAdminAuth = (request: any, reply: any): boolean => {
     const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
     if (authHeader !== adminSecret && authHeader !== `Bearer ${adminSecret}`) {
-      return reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
+      reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
+      return false;
     }
+    return true;
+  };
+
+  // OBS Live Operations Admin Dashboard UI Route
+  app.get('/admin', async (request, reply) => {
+    const tokenHeader = request.headers['x-admin-token'] || request.headers.authorization;
+    const tokenQuery = (request.query as any)?.token;
+    const isAuthed =
+      tokenHeader === adminSecret ||
+      tokenHeader === `Bearer ${adminSecret}` ||
+      tokenQuery === adminSecret;
+
+    try {
+      const candidates = [
+        path.join(__dirname, 'admin.html'),
+        path.join(__dirname, '../src/admin.html'),
+        path.join(__dirname, '../../apps/game-server/src/admin.html'),
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          const html = fs.readFileSync(p, 'utf-8');
+          return reply.type('text/html').send(html);
+        }
+      }
+      return reply.status(404).send('Admin dashboard HTML file not found');
+    } catch (err: any) {
+      return reply.status(500).send(`Failed to load admin dashboard: ${err.message}`);
+    }
+  });
+
+  // Admin Authoritative Operations: Start / Restart Match
+  app.post('/api/admin/match/start', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    const body = (request.body || {}) as { matchId?: string; seed?: number };
+    const newMatchId = body.matchId || `match_${Date.now()}`;
+    if (body.seed !== undefined) {
+      engine.seed = body.seed;
+    }
+    engine.restartMatch(newMatchId);
+    if (matchRepo) {
+      await matchRepo
+        .startMatch(newMatchId, engine.seed, engine.phase, engine.baseHp)
+        .catch((e: any) => app.log.warn(`[ADMIN] Failed to persist new match: ${e.message}`));
+    }
+    return reply.send({
+      success: true,
+      matchId: engine.matchId,
+      seed: engine.seed,
+      phase: engine.phase,
+      tick: engine.tick,
+    });
+  });
+
+  // Admin Authoritative Operations: Pause Simulation Loop
+  app.post('/api/admin/match/pause', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    engine.pauseSimulation();
+    return reply.send({
+      success: true,
+      phase: engine.phase,
+      tick: engine.tick,
+      isPaused: engine.isPaused(),
+    });
+  });
+
+  // Admin Authoritative Operations: Resume Simulation Loop
+  app.post('/api/admin/match/resume', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    engine.resumeSimulation();
+    return reply.send({
+      success: true,
+      phase: engine.phase,
+      tick: engine.tick,
+      isPaused: engine.isPaused(),
+    });
+  });
+
+  // Admin Authoritative Operations: Emergency Reset
+  app.post('/api/admin/match/emergency-reset', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    engine.emergencyReset();
+    return reply.send({
+      success: true,
+      matchId: engine.matchId,
+      phase: engine.phase,
+      tick: engine.tick,
+      baseHp: engine.baseHp,
+    });
+  });
+
+  // Admin Authoritative Operations: Blast Gate Control
+  app.post('/api/admin/gate', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    const body = (request.body || {}) as { action: 'OPEN' | 'CLOSE' };
+    if (body.action === 'OPEN') {
+      engine.openGate();
+    } else if (body.action === 'CLOSE') {
+      engine.closeGate();
+    } else {
+      return reply.status(400).send({ error: 'INVALID_GATE_ACTION', message: 'Action must be OPEN or CLOSE' });
+    }
+    return reply.send({
+      success: true,
+      gateState: engine.getGateCollisionState(),
+    });
+  });
+
+  // Admin Live Operations Monitoring & Telemetry Endpoint
+  app.get('/api/admin/monitoring', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
+    if (!dbClient) await initDb();
+
+    let outboxLag = 0;
+    let pendingOutbox = 0;
+    let latestCheckpointTick = 0;
+    let latestJournalSeq = 0;
+
+    if (dbClient) {
+      try {
+        const obRes = await dbClient.query(`SELECT count(*) as count FROM outbox_events WHERE status = 'PENDING' OR status = 'PROCESSING'`);
+        pendingOutbox = Number(obRes.rows[0]?.count || 0);
+        outboxLag = pendingOutbox;
+      } catch {}
+      try {
+        if (journalRepo) {
+          latestJournalSeq = await journalRepo.getLatestJournalSeq(engine.matchId);
+          const cp = await journalRepo.getLatestCheckpoint(engine.matchId);
+          latestCheckpointTick = cp ? cp.tick : 0;
+        }
+      } catch {}
+    }
+
+    return reply.send({
+      server: {
+        uptimeSeconds: Math.round(process.uptime()),
+        memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        nodeVersion: process.version,
+        environment: isProduction ? 'production' : 'development',
+      },
+      engine: {
+        matchId: engine.matchId,
+        tick: engine.tick,
+        phase: engine.phase,
+        result: engine.result,
+        isPaused: engine.isPaused(),
+        baseHp: engine.baseHp,
+        maxBaseHp: engine.maxBaseHp,
+        waveNumber: engine.getWaveNumber(),
+        gateState: engine.getGateCollisionState(),
+        entities: {
+          zombies: engine.getAllZombies().filter((z: any) => !z.isDead).length,
+          soldiers: engine.getAllSoldiers().length,
+          players: engine.getPlayers().length,
+          mechActive: Boolean(engine.getActiveMech()),
+          airstrikesActive: engine.getActiveAirstrikes().length,
+        },
+        activeBuffs: {
+          shield: engine.isShieldActive(),
+          overclock: engine.isOverclockActive(),
+        },
+      },
+      operations: {
+        dbConnected: Boolean(dbClient),
+        outboxPendingCount: pendingOutbox,
+        outboxLag,
+        latestJournalSeq,
+        latestCheckpointTick,
+        simulationHz: 20,
+      },
+    });
+  });
+
+  // Admin Read-Only Database Inspection Endpoint (For QA, Health & Verification)
+  app.post('/api/admin/query', async (request, reply) => {
+    if (!verifyAdminAuth(request, reply)) return;
 
     if (!dbClient) await initDb();
     if (!dbClient) {

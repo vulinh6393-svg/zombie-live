@@ -1,0 +1,142 @@
+{
+  "timestamp": "2026-11-12T04:50:47.880Z",
+  "phase": "Phase 07: OBS Production Overlay & Live Operations MVP",
+  "overallStatus": "PASS",
+  "criteriaCount": 5,
+  "passedCount": 5,
+  "criteria": [
+    {
+      "id": "CRIT_1_OBS_OVERLAY_CLEANLINESS",
+      "name": "OBS Browser Source Route (/overlay) Isolation & Cleanliness",
+      "status": "PASS",
+      "details": "Title=\"Zombie Đại Chiến — OBS Stream Overlay (1080x1920)\", Canvas=1080x1920, Zero debug panels, Zero console errors.",
+      "metric": {
+        "pageTitle": "Zombie Đại Chiến — OBS Stream Overlay (1080x1920)",
+        "canvasBox": {
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1920
+        },
+        "consoleErrorCount": 0
+      }
+    },
+    {
+      "id": "CRIT_2_ADMIN_OPERATIONS_CONTROLS",
+      "name": "Authoritative Admin Controls (Pause, Resume, Gate, Emergency Reset)",
+      "status": "PASS",
+      "details": "Pause=true | MonitoringIsPaused=true | ResumeIsPaused=false | GateAction=OPENING | ResetBaseHp=10000,Phase=PREPARING",
+      "metric": {
+        "pauseRes": {
+          "success": true,
+          "phase": "PAUSED",
+          "tick": 8135,
+          "isPaused": true
+        },
+        "resumeRes": {
+          "success": true,
+          "phase": "WAVE_1",
+          "tick": 8135,
+          "isPaused": false
+        },
+        "gateRes": {
+          "success": true,
+          "gateState": "OPENING"
+        },
+        "resetRes": {
+          "success": true,
+          "matchId": "match_5a8738f2-6271-4ecb-9197-2dcf568c06ee",
+          "phase": "PREPARING",
+          "tick": 8135,
+          "baseHp": 10000
+        }
+      }
+    },
+    {
+      "id": "CRIT_3_OBS_AUTO_RESYNC",
+      "name": "OBS Browser Source Instant Resync on Match / Server Transition",
+      "status": "PASS",
+      "details": "NewMatchId=match_1794459026086, CurrentTick=8176, Status=RESYNCED",
+      "metric": {
+        "newMatchId": "match_1794459026086",
+        "tick": 8176
+      }
+    },
+    {
+      "id": "CRIT_4_TIKTOK_SAFE_ZONE",
+      "name": "TikTok LIVE 9:16 Safe Zone Banner Layout Bounds",
+      "status": "PASS",
+      "details": "Safe zone banner located at Y=1300px (Expected 1250px - 1350px).",
+      "metric": {
+        "found": true,
+        "simulatedY": 1300,
+        "withinSafeZone": true
+      }
+    },
+    {
+      "id": "CRIT_5_SIMULATION_STABILITY_AND_FPS",
+      "name": "Multi-Round Live Operations Simulation & 60 FPS Target",
+      "status": "PASS",
+      "details": "Average FPS=60, Final Tick=8502, Zombies=3, Memory=263MB",
+      "metric": {
+        "avgFps": 60,
+        "samples": [
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60
+        ],
+        "memoryUsageMb": 263
+      }
+    }
+  ],
+  "runtimeTelemetry": {
+    "server": {
+      "uptimeSeconds": 27,
+      "memoryUsageMb": 263,
+      "nodeVersion": "v24.12.0",
+      "environment": "development"
+    },
+    "engine": {
+      "matchId": "match_1794459026086",
+      "tick": 8502,
+      "phase": "PREPARING",
+      "result": "IN_PROGRESS",
+      "isPaused": false,
+      "baseHp": 10000,
+      "maxBaseHp": 10000,
+      "waveNumber": 1,
+      "gateState": "CLOSED",
+      "entities": {
+        "zombies": 3,
+        "soldiers": 5,
+        "players": 14,
+        "mechActive": false,
+        "airstrikesActive": 0
+      },
+      "activeBuffs": {
+        "shield": false,
+        "overclock": false
+      }
+    },
+    "operations": {
+      "dbConnected": true,
+      "outboxPendingCount": 0,
+      "outboxLag": 0,
+      "latestJournalSeq": 1,
+      "latestCheckpointTick": 8500,
+      "simulationHz": 20
+    }
+  }
+}

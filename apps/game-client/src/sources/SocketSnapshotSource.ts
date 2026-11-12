@@ -9,6 +9,7 @@ export class SocketSnapshotSource implements GameSnapshotSource {
   private connected = false;
   private serverUrl: string;
   private lastSequenceId: number = -1;
+  private lastMatchId: string = '';
 
   constructor(serverUrl: string = 'http://localhost:3001') {
     this.serverUrl = serverUrl;
@@ -25,8 +26,9 @@ export class SocketSnapshotSource implements GameSnapshotSource {
 
     this.socket.on('connect', () => {
       this.connected = true;
+      // Khi vừa kết nối hoặc reconnect, reset sequence window và yêu cầu full snapshot mới nhất
+      this.lastSequenceId = -1;
       console.log('[SocketSnapshotSource] Đã kết nối thành công tới Game Server:', this.serverUrl);
-      // Khi vừa kết nối hoặc reconnect, yêu cầu ngay full snapshot mới nhất
       this.socket?.emit('match:getSnapshot');
     });
 
@@ -36,9 +38,15 @@ export class SocketSnapshotSource implements GameSnapshotSource {
     });
 
     this.socket.on('match:snapshot', (snapshot: MatchSnapshot) => {
+      // Khi phát hiện chuyển trận (matchId thay đổi), tự động reset sequence window
+      if (snapshot.matchId && snapshot.matchId !== this.lastMatchId) {
+        this.lastMatchId = snapshot.matchId;
+        this.lastSequenceId = -1;
+      }
+
       // Bảo vệ chống gói tin đến trễ hoặc đảo thứ tự mạng (Out-of-order & Stale Packets)
       if (snapshot.sequenceId !== undefined && snapshot.sequenceId <= this.lastSequenceId) {
-        // Bỏ qua snapshot cũ hơn snapshot hiện tại
+        // Bỏ qua snapshot cũ hơn snapshot hiện tại trong cùng một trận
         return;
       }
       this.lastSequenceId = snapshot.sequenceId ?? this.lastSequenceId + 1;

@@ -1017,6 +1017,9 @@ export class AuthoritativeGameEngine {
   // =========================================================================
 
   public step(): void {
+    if (this.phase === 'PAUSED') {
+      return;
+    }
     this.tick++;
     const dt = 0.05; // 50ms
 
@@ -1106,6 +1109,29 @@ export class AuthoritativeGameEngine {
   }
 
   public onMatchStart?: (matchId: string, seed: number, phase: MatchPhase, baseHp: number) => void;
+
+  private previousPhaseBeforePause: MatchPhase = 'PREPARING';
+
+  public pauseSimulation(): void {
+    if (this.phase !== 'PAUSED') {
+      this.previousPhaseBeforePause = this.phase;
+      this.phase = 'PAUSED';
+    }
+  }
+
+  public resumeSimulation(): void {
+    if (this.phase === 'PAUSED') {
+      this.phase = this.previousPhaseBeforePause;
+    }
+  }
+
+  public isPaused(): boolean {
+    return this.phase === 'PAUSED';
+  }
+
+  public emergencyReset(): void {
+    this.restartMatch();
+  }
 
   public restartMatch(newMatchId?: string): void {
     this.matchId = newMatchId || `match_${crypto.randomUUID()}`;
@@ -1739,6 +1765,10 @@ export class AuthoritativeGameEngine {
 
   public getGateProgress(): number {
     return this.gateProgress;
+  }
+
+  public getWaveNumber(): number {
+    return this.waveNumber;
   }
 
   public getLiveZombies(): EngineZombie[] {

@@ -353,4 +353,165 @@ describe('Game Server Security & Event Ingestion', () => {
     // Sequence continues monotonically
     expect(nextBroadcastSnap.sequenceId).toBeGreaterThan(broadcastSnap.sequenceId);
   });
+
+  describe('Phase 07 Admin Operations & Live Monitoring Routes', () => {
+    it('serves admin dashboard HTML at /admin', async () => {
+      const { app, stopEngine } = buildServer();
+      stopFn = stopEngine;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.payload).toContain('Trung Tâm Điều Hành');
+    });
+
+    it('rejects unauthorized requests to /api/admin/monitoring with 401', async () => {
+      const { app, stopEngine } = buildServer({ adminSecret: 'production_secret_32_characters_min!!' });
+      stopFn = stopEngine;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/monitoring',
+        headers: { 'x-admin-token': 'wrong_token' },
+      });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.payload);
+      expect(body.error).toBe('UNAUTHORIZED_ADMIN_TOKEN');
+    });
+
+    it('returns authoritative telemetry from /api/admin/monitoring when authorized', async () => {
+      const { app, stopEngine, adminSecret } = buildServer();
+      stopFn = stopEngine;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/monitoring',
+        headers: { 'x-admin-token': adminSecret },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.server).toBeDefined();
+      expect(body.server.environment).toBeDefined();
+      expect(body.engine).toBeDefined();
+      expect(body.engine.matchId).toBeDefined();
+      expect(body.engine.phase).toBeDefined();
+      expect(body.engine.isPaused).toBe(false);
+      expect(body.operations).toBeDefined();
+      expect(body.operations.simulationHz).toBe(20);
+    });
+
+    it('pauses and resumes simulation via /api/admin/match/pause and /api/admin/match/resume', async () => {
+      const { app, engine, stopEngine, adminSecret } = buildServer();
+      stopFn = stopEngine;
+
+      // Pause
+      const resPause = await app.inject({
+        method: 'POST',
+        url: '/api/admin/match/pause',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { reason: 'Streamer emergency break' },
+      });
+
+      expect(resPause.statusCode).toBe(200);
+      const pauseBody = JSON.parse(resPause.payload);
+      expect(pauseBody.success).toBe(true);
+      expect(pauseBody.isPaused).toBe(true);
+      expect(engine.isPaused()).toBe(true);
+
+      const tickBefore = engine.tick;
+      engine.step();
+      expect(engine.tick).toBe(tickBefore); // Paused tick does not advance
+
+      // Resume
+      const resResume = await app.inject({
+        method: 'POST',
+        url: '/api/admin/match/resume',
+        headers: { 'x-admin-token': adminSecret },
+      });
+
+      expect(resResume.statusCode).toBe(200);
+      const resumeBody = JSON.parse(resResume.payload);
+      expect(resumeBody.success).toBe(true);
+      expect(resumeBody.isPaused).toBe(false);
+      expect(engine.isPaused()).toBe(false);
+
+      engine.step();
+      expect(engine.tick).toBe(tickBefore + 1); // Resumed tick advances
+    });
+
+    it('executes emergency reset and restores base hp via /api/admin/match/emergency-reset', async () => {
+      const { app, engine, stopEngine, adminSecret } = buildServer();
+      stopFn = stopEngine;
+
+      // Damage base directly
+      engine.baseHp = 1000;
+      expect(engine.baseHp).toBeLessThan(2000);
+
+      const resReset = await app.inject({
+        method: 'POST',
+        url: '/api/admin/match/emergency-reset',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { reason: 'Desync recovery' },
+      });
+
+      expect(resReset.statusCode).toBe(200);
+      const resetBody = JSON.parse(resReset.payload);
+      expect(resetBody.success).toBe(true);
+      expect(resetBody.baseHp).toBe(engine.maxBaseHp);
+      expect(engine.baseHp).toBe(engine.maxBaseHp);
+      expect(engine.phase).toBe('PREPARING');
+    });
+
+    it('controls fortress gate state via /api/admin/gate', async () => {
+      const { app, engine, stopEngine, adminSecret } = buildServer();
+      stopFn = stopEngine;
+
+      const resClose = await app.inject({
+        method: 'POST',
+        url: '/api/admin/gate',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { action: 'CLOSE' },
+      });
+
+      expect(resClose.statusCode).toBe(200);
+      expect(['CLOSING', 'CLOSED']).toContain(engine.getGateCollisionState());
+
+      const resOpen = await app.inject({
+        method: 'POST',
+        url: '/api/admin/gate',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { action: 'OPEN' },
+      });
+
+      expect(resOpen.statusCode).toBe(200);
+      expect(['OPENING', 'OPEN']).toContain(engine.getGateCollisionState());
+    });
+
+    it('starts a new match with custom seed via /api/admin/match/start', async () => {
+      const { app, engine, stopEngine, adminSecret } = buildServer();
+      stopFn = stopEngine;
+
+      const oldMatchId = engine.matchId;
+
+      const resStart = await app.inject({
+        method: 'POST',
+        url: '/api/admin/match/start',
+        headers: { 'x-admin-token': adminSecret },
+        payload: { matchId: 'custom_match_1001', seed: 99999 },
+      });
+
+      expect(resStart.statusCode).toBe(200);
+      const startBody = JSON.parse(resStart.payload);
+      expect(startBody.success).toBe(true);
+      expect(startBody.matchId).toBe('custom_match_1001');
+      expect(engine.matchId).toBe('custom_match_1001');
+      expect(engine.matchId).not.toBe(oldMatchId);
+    });
+  });
 });

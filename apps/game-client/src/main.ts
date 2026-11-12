@@ -14,15 +14,24 @@ const urlParams = new URLSearchParams(window.location.search);
 const isArtLab = window.location.pathname.startsWith('/art-integration-lab') || urlParams.get('scene') === 'art-lab';
 const isQualityLab = window.location.pathname.startsWith('/quality-lab');
 const isFortressLab = window.location.pathname.startsWith('/fortress-lab') || urlParams.get('scene') === 'fortress';
-const isOverlay = window.location.pathname.startsWith('/overlay');
+const isOverlay = window.location.pathname.startsWith('/overlay') || urlParams.get('overlay') === '1';
 const isContactSheet = window.location.pathname.startsWith('/contact-sheet');
-const useSocket = urlParams.get('mode') === 'socket';
+// In OBS Overlay mode, default automatically to live authoritative socket connection
+const useSocket = urlParams.get('mode') === 'socket' || isOverlay;
+const isTransparent = isOverlay && urlParams.get('transparent') === '1';
+
+if (isOverlay && typeof document !== 'undefined') {
+  document.title = 'Zombie Đại Chiến — OBS Stream Overlay (1080x1920)';
+  if (isTransparent) {
+    document.body.style.backgroundColor = 'transparent';
+  }
+}
 
 let snapshotSource: GameSnapshotSource;
 let mockSource: MockSnapshotSource | null = null;
 
 if (useSocket) {
-  const serverUrl = import.meta.env.VITE_GAME_SERVER_URL || 'http://localhost:3001';
+  const serverUrl = urlParams.get('server') || import.meta.env.VITE_GAME_SERVER_URL || 'http://localhost:3001';
   snapshotSource = new SocketSnapshotSource(serverUrl);
 } else {
   mockSource = new MockSnapshotSource();
@@ -34,7 +43,8 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
   width: GAME_CONFIG.width,
   height: GAME_CONFIG.height,
   parent: 'game-container',
-  backgroundColor: '#060913',
+  backgroundColor: isTransparent ? undefined : '#060913',
+  transparent: isTransparent,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

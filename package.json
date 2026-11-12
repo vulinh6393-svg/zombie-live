@@ -7,7 +7,7 @@
     "dev": "pnpm --parallel --filter @zombie-live/game-server --filter @zombie-live/game-client dev",
     "dev:server": "pnpm --filter @zombie-live/game-server dev",
     "dev:client": "pnpm --filter @zombie-live/game-client dev",
-    "build": "pnpm --filter @zombie-live/shared build && pnpm --filter @zombie-live/config build && pnpm --filter @zombie-live/database build && pnpm --filter @zombie-live/live-bridge build && pnpm --filter @zombie-live/game-server build && pnpm --filter @zombie-live/game-client build",
+    "build": "pnpm --filter @zombie-live/shared build && pnpm --filter @zombie-live/config build && pnpm --filter @zombie-live/database build && pnpm --filter @zombie-live/admin build && pnpm --filter @zombie-live/live-bridge build && pnpm --filter @zombie-live/game-server build && pnpm --filter @zombie-live/game-client build",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",

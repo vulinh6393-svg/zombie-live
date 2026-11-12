@@ -547,35 +547,40 @@ export class TextureGenerator {
   }
 
   private static generateVFX(scene: Phaser.Scene): void {
-    // Tracer bullet
-    let g = scene.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(0xfee440, 1);
-    g.fillRoundedRect(0, 0, 6, 20, 3);
-    g.fillStyle(0xffffff, 1);
-    g.fillRoundedRect(1, 2, 4, 10, 2);
-    g.generateTexture('vfx_bullet', 6, 20);
-    g.generateTexture('bullet_tracer', 6, 20);
-    g.destroy();
+    // Tracer bullet (vfx_bullet is used as fallback; bullet_tracer is loaded via SpriteAssetLoader from PNG)
+    if (!scene.textures.exists('vfx_bullet')) {
+      let g = scene.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xfee440, 1);
+      g.fillRoundedRect(0, 0, 6, 20, 3);
+      g.fillStyle(0xffffff, 1);
+      g.fillRoundedRect(1, 2, 4, 10, 2);
+      g.generateTexture('vfx_bullet', 6, 20);
+      g.destroy();
+    }
 
     // Spark
-    g = scene.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(0xff5400, 1);
-    g.fillCircle(6, 6, 6);
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(6, 6, 2.5);
-    g.generateTexture('vfx_spark', 12, 12);
-    g.generateTexture('particle_spark', 12, 12);
-    g.destroy();
+    if (!scene.textures.exists('vfx_spark') || !scene.textures.exists('particle_spark')) {
+      let g = scene.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xff5400, 1);
+      g.fillCircle(6, 6, 6);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(6, 6, 2.5);
+      if (!scene.textures.exists('vfx_spark')) g.generateTexture('vfx_spark', 12, 12);
+      if (!scene.textures.exists('particle_spark')) g.generateTexture('particle_spark', 12, 12);
+      g.destroy();
+    }
 
     // Shield Dome
-    g = scene.make.graphics({ x: 0, y: 0 });
-    g.lineStyle(5, 0x00f5d4, 0.9);
-    g.strokeCircle(70, 70, 65);
-    g.fillStyle(0x00f5d4, 0.18);
-    g.fillCircle(70, 70, 64);
-    g.generateTexture('vfx_shield', 140, 140);
-    g.generateTexture('shield_dome', 140, 140);
-    g.destroy();
+    if (!scene.textures.exists('vfx_shield') || !scene.textures.exists('shield_dome')) {
+      let g = scene.make.graphics({ x: 0, y: 0 });
+      g.lineStyle(5, 0x00f5d4, 0.9);
+      g.strokeCircle(70, 70, 65);
+      g.fillStyle(0x00f5d4, 0.18);
+      g.fillCircle(70, 70, 64);
+      if (!scene.textures.exists('vfx_shield')) g.generateTexture('vfx_shield', 140, 140);
+      if (!scene.textures.exists('shield_dome')) g.generateTexture('shield_dome', 140, 140);
+      g.destroy();
+    }
   }
 
   private static generateMech(scene: Phaser.Scene): void {
