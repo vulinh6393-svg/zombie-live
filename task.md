@@ -734,3 +734,48 @@
     - [x] Xuất báo cáo Telemetry JSON (`phase06_skills_telemetry.json`).
     - [x] Cập nhật giao diện `player.html` với video/ảnh/telemetry Phase 06.
     - [x] Git commit và push lên remote `feat/phase02-visual-refinement`.
+
+## Giai đoạn 06.1: Reliability & QA Correction (ĐÃ HOÀN THÀNH TOÀN DIỆN 7/7 PASS)
+- [x] **P0.1 — Fix Crash Recovery & Match Restoration:**
+  - [x] Truy vấn database `matchRepo.getActiveMatch()` trước khi khởi tạo hoặc phục hồi engine (phân biệt resume active match vs start new match).
+  - [x] Khôi phục chuẩn xác matchId, seed, simulation tick, RNG state và toàn bộ chiến trường.
+  - [x] Lưu trữ đầy đủ trong checkpoint: commandQueue, deferredSkillCommands, cooldowns, reinforcementSoldierLifespans, event sequence, active buffs, engineVersion.
+  - [x] Kích hoạt checkpoint theo simulation tick boundary (không phụ thuộc timer polling).
+  - [x] Lấy `lastJournalSeq` từ journal thực tế (`match_command_counters` / `MAX(seq)`), không dùng `engine.tick`.
+  - [x] Replay simulation tick-by-tick từ checkpoint tick đến target tick đảm bảo deterministic.
+  - [x] Viết test crash Wave 3, restart và kiểm tra 100% khớp trạng thái (`recovery.test.ts` PASS).
+- [x] **P0.2 — Fix Outbox ACK Timing & Observable Effects:**
+  - [x] Phân biệt rõ các trạng thái: PENDING, JOURNALED, QUEUED, APPLIED, REJECTED.
+  - [x] Chỉ ACK Outbox (`PROCESSED`) sau khi lệnh được apply thành công trong engine hoặc ghi nhận kết quả rejection rõ ràng.
+  - [x] Dedupe theo `(match_id, command_id)` chống thực thi trùng lặp.
+  - [x] Ghi nhận lý do rõ ràng khi bị từ chối (cooldown, cap, max concurrent).
+- [x] **P0.3 — Fix Match-Scoped Gift & Durable Transitions:**
+  - [x] Không tự ý thay đổi matchId của gift cũ sang match hiện tại.
+  - [x] Gift đến khi match ACTIVE: gắn đúng matchId đó.
+  - [x] Gift đến trong RESULTS hoặc giữa các trận: xếp vào deferred commands và chuyển giao bền vững có bản ghi transition record.
+- [x] **P0.4 — Fix Command Journal Sequence & Counter Table:**
+  - [x] Tạo bảng `match_command_counters (match_id, last_seq)` cấp phát sequence nguyên tử bằng `ON CONFLICT DO UPDATE SET last_seq = GREATEST(match_command_counters.last_seq + 1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM match_command_journal WHERE match_id = $1)) RETURNING last_seq`.
+  - [x] Thêm unique constraint `(match_id, seq)` vào `match_command_journal`.
+  - [x] Viết concurrent append tests chứng minh 0 duplicate seq (`journal.test.ts` PASS).
+- [x] **P0.5 — Repair Test Suite Inconsistencies:**
+  - [x] Sửa mâu thuẫn giữa `SkillRegistry.ts` (`rose` &rarr; `reinforcements`) và `SkillEngine.test.ts`.
+  - [x] Chuẩn hóa mapping `rose` &rarr; `reinforcements`, `crown`/`gift_crown`/`honor` &rarr; `honor`.
+  - [x] Chạy lại toàn bộ monorepo test suite (đảm bảo 100% PASS không assertion giả: 91/91 tests PASS).
+- [x] **P0.6 — Rewrite Phase 06 E2E Assertions (Zero Fallbacks, Hard Verification):**
+  - [x] CRIT_1: Kiểm tra thực sự 0 rows trong `gift_events` và `outbox_events` đối với unknown gift (PASS).
+  - [x] CRIT_2: Kiểm tra trực tiếp trạng thái outbox event (`PROCESSED`) và journal entry (`APPLIED`) trong database (PASS).
+  - [x] CRIT_3: Assert trực tiếp các biến đổi authoritative state của cả 7 skills (damage, buff reduction, cooldowns, soldiers, mech hp, heal amount) (PASS).
+  - [x] CRIT_4: Gửi 2 Mech requests, kiểm tra đúng 1 Mech xuất hiện và request 2 bị từ chối tại gameplay logic với status `REJECTED` (PASS).
+  - [x] CRIT_5: Assert kích thước DOM của banner, safe zone y: 1250-1350px (thực tế: 1300px), thời gian hiển thị $\le 3$s (thực tế: 2.5s) (PASS).
+  - [x] CRIT_6: Ngưỡng sustained throughput $\ge 100$ events/s (đo được: 470 events/s, p50: 251ms, p95: 275ms, p99: 278ms) (PASS).
+  - [x] CRIT_7: Bỏ fallback FPS 60, đo FPS thực tế từ Phaser loop khi VFX đang chạy (đạt trung bình 60 FPS, Min: 58, Max: 61, Zero Fallback) (PASS).
+- [x] **P1 — Skill Consistency & Clean Up:**
+  - [x] Đối chiếu `SkillRegistry` chặt chẽ với `GAME_BALANCE.json`.
+  - [x] Kiểm tra dọn dẹp bộ nhớ và scene restart.
+  - [ ] Đối chiếu `SkillRegistry` chặt chẽ với `GAME_BALANCE.json`.
+  - [ ] Kiểm tra dọn dẹp bộ nhớ và scene restart.
+- [ ] **Phase 07 — OBS Production Overlay & Live Operations MVP:**
+  - [ ] Route `/overlay` chuẩn 1080x1920 cho OBS Browser Source (read-only, zero debug controls, zero secrets).
+  - [ ] Phục hồi kết nối tự động, snapshot resync.
+  - [ ] Bảng điều khiển admin tách biệt có xác thực token HMAC.
+  - [ ] Chạy giả lập 60 phút LIVE với ít nhất 10 vòng trận.

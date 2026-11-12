@@ -247,8 +247,16 @@ model MatchCommandJournal {
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@unique([matchId, commandId], name: "match_command_unique")
+  @@unique([matchId, seq], name: "match_seq_unique")
   @@index([matchId, seq])
   @@map("match_command_journal")
+}
+
+model MatchCommandCounter {
+  matchId String @id @map("match_id")
+  lastSeq BigInt @default(0) @map("last_seq")
+
+  @@map("match_command_counters")
 }
 
 model MatchCheckpoint {
@@ -258,6 +266,7 @@ model MatchCheckpoint {
   lastJournalSeq BigInt   @map("last_journal_seq")
   stateSnapshot  Json     @map("state_snapshot")
   stateHash      String   @map("state_hash")
+  engineVersion  String   @default("1.0.0") @map("engine_version")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([matchId, tick])

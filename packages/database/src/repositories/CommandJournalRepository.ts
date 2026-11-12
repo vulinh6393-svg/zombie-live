@@ -21,6 +21,7 @@ export interface MatchCheckpointEntry {
   lastJournalSeq: number;
   stateSnapshot: any;
   stateHash: string;
+  engineVersion: string;
   createdAt: string;
 }
 
@@ -63,12 +64,16 @@ export class CommandJournalRepository {
         };
       }
 
-      // 2. Lấy next sequence number nguyên tử cho matchId
-      const maxSeqRes = await tx.query<{ max_seq: string | null }>(
-        `SELECT MAX(seq) as max_seq FROM match_command_journal WHERE match_id = $1`,
+      // 2. Lấy next sequence number nguyên tử bằng row-level upsert counter, đồng bộ hóa tuyệt đối với MAX(seq) hiện hữu
+      const counterRes = await tx.query<{ last_seq: string | number }>(
+        `INSERT INTO match_command_counters (match_id, last_seq)
+         VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM match_command_journal WHERE match_id = $1))
+         ON CONFLICT (match_id) DO UPDATE
+         SET last_seq = GREATEST(match_command_counters.last_seq + 1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM match_command_journal WHERE match_id = $1))
+         RETURNING last_seq`,
         [params.matchId]
       );
-      const nextSeq = (maxSeqRes.rows[0]?.max_seq ? Number(maxSeqRes.rows[0].max_seq) : 0) + 1;
+      const nextSeq = Number(counterRes.rows[0].last_seq);
       const id = `jrn_${crypto.randomUUID()}`;
 
       await tx.query(
@@ -103,14 +108,38 @@ export class CommandJournalRepository {
   }
 
   /**
-   * Đánh dấu command đã được simulation apply tại tick cụ thể.
+   * Lấy sequence lớn nhất hiện tại của Journal cho một match xác định.
    */
-  public async markCommandApplied(matchId: string, commandId: string, appliedTick: number): Promise<void> {
+  public async getLatestJournalSeq(matchId: string): Promise<number> {
+    const res = await this.db.query<{ last_seq: string | number }>(
+      `SELECT last_seq FROM match_command_counters WHERE match_id = $1`,
+      [matchId]
+    );
+    if (res.rows.length === 0) {
+      const maxRes = await this.db.query<{ max_seq: string | null }>(
+        `SELECT MAX(seq) as max_seq FROM match_command_journal WHERE match_id = $1`,
+        [matchId]
+      );
+      return maxRes.rows[0]?.max_seq ? Number(maxRes.rows[0].max_seq) : 0;
+    }
+    return Number(res.rows[0].last_seq);
+  }
+
+  /**
+   * Đánh dấu command đã được simulation apply hoặc reject tại tick cụ thể.
+   */
+  public async markCommandApplied(
+    matchId: string,
+    commandId: string,
+    appliedTick: number,
+    status: 'APPLIED' | 'REJECTED' = 'APPLIED',
+    reason?: string
+  ): Promise<void> {
     await this.db.query(
       `UPDATE match_command_journal
-       SET status = 'APPLIED', applied_tick = $1
-       WHERE match_id = $2 AND command_id = $3`,
-      [appliedTick, matchId, commandId]
+       SET status = $1, applied_tick = $2
+       WHERE match_id = $3 AND command_id = $4`,
+      [status, appliedTick, matchId, commandId]
     );
   }
 
@@ -142,12 +171,14 @@ export class CommandJournalRepository {
     lastJournalSeq: number;
     stateSnapshot: any;
     stateHash: string;
+    engineVersion?: string;
   }): Promise<string> {
     const id = `chk_${params.matchId}_${params.tick}`;
+    const engineVersion = params.engineVersion || '1.0.0';
     await this.db.query(
-      `INSERT INTO match_checkpoints (id, match_id, tick, last_journal_seq, state_snapshot, state_hash, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-       ON CONFLICT (id) DO UPDATE SET state_snapshot = $5, state_hash = $6`,
+      `INSERT INTO match_checkpoints (id, match_id, tick, last_journal_seq, state_snapshot, state_hash, engine_version, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET last_journal_seq = $4, state_snapshot = $5, state_hash = $6, engine_version = $7`,
       [
         id,
         params.matchId,
@@ -155,6 +186,7 @@ export class CommandJournalRepository {
         params.lastJournalSeq,
         JSON.stringify(params.stateSnapshot),
         params.stateHash,
+        engineVersion,
       ]
     );
     return id;
@@ -165,7 +197,7 @@ export class CommandJournalRepository {
    */
   public async getLatestCheckpoint(matchId: string): Promise<MatchCheckpointEntry | null> {
     const res = await this.db.query<any>(
-      `SELECT id, match_id as "matchId", tick, last_journal_seq as "lastJournalSeq", state_snapshot as "stateSnapshot", state_hash as "stateHash", created_at as "createdAt"
+      `SELECT id, match_id as "matchId", tick, last_journal_seq as "lastJournalSeq", state_snapshot as "stateSnapshot", state_hash as "stateHash", engine_version as "engineVersion", created_at as "createdAt"
        FROM match_checkpoints
        WHERE match_id = $1
        ORDER BY tick DESC, created_at DESC
@@ -178,6 +210,7 @@ export class CommandJournalRepository {
     return {
       ...row,
       lastJournalSeq: Number(row.lastJournalSeq),
+      engineVersion: row.engineVersion || '1.0.0',
       stateSnapshot: typeof row.stateSnapshot === 'string' ? JSON.parse(row.stateSnapshot) : row.stateSnapshot,
     };
   }

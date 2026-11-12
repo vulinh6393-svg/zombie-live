@@ -35,6 +35,28 @@ export class MatchRepository {
     );
   }
 
+  /**
+   * Truy vấn trận đấu đang diễn ra (chưa kết thúc) trong cơ sở dữ liệu để phục hồi sau crash/restart.
+   */
+  public async getActiveMatch(): Promise<{ id: string; sessionId?: string; seed: number; phase: string; baseHp: number } | null> {
+    const res = await this.db.query<any>(
+      `SELECT id, session_id as "sessionId", seed, phase, base_hp as "baseHp"
+       FROM matches
+       WHERE result = 'IN_PROGRESS' AND ended_at IS NULL
+       ORDER BY started_at DESC
+       LIMIT 1`
+    );
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      sessionId: r.sessionId,
+      seed: Number(r.seed),
+      phase: r.phase,
+      baseHp: Number(r.baseHp),
+    };
+  }
+
   public async finishMatch(
     matchId: string,
     result: string,

@@ -29,6 +29,9 @@ export interface BuildServerOptions {
   allowedOrigins?: string[];
   disableCombat?: boolean;
   enableMockDashboard?: boolean;
+  matchId?: string;
+  dbDataDir?: string;
+  disableAutoTick?: boolean;
 }
 
 // Zod schemas for Admin / Command Payloads
@@ -108,6 +111,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
   const engine = new AuthoritativeGameEngine({
     seed: opts.engineSeed ?? 42,
+    matchId: opts.matchId,
     maxZombies: opts.maxZombies ?? 10,
     disableCombat: opts.disableCombat,
   });
@@ -157,10 +161,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
         baseHp: engine.baseHp,
         gateState: engine.getGateCollisionState(),
         zombieCount: engine.getAllZombies().length,
+        soldierCount: engine.getAllSoldiers().length,
         playerCount: engine.getPlayers().length,
         shieldActive: engine.isShieldActive(),
         overclockActive: engine.isOverclockActive(),
         mechActive: Boolean(engine.getActiveMech()),
+        airstrikesActive: engine.getActiveAirstrikes().length,
       },
       dependencies: {
         database: {
@@ -207,7 +213,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const initDb = async () => {
     if (!dbClient) {
       try {
-        const db = await getDatabaseClient();
+        const db = await getDatabaseClient(opts.dbDataDir ? { dataDir: opts.dbDataDir } : undefined);
         dbClient = db;
         playerRepo = new PlayerRepository(db);
         giftLedgerRepo = new GiftLedgerRepository(db);
@@ -224,13 +230,49 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   };
 
-  // Wire command execution callback from engine to persistent journal
-  engine.onCommandApplied = async (cmd, tick) => {
+  // Unique worker ID for Outbox lease management
+  const workerInstanceId = `worker_${process.pid}_${crypto.randomBytes(4).toString('hex')}`;
+
+  // Wire command execution callback from engine to persistent journal and outbox ACK
+  engine.onCommandApplied = async (cmd, tick, result) => {
     if (journalRepo) {
       try {
-        await journalRepo.markCommandApplied(cmd.matchId, cmd.commandId, tick);
+        await journalRepo.markCommandApplied(
+          cmd.matchId,
+          cmd.commandId,
+          tick,
+          result.success ? 'APPLIED' : 'REJECTED',
+          result.reason
+        );
       } catch (err: any) {
         app.log.warn(`[JOURNAL] Failed to mark command applied: ${err.message}`);
+      }
+    }
+    if (outboxRepo) {
+      try {
+        await outboxRepo.markProcessed(cmd.commandId, workerInstanceId);
+      } catch (err: any) {
+        app.log.warn(`[OUTBOX] Failed to mark outbox event processed: ${err.message}`);
+      }
+    }
+  };
+
+  // Checkpointing deterministically triggered at simulation tick boundary (every 100 ticks = 5s)
+  engine.onCheckpointNeeded = async (tick, state) => {
+    if (journalRepo) {
+      try {
+        const lastJournalSeq = await journalRepo.getLatestJournalSeq(engine.matchId);
+        const stateHash = engine.getStateHash();
+        await journalRepo.saveCheckpoint({
+          matchId: engine.matchId,
+          tick,
+          lastJournalSeq,
+          stateSnapshot: state,
+          stateHash,
+          engineVersion: '1.0.0',
+        });
+      } catch (chkErr: any) {
+        app.log.warn(`[CHECKPOINT] Periodic save warning: ${chkErr.message}`);
       }
     }
   };
@@ -251,36 +293,44 @@ export function buildServer(opts: BuildServerOptions = {}): {
     await initDb();
     if (matchRepo) {
       try {
-        await matchRepo.startMatch(engine.matchId, engine.seed, engine.phase, engine.baseHp);
-      } catch {}
-    }
+        const activeMatch = await matchRepo.getActiveMatch();
+        if (activeMatch) {
+          app.log.info(`[RECOVERY] Resuming active match: ${activeMatch.id} (seed: ${activeMatch.seed}, phase: ${activeMatch.phase})`);
+          engine.matchId = activeMatch.id;
+          engine.seed = activeMatch.seed;
+          engine.phase = activeMatch.phase as any;
+          engine.baseHp = activeMatch.baseHp;
 
-    // P0 Recovery: Kiểm tra xem có Checkpoint hợp lệ cho match hiện tại không
-    if (journalRepo) {
-      try {
-        const latestCheckpoint = await journalRepo.getLatestCheckpoint(engine.matchId);
-        if (latestCheckpoint) {
-          app.log.info(`[RECOVERY] Restoring simulation checkpoint for match ${engine.matchId} at tick ${latestCheckpoint.tick}`);
-          engine.loadSimulationState(latestCheckpoint.stateSnapshot);
+          if (journalRepo) {
+            const latestCheckpoint = await journalRepo.getLatestCheckpoint(activeMatch.id);
+            if (latestCheckpoint) {
+              app.log.info(`[RECOVERY] Restoring simulation checkpoint for match ${activeMatch.id} at tick ${latestCheckpoint.tick} (seq ${latestCheckpoint.lastJournalSeq})`);
+              engine.loadSimulationState(latestCheckpoint.stateSnapshot);
 
-          // Replay các command journal sau sequence của checkpoint
-          const unapplied = await journalRepo.getCommandsToReplay(engine.matchId, latestCheckpoint.lastJournalSeq);
-          for (const cmdEntry of unapplied) {
-            engine.applySkillCommand({
-              commandId: cmdEntry.commandId,
-              matchId: cmdEntry.matchId,
-              seq: cmdEntry.seq,
-              targetTick: cmdEntry.tick,
-              sourceUserId: cmdEntry.payload.senderId,
-              sourceUserName: cmdEntry.payload.senderName,
-              skillId: cmdEntry.payload.skillId,
-              quantity: cmdEntry.payload.deltaQuantity,
-              streakId: cmdEntry.payload.streakId,
-            });
+              // Replay unapplied journal commands after checkpoint sequence via tick-ordered queue
+              const unapplied = await journalRepo.getCommandsToReplay(activeMatch.id, latestCheckpoint.lastJournalSeq);
+              app.log.info(`[RECOVERY] Replaying ${unapplied.length} unapplied commands after seq ${latestCheckpoint.lastJournalSeq}`);
+              for (const cmdEntry of unapplied) {
+                engine.queueSkillCommand({
+                  commandId: cmdEntry.commandId,
+                  matchId: cmdEntry.matchId,
+                  seq: cmdEntry.seq,
+                  targetTick: cmdEntry.tick,
+                  sourceUserId: cmdEntry.payload.senderId,
+                  sourceUserName: cmdEntry.payload.senderName,
+                  skillId: cmdEntry.payload.skillId,
+                  quantity: cmdEntry.payload.deltaQuantity,
+                  streakId: cmdEntry.payload.streakId,
+                });
+              }
+            }
           }
+        } else {
+          app.log.info(`[MATCH_PERSISTENCE] No active match found. Starting new match: ${engine.matchId}`);
+          await matchRepo.startMatch(engine.matchId, engine.seed, engine.phase, engine.baseHp);
         }
       } catch (recoveryErr: any) {
-        app.log.warn(`[RECOVERY] Checkpoint recovery failed: ${recoveryErr.message}`);
+        app.log.warn(`[RECOVERY] Startup recovery error: ${recoveryErr.message}`);
       }
     }
   });
@@ -334,27 +384,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         }
       }
     }
-
-    // P0 Checkpointing: Lưu trạng thái Authoritative Engine định kỳ mỗi 100 ticks (5 giây)
-    if (engine.tick > 0 && engine.tick % 100 === 0 && journalRepo) {
-      try {
-        const simState = engine.getSimulationState();
-        const stateHash = engine.getStateHash();
-        await journalRepo.saveCheckpoint({
-          matchId: engine.matchId,
-          tick: engine.tick,
-          lastJournalSeq: engine.tick,
-          stateSnapshot: simState,
-          stateHash,
-        });
-      } catch (chkErr: any) {
-        app.log.warn(`[CHECKPOINT] Periodic save warning: ${chkErr.message}`);
-      }
-    }
   }, 500);
-
-  // Unique worker ID for Outbox lease management
-  const workerInstanceId = `worker_${process.pid}_${crypto.randomBytes(4).toString('hex')}`;
 
   // Background Outbox Worker: Sole authoritative path for executing gift skills into engine
   const outboxWorkerTimer = setInterval(async () => {
@@ -370,7 +400,43 @@ export function buildServer(opts: BuildServerOptions = {}): {
         try {
           if (ev.eventType === 'GIFT_SKILL_TRIGGER') {
             const p = ev.payload;
-            const targetMatchId = (p.matchId && p.matchId === engine.matchId) ? p.matchId : engine.matchId;
+            const targetMatchId = p.matchId || engine.matchId;
+
+            // P0.3: Match Scoping Policy (No silent mutation of matchId)
+            if (targetMatchId !== engine.matchId) {
+              if (engine.phase === 'RESULTS') {
+                // Game in results, queue as deferred for the next match
+                const queueRes = engine.queueSkillCommand({
+                  commandId: ev.id,
+                  matchId: targetMatchId,
+                  targetTick: engine.tick + 5,
+                  sourceUserId: p.senderId,
+                  sourceUserName: p.senderName,
+                  skillId: p.skillId,
+                  quantity: p.deltaQuantity,
+                  streakId: p.streakId,
+                });
+                if (queueRes.queued) {
+                  app.log.info(`[OUTBOX] Event ${ev.id} deferred for next match transition.`);
+                }
+                continue;
+              } else {
+                // Event belonged to an obsolete/past match
+                app.log.warn(`[OUTBOX] Event ${ev.id} targeted past match ${targetMatchId}. Transitioning to stale.`);
+                await outboxRepo.markProcessed(ev.id, workerInstanceId);
+                if (journalRepo) {
+                  await journalRepo.appendCommand({
+                    matchId: targetMatchId,
+                    commandId: ev.id,
+                    tick: engine.tick,
+                    commandType: 'GIFT_SKILL_STALE_MATCH',
+                    payload: { ...p, transitionReason: 'MATCH_ALREADY_COMPLETED' },
+                  });
+                  await journalRepo.markCommandApplied(targetMatchId, ev.id, engine.tick, 'REJECTED', 'MATCH_ALREADY_COMPLETED');
+                }
+                continue;
+              }
+            }
 
             // P0: Ghi nhận vào Command Journal trước khi đẩy vào engine queue (Durable Command Journal)
             if (journalRepo) {
@@ -395,11 +461,14 @@ export function buildServer(opts: BuildServerOptions = {}): {
               streakId: p.streakId,
             });
 
-            if (queueRes.queued || queueRes.reason === 'DEFERRED_FOR_NEXT_MATCH' || queueRes.reason === 'COMMAND_ALREADY_EXECUTED') {
-              await outboxRepo.markProcessed(ev.id, workerInstanceId);
-            } else {
-              await outboxRepo.markFailed(ev.id, queueRes.reason || 'ENGINE_QUEUE_REJECTED', workerInstanceId);
+            if (!queueRes.queued) {
+              if (queueRes.reason === 'COMMAND_ALREADY_EXECUTED') {
+                await outboxRepo.markProcessed(ev.id, workerInstanceId);
+              } else {
+                await outboxRepo.markFailed(ev.id, queueRes.reason || 'ENGINE_QUEUE_REJECTED', workerInstanceId);
+              }
             }
+            // Note: When queued === true, outboxRepo.markProcessed will be called via engine.onCommandApplied when simulation processes it
           } else {
             await outboxRepo.markProcessed(ev.id, workerInstanceId);
           }
@@ -534,6 +603,36 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return { accepted: false, reason: 'UNSUPPORTED_EVENT_TYPE' };
   };
 
+  // Admin Read-Only Database Inspection Endpoint (For QA, Health & Verification)
+  app.post('/api/admin/query', async (request, reply) => {
+    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
+    if (authHeader !== adminSecret && authHeader !== `Bearer ${adminSecret}`) {
+      return reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
+    }
+
+    if (!dbClient) await initDb();
+    if (!dbClient) {
+      return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE' });
+    }
+
+    const { sql, params } = (request.body || {}) as { sql: string; params?: any[] };
+    if (!sql || typeof sql !== 'string') {
+      return reply.status(400).send({ error: 'INVALID_SQL' });
+    }
+
+    const trimmed = sql.trim().toUpperCase();
+    if (!trimmed.startsWith('SELECT')) {
+      return reply.status(403).send({ error: 'ONLY_SELECT_QUERIES_ALLOWED' });
+    }
+
+    try {
+      const res = await dbClient.query(sql, params || []);
+      return reply.send({ rows: res.rows, rowCount: res.rowCount });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
   // Secure HTTP endpoint for Live Bridge / Admin Event Ingestion
   app.post('/api/live/event', async (request, reply) => {
     const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
@@ -551,9 +650,6 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     const result = await processLiveEvent(parseRes.data);
-    if (!result.accepted && result.reason === 'UNSUPPORTED_GIFT_TYPE') {
-      return reply.status(400).send({ error: 'UNSUPPORTED_GIFT_SKILL', reason: 'UNSUPPORTED_GIFT_TYPE', accepted: false });
-    }
     return reply.send(result);
   });
 
@@ -620,9 +716,6 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
 
     const result = await processLiveEvent(parseRes.data);
-    if (!result.accepted && result.reason === 'UNSUPPORTED_GIFT_TYPE') {
-      return reply.status(400).send({ error: 'UNSUPPORTED_GIFT_SKILL', reason: 'UNSUPPORTED_GIFT_TYPE', accepted: false });
-    }
     return reply.send(result);
   });
 
@@ -977,41 +1070,49 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const TICK_DURATION_MS = 50; // 20Hz (50ms)
   const CATCH_UP_LIMIT = 5;
 
-  const simulationInterval = setInterval(() => {
-    const now = performance.now();
-    const elapsed = now - lastMonotonicTime;
-    lastMonotonicTime = now;
-    accumulator += elapsed;
+  let simulationInterval: any = null;
+  if (!opts.disableAutoTick) {
+    simulationInterval = setInterval(() => {
+      const now = performance.now();
+      const elapsed = now - lastMonotonicTime;
+      lastMonotonicTime = now;
+      accumulator += elapsed;
 
-    let ticksRan = 0;
-    while (accumulator >= TICK_DURATION_MS && ticksRan < CATCH_UP_LIMIT) {
-      engine.step();
-      accumulator -= TICK_DURATION_MS;
-      ticksRan++;
+      let ticksRan = 0;
+      while (accumulator >= TICK_DURATION_MS && ticksRan < CATCH_UP_LIMIT) {
+        engine.step();
+        accumulator -= TICK_DURATION_MS;
+        ticksRan++;
 
-      // Phát snapshot tại 10Hz (mỗi 2 ticks)
-      if (engine.tick % 2 === 0) {
-        const snapshot = engine.generateBroadcastSnapshot();
-        gameNamespace.emit('match:snapshot', snapshot);
-        adminNamespace.emit('match:snapshot', snapshot);
+        // Phát snapshot tại 10Hz (mỗi 2 ticks)
+        if (engine.tick % 2 === 0) {
+          const snapshot = engine.generateBroadcastSnapshot();
+          gameNamespace.emit('match:snapshot', snapshot);
+          adminNamespace.emit('match:snapshot', snapshot);
+        }
       }
-    }
 
-    // Bounded catch-up khống chế tối đa 5 ticks, ngăn chặn spiral of death
-    if (accumulator > TICK_DURATION_MS * CATCH_UP_LIMIT) {
-      accumulator = 0;
-    }
-  }, 20); // Kiểm tra mỗi 20ms cho độ chính xác cao
+      // Bounded catch-up khống chế tối đa 5 ticks, ngăn chặn spiral of death
+      if (accumulator > TICK_DURATION_MS * CATCH_UP_LIMIT) {
+        accumulator = 0;
+      }
+    }, 20); // Kiểm tra mỗi 20ms cho độ chính xác cao
+  }
 
   const stopEngine = () => {
-    clearInterval(simulationInterval);
+    if (simulationInterval) clearInterval(simulationInterval);
     clearInterval(matchPersistenceTimer);
     clearInterval(outboxWorkerTimer);
   };
 
-  app.addHook('onClose', (_instance, done) => {
+  app.addHook('onClose', async (_instance) => {
     stopEngine();
-    done();
+    if (dbClient) {
+      try {
+        await dbClient.close();
+      } catch {}
+      dbClient = null;
+    }
   });
 
   return { app, io, engine, stopEngine, adminSecret, dashboardDevToken };

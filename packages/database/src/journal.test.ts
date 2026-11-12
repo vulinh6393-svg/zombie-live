@@ -116,4 +116,30 @@ describe('CommandJournalRepository & Simulation Checkpoint Recovery', () => {
     expect(toReplay[1].commandId).toBe('cmd_5');
     expect(toReplay[1].seq).toBe(5);
   });
+
+  it('guarantees unique, monotonically ordered sequences under concurrent appends', async () => {
+    const matchId = 'match_concurrent_test_' + Date.now();
+    const concurrentCount = 10;
+
+    // Dispatch 10 concurrent appends simultaneously
+    const promises = Array.from({ length: concurrentCount }, (_, i) =>
+      journalRepo.appendCommand({
+        matchId,
+        commandId: `concurrent_cmd_${i}`,
+        tick: 20 + i,
+        commandType: 'GIFT_SKILL',
+        payload: { concurrentIndex: i },
+      })
+    );
+
+    const results = await Promise.all(promises);
+    const sequences = results.map((r) => r.entry.seq).sort((a, b) => a - b);
+
+    // Assert strictly distinct sequence numbers from 1 to 10
+    expect(sequences).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+    // Verify counter table reflects the latest sequence
+    const latestSeq = await journalRepo.getLatestJournalSeq(matchId);
+    expect(latestSeq).toBe(10);
+  });
 });

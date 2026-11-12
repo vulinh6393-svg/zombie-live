@@ -133,7 +133,7 @@ export interface EngineOptions {
  * - Tự động tái khởi động vòng đấu (24/7 continuous livestream loop).
  */
 export class AuthoritativeGameEngine {
-  public readonly seed: number;
+  public seed: number;
   public matchId: string;
   private rng: SeededRandom;
 
@@ -180,7 +180,8 @@ export class AuthoritativeGameEngine {
   private skillActivationCounts: Map<string, number> = new Map();
   private skillCooldowns: Map<string, number> = new Map();
   private reinforcementSoldierLifespans: Map<string, number> = new Map();
-  public onCommandApplied?: (cmd: SkillCommand, appliedTick: number) => void;
+  public onCommandApplied?: (cmd: SkillCommand, appliedTick: number, result: { success: boolean; reason?: string }) => void;
+  public onCheckpointNeeded?: (tick: number, state: any) => Promise<void> | void;
 
   private waveNumber: number = 1;
   private waveTicksRemaining: number = 20 * 20; // 20s for PREPARING
@@ -532,33 +533,40 @@ export class AuthoritativeGameEngine {
    * Áp dụng lệnh kỹ năng vào thế giới Authoritative với validation, per-match cap, cooldown, stacking.
    */
   public applySkillCommand(cmd: SkillCommand): { success: boolean; reason?: string; skillName: string } {
+    const notifyReject = (reason: string, skillName: string = 'UNKNOWN') => {
+      if (this.onCommandApplied) {
+        this.onCommandApplied(cmd, this.tick, { success: false, reason });
+      }
+      return { success: false, reason, skillName };
+    };
+
     if (this.executedCommandIds.has(cmd.commandId)) {
-      return { success: false, reason: 'COMMAND_ALREADY_EXECUTED', skillName: 'ALREADY_EXECUTED' };
+      return notifyReject('COMMAND_ALREADY_EXECUTED', 'ALREADY_EXECUTED');
     }
 
     const config = SKILL_REGISTRY[cmd.skillId];
     if (!config) {
-      return { success: false, reason: 'UNSUPPORTED_GIFT_TYPE', skillName: 'UNKNOWN' };
+      return notifyReject('UNSUPPORTED_GIFT_TYPE', 'UNKNOWN');
     }
 
     // 1. Kiểm tra per-match cap
     const currentCount = this.skillActivationCounts.get(cmd.skillId) || 0;
     if (currentCount >= config.perMatchCap) {
-      return { success: false, reason: 'PER_MATCH_CAP_REACHED', skillName: config.name };
+      return notifyReject('PER_MATCH_CAP_REACHED', config.name);
     }
 
     // 2. Kiểm tra Stacking & Concurrency policy
     if (cmd.skillId === 'shield') {
       if (this.isShieldActive() && config.stackPolicy === 'reject') {
-        return { success: false, reason: 'STACK_POLICY_REJECT', skillName: config.name };
+        return notifyReject('STACK_POLICY_REJECT', config.name);
       }
     } else if (cmd.skillId === 'overclock') {
       if (this.isOverclockActive() && config.stackPolicy === 'reject') {
-        return { success: false, reason: 'STACK_POLICY_REJECT', skillName: config.name };
+        return notifyReject('STACK_POLICY_REJECT', config.name);
       }
     } else if (cmd.skillId === 'mech') {
       if (this.activeMechUnit && this.activeMechUnit.hp > 0) {
-        return { success: false, reason: 'MAX_MECH_CONCURRENT_REACHED', skillName: config.name };
+        return notifyReject('MAX_MECH_CONCURRENT_REACHED', config.name);
       }
     } else if (cmd.skillId === 'reinforcements') {
       let activeReinfCount = 0;
@@ -566,14 +574,14 @@ export class AuthoritativeGameEngine {
         if (id.startsWith('reinf_')) activeReinfCount++;
       }
       if (activeReinfCount >= (config.maxSoldiers || 4)) {
-        return { success: false, reason: 'MAX_REINFORCEMENTS_REACHED', skillName: config.name };
+        return notifyReject('MAX_REINFORCEMENTS_REACHED', config.name);
       }
     }
 
     // 3. Kiểm tra cooldown
     const expireTick = this.skillCooldowns.get(cmd.skillId) || 0;
     if (this.tick < expireTick) {
-      return { success: false, reason: 'SKILL_ON_COOLDOWN', skillName: config.name };
+      return notifyReject('SKILL_ON_COOLDOWN', config.name);
     }
 
     // Đăng ký/lấy profile đóng góp của người gửi
@@ -822,7 +830,7 @@ export class AuthoritativeGameEngine {
     }
 
     if (this.onCommandApplied) {
-      this.onCommandApplied(cmd, this.tick);
+      this.onCommandApplied(cmd, this.tick, { success: true });
     }
 
     return { success: true, skillName: config.name };
@@ -1038,6 +1046,11 @@ export class AuthoritativeGameEngine {
 
     // 6. Quản lý vòng đời Zombie & Respawn
     this.stepZombieLifecycle();
+
+    // 7. Checkpoint Trigger: Kích hoạt định kỳ tại simulation tick boundary (mỗi 100 ticks)
+    if (this.tick > 0 && this.tick % 100 === 0) {
+      this.onCheckpointNeeded?.(this.tick, this.getSimulationState());
+    }
   }
 
   private stepMatchLifecycle(): void {
@@ -1744,11 +1757,20 @@ export class AuthoritativeGameEngine {
     return Array.from(this.players.values());
   }
 
+  public getAllSoldiers(): EngineSoldier[] {
+    return Array.from(this.soldiers.values());
+  }
+
+  public getActiveAirstrikes(): ActiveAirstrike[] {
+    return this.activeAirstrikes;
+  }
+
   /**
    * Lưu trọn vẹn trạng thái Authoritative Simulation phục vụ Checkpoint & Crash Recovery
    */
   public getSimulationState(): any {
     return {
+      engineVersion: '1.0.0',
       matchId: this.matchId,
       seed: this.seed,
       tick: this.tick,
@@ -1771,6 +1793,9 @@ export class AuthoritativeGameEngine {
       zombies: Array.from(this.zombies.values()),
       players: Array.from(this.players.values()),
       executedCommandIds: Array.from(this.executedCommandIds),
+      processedGiftIds: Array.from(this.processedGiftIds),
+      commandQueue: this.commandQueue.map((c) => ({ ...c })),
+      deferredSkillCommands: this.deferredSkillCommands.map((c) => ({ ...c })),
       activeAirstrikes: this.activeAirstrikes,
       activeShieldBuff: this.activeShieldBuff,
       activeOverclockBuff: this.activeOverclockBuff
@@ -1784,6 +1809,9 @@ export class AuthoritativeGameEngine {
       activeMechUnit: this.activeMechUnit,
       skillActivationCounts: Array.from(this.skillActivationCounts.entries()),
       skillCooldowns: Array.from(this.skillCooldowns.entries()),
+      reinforcementSoldierLifespans: Array.from(this.reinforcementSoldierLifespans.entries()),
+      activeStreaks: Array.from(this.activeStreaks.entries()),
+      userCooldowns: Array.from(this.userCooldowns.entries()).map(([u, map]) => [u, Array.from(map.entries())]),
     };
   }
 
@@ -1792,7 +1820,11 @@ export class AuthoritativeGameEngine {
    */
   public loadSimulationState(state: any): void {
     if (!state) return;
+    if (state.engineVersion && state.engineVersion !== '1.0.0') {
+      console.warn(`[Engine] Checkpoint version mismatch: ${state.engineVersion} vs current 1.0.0`);
+    }
     this.matchId = state.matchId || this.matchId;
+    this.seed = state.seed ?? this.seed;
     this.tick = state.tick ?? this.tick;
     this.sequenceId = state.sequenceId ?? this.sequenceId;
     if (state.rngState !== undefined) this.rng.setState(state.rngState);
@@ -1834,6 +1866,15 @@ export class AuthoritativeGameEngine {
     if (Array.isArray(state.executedCommandIds)) {
       this.executedCommandIds = new Set(state.executedCommandIds);
     }
+    if (Array.isArray(state.processedGiftIds)) {
+      this.processedGiftIds = new Set(state.processedGiftIds);
+    }
+    if (Array.isArray(state.commandQueue)) {
+      this.commandQueue = state.commandQueue.map((c: any) => ({ ...c }));
+    }
+    if (Array.isArray(state.deferredSkillCommands)) {
+      this.deferredSkillCommands = state.deferredSkillCommands.map((c: any) => ({ ...c }));
+    }
     if (Array.isArray(state.activeAirstrikes)) {
       this.activeAirstrikes = state.activeAirstrikes.map((a: any) => ({ ...a }));
     }
@@ -1855,11 +1896,26 @@ export class AuthoritativeGameEngine {
     if (Array.isArray(state.skillCooldowns)) {
       this.skillCooldowns = new Map(state.skillCooldowns);
     }
+    if (Array.isArray(state.reinforcementSoldierLifespans)) {
+      this.reinforcementSoldierLifespans = new Map(state.reinforcementSoldierLifespans);
+    }
+    if (Array.isArray(state.activeStreaks)) {
+      this.activeStreaks = new Map(state.activeStreaks);
+    }
+    if (Array.isArray(state.userCooldowns)) {
+      this.userCooldowns = new Map(
+        state.userCooldowns.map(([u, arr]: [string, any[]]) => [u, new Map(arr)])
+      );
+    }
+  }
+
+  public getRawHashString(): string {
+    const snap = this.generateSnapshot();
+    return `${snap.tick}_${snap.baseHp}_${snap.phase}_${snap.gate.state}_${snap.walls.left.hp}_${snap.walls.right.hp}_${snap.zombies.map((z) => `${z.id}:${z.hp}:${Math.round(z.y)}`).join('|')}_${this.activeAirstrikes.length}_${this.isShieldActive() ? 1 : 0}_${this.isOverclockActive() ? 1 : 0}_${this.activeMechUnit ? this.activeMechUnit.hp : 0}_${Array.from(this.executedCommandIds).sort().join(',')}`;
   }
 
   public getStateHash(): string {
-    const snap = this.generateSnapshot();
-    const raw = `${snap.tick}_${snap.baseHp}_${snap.phase}_${snap.gate.state}_${snap.walls.left.hp}_${snap.walls.right.hp}_${snap.zombies.map((z) => `${z.id}:${z.hp}:${Math.round(z.y)}`).join('|')}_${this.activeAirstrikes.length}_${this.isShieldActive() ? 1 : 0}_${this.isOverclockActive() ? 1 : 0}_${this.activeMechUnit ? this.activeMechUnit.hp : 0}_${Array.from(this.executedCommandIds).sort().join(',')}`;
+    const raw = this.getRawHashString();
 
     // Fast deterministic 64-bit FNV-1a / Murmur hash (universal for both Node & Browser)
     let h1 = 0xdeadbeef, h2 = 0x41c6ce57;

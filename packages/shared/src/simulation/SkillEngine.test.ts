@@ -19,7 +19,10 @@ describe('Phase 06 — Config-Driven Skill Engine & Deterministic Effects', () =
       expect(resolveGiftSkill('gift_heart')?.id).toBe('healing');
       expect(resolveGiftSkill('heal')?.id).toBe('healing');
       expect(resolveGiftSkill('gift_honor')?.id).toBe('honor');
-      expect(resolveGiftSkill('rose')?.id).toBe('honor');
+      expect(resolveGiftSkill('gift_crown')?.id).toBe('honor');
+      expect(resolveGiftSkill('crown')?.id).toBe('honor');
+      expect(resolveGiftSkill('rose')?.id).toBe('reinforcements');
+      expect(resolveGiftSkill('gift_rose')?.id).toBe('reinforcements');
     });
 
     it('rejects unsupported or malicious gift IDs immediately with null', () => {

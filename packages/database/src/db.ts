@@ -61,6 +61,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261111_command_journal/migration.sql'),
       ],
     },
+    {
+      id: '20261112_journal_atomic_counters',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261112_journal_atomic_counters/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261112_journal_atomic_counters/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261112_journal_atomic_counters/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261112_journal_atomic_counters/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {
@@ -178,6 +187,7 @@ export class PostgresDatabaseAdapter implements DatabaseClient {
 
   public async close(): Promise<void> {
     await this.pool.end();
+    resetDatabaseClient();
   }
 
   public getBackendType(): 'postgres-pool' {
@@ -251,6 +261,7 @@ export class PGliteDatabaseAdapter implements DatabaseClient {
 
   public async close(): Promise<void> {
     await this.pglite.close();
+    resetDatabaseClient();
   }
 
   public getBackendType(): 'pglite-filesystem-persistent' | 'pglite-in-memory' {
@@ -261,6 +272,11 @@ export class PGliteDatabaseAdapter implements DatabaseClient {
 // Global Singleton for Database Client
 let defaultInstance: DatabaseClient | null = null;
 let initPromise: Promise<DatabaseClient> | null = null;
+
+export function resetDatabaseClient(): void {
+  defaultInstance = null;
+  initPromise = null;
+}
 
 export interface GetDatabaseOptions {
   databaseUrl?: string;
@@ -275,8 +291,14 @@ export async function getDatabaseClient(options?: GetDatabaseOptions | string): 
     try {
       await defaultInstance.close();
     } catch {}
-    defaultInstance = null;
-    initPromise = null;
+    resetDatabaseClient();
+  }
+
+  if (opts.dataDir && defaultInstance && (defaultInstance as any).dataDir !== opts.dataDir) {
+    try {
+      await defaultInstance.close();
+    } catch {}
+    resetDatabaseClient();
   }
 
   if (defaultInstance) {
