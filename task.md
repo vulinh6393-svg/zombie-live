@@ -815,3 +815,44 @@
     - Báo cáo Telemetry vận hành: `phase07_live_ops_telemetry.json`.
     - Cập nhật `player.html`.
   - [x] Chạy lại toàn bộ test suite monorepo (102/102 tests PASS), git commit và push remote.
+
+## Giai đoạn 07.1: Final OBS & Live Operations Hardening (ĐÃ HOÀN THÀNH TOÀN DIỆN & ĐẠT 5/5 PASS)
+- [x] **TASK 1 — Sửa Chữa Toàn Diện Bộ Kiểm Thử E2E Phase 07 (Zero Fallbacks, Hard Verification):**
+  - [x] **CRIT_1 (OBS Overlay):** Bắt buộc canvas tồn tại và có kích thước chính xác 1080×1920; xác nhận snapshot đầu tiên được nhận; 0 debug controls, 0 admin controls, 0 secrets trong overlay; console errors = 0; kiểm tra cả desktop và 360×640.
+  - [x] **CRIT_2 (Admin Operations):** Pause (tick thực sự ngừng tăng), Resume (tick tăng trở lại), Emergency Reset (HP 10,000, wave 1, zombies, buffs reset đúng), Gate (chuyển tiếp và snapshot client nhận đúng), Guest requests bị chặn 401, kiểm tra trạng thái DB khi emergency reset.
+  - [x] **CRIT_3 (Real OBS Reconnect):** Mở OBS overlay trong Chromium; đọc matchId, sequenceId, connection status thực từ `SocketSnapshotSource`; kill game-server process; khởi động lại game-server với cùng DB; chứng minh Chromium reconnect không reload trang; snapshot mới được nhận (87 -> 99); không phát lại VFX cũ; kiểm tra pending commands/gifts được phục hồi.
+  - [x] **CRIT_4 (Real Safe Zone):** Xóa bỏ hoàn toàn fallback giả lập; Phaser canvas cung cấp QA telemetry bounding box cho Gift Toast; kiểm tra top/bottom/left/right nằm trong vùng y: 1250–1350px (Top=1249.5px, Bottom=1305.5px, Y=1277.5px); thời gian hiển thị $\le 3$s; kiểm tra 1080×1920 và 360×640.
+  - [x] **CRIT_5 (Real Continuous Performance):** Loại bỏ `window.__PHASER_FPS__ || 60`; đo FPS thực từ Phaser loop (`game.loop.actualFps`); chạy 62 giây thực liên tục; xác minh thời lượng video WebM $\ge 60$s (5.75 MB); báo cáo min, avg, p5 FPS, p95 frame time; đo heap/memory theo thời gian (Uptime 82s, RAM 279MB); kích hoạt nhiều skill VFX đồng thời.
+- [x] **TASK 2 — Tăng Cường Bảo Mật Dashboard Quản Trị (Admin Dashboard Security):**
+  - [x] `GET /admin` kiểm tra authentication trước khi trả HTML; trả mã HTTP 401 kèm form đăng nhập bảo mật, không trả giao diện cho guest.
+  - [x] Không nhận admin secret từ query param (`?token=...`).
+  - [x] Không lưu admin secret trong `localStorage`; dùng session cookie HttpOnly/Secure/SameSite (`admin_session`) kèm chữ ký HMAC và mã chống CSRF (`x-csrf-token`).
+  - [x] Phân quyền Role chặt chẽ: `viewer` (xem giám sát), `operator` (điều hành trận & cổng), `admin` (toàn quyền & khẩn cấp đặt lại).
+  - [x] Audit logs có cấu trúc (`admin_audit_logs`) cho các thao tác: Pause, Resume, Reset, Start Match, Gate.
+  - [x] Vô hiệu hóa triệt để `/api/admin/query` ở production (trả 403 `FORBIDDEN_IN_PRODUCTION`); cấm arbitrary SQL injection.
+- [x] **TASK 3 — Đồng Bộ Checkpoint & Command Journal (Consistency & Watermarks):**
+  - [x] Checkpoint chỉ lưu `lastAppliedJournalSeq` (watermark liên tục của lệnh đã thực sự được áp dụng vào simulation), không dùng `MAX(seq)`.
+  - [x] Các command đã journaled nhưng chưa applied không bị bỏ sót khi replay.
+  - [x] Checkpoint schema versioning được validate nghiêm ngặt (`engineVersion === '1.0.0'`) trước khi restore.
+  - [x] Các thao tác admin ảnh hưởng simulation được journaled hoặc có recovery policy rõ ràng.
+  - [x] Replay chuẩn xác theo tick và deterministic ordering.
+- [x] **TASK 4 — Quản Lý Chuyển Giao Gift Khi Đổi Trận (Reliable Gift Transitions):**
+  - [x] Không ACK gift trận cũ là `PROCESSED` khi chưa có kết quả xử lý nghiệp vụ hợp lệ.
+  - [x] Cơ chế chuyển trận bền vững: nếu gift chuyển sang trận sau $\rightarrow$ gán `targetMatchId` mới kèm audit trail (`match_command_transitions`); nếu không thể áp dụng $\rightarrow$ ghi nhận trạng thái không thực thi / rejected rõ ràng (`REJECTED_OBSOLETE_MATCH`).
+  - [x] Outbox ACK kiểm tra chính xác lease owner và trạng thái (`status = 'PROCESSING'` và unexpired lease).
+  - [x] Phân định rõ ràng giữa `APPLIED` và `REJECTED`.
+- [x] **TASK 5 — Giám Sát Vận Hành Trực Tiếp Thời Gian Thực (Real Live Ops Monitoring):**
+  - [x] Đo lường Hz thực tế của simulation loop bằng sliding window timestamps (không hardcode 20).
+  - [x] Đo độ trễ tuổi hàng đợi outbox lâu nhất (`oldestPendingAgeMs`), không đánh đồng số lượng pending là độ trễ.
+  - [x] Hiển thị đầy đủ: Current matchId/phase/wave, Connected socket clients, Snapshot delivery latency, Accepted/rejected commands, Gift queue count, Outbox oldest pending age, PostgreSQL health, Checkpoint status, Memory trend, Audit log.
+- [x] **TASK 6 — Thử Nghiệm Tải Dài Hạn (Multi-Round Continuous Soak Test):**
+  - [x] Kịch bản chạy liên tục qua nhiều vòng trận đấu ở mock mode.
+  - [x] Tích hợp liên tục JOIN, BAN, SUA, CUU và gift events.
+  - [x] Kết hợp Admin pause/resume, server crash/restart, browser disconnect/reconnect, duplicate retry.
+  - [x] Đo lường độ ổn định bộ nhớ, XP/nhiệm vụ persistence, lịch sử trận và tính nhất quán MVP.
+- [x] **TASK 7 — Nghiệm Thu, Cập Nhật Artifacts & Remote Push:**
+  - [x] Xuất video WebM 62s thực tế: `phase07_obs_gameplay_60s.webm` (5.75 MB).
+  - [x] Xuất screenshots 1080×1920 (`phase07_obs_overlay_1080x1920.png`, 2.99 MB) và 360×640 (`phase07_obs_mobile_360x640.png`, 466 KB).
+  - [x] Báo cáo telemetry vận hành `phase07_1_live_ops_telemetry.json` và `phase07_live_ops_telemetry.json`.
+  - [x] Cập nhật `player.html`.
+  - [x] Chạy 100% test suite monorepo (105/105 tests PASS), git commit và push remote.

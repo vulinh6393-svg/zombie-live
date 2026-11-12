@@ -57,30 +57,27 @@
       color: var(--accent-rose);
       border-color: var(--accent-rose);
     }
-    .auth-bar {
+    .status-pill.role {
+      background: rgba(2, 132, 199, 0.2);
+      color: #38bdf8;
+      border-color: #0284c7;
+    }
+    .session-bar {
       display: flex;
-      gap: 10px;
+      justify-content: space-between;
       background: var(--bg-card);
-      padding: 12px 16px;
+      padding: 10px 16px;
       border-radius: 8px;
       border: 1px solid var(--border-color);
       margin-bottom: 20px;
       align-items: center;
     }
-    .auth-bar label {
+    .session-info {
       font-size: 13px;
       color: var(--text-muted);
-      white-space: nowrap;
-    }
-    .auth-bar input {
-      flex: 1;
-      background: #0f172a;
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      color: #fff;
-      padding: 6px 10px;
-      font-family: monospace;
-      font-size: 13px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
     }
     .btn {
       padding: 8px 14px;
@@ -154,28 +151,53 @@
     .log-entry.success { color: #34d399; }
     .log-entry.warn { color: #fbbf24; }
     .log-entry.error { color: #f87171; }
+    table.audit-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-family: monospace;
+      margin-top: 8px;
+    }
+    table.audit-table th {
+      text-align: left;
+      padding: 6px 8px;
+      background: #0f172a;
+      color: #94a3b8;
+      border-bottom: 1px solid var(--border-color);
+    }
+    table.audit-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #1e293b44;
+      color: #e2e8f0;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>🛡️ ZOMBIE ĐẠI CHIẾN — OBS LIVE OPERATIONS DASHBOARD</h1>
     <div style="display: flex; gap: 10px; align-items: center;">
+      <span id="rolePill" class="status-pill role">ROLE: --</span>
       <span id="connectionPill" class="status-pill">CONNECTED (20Hz)</span>
       <span id="clock" style="font-size: 13px; font-family: monospace; color: #94a3b8;">--:--:--</span>
     </div>
   </div>
 
-  <div class="auth-bar">
-    <label for="adminKeyInput">🔑 Khóa Quản Trị (x-admin-token):</label>
-    <input type="password" id="adminKeyInput" placeholder="Nhập admin secret key..." />
-    <button class="btn btn-dark" onclick="saveAdminKey()">Lưu Khóa</button>
+  <div class="session-bar">
+    <div class="session-info">
+      <span>🔐 Phiên Quản Trị: <strong id="sessionUser" style="color: #38bdf8;">Đang xác thực...</strong></span>
+      <span>•</span>
+      <span>Tần Số Mô Phỏng: <strong id="statSimulationHz" style="color: #00f5d4;">-- Hz</strong></span>
+      <span>•</span>
+      <span>Clients Kết Nối: <strong id="statConnectedClients" style="color: #fff;">0</strong></span>
+    </div>
+    <button class="btn btn-dark" style="font-size: 12px; padding: 4px 12px;" onclick="logout()">Đăng Xuất (Logout)</button>
   </div>
 
   <div class="grid">
     <!-- TRẠNG THÁI ENGINE AUTHORITATIVE -->
     <div class="card">
       <div class="card-title">
-        <span>⚙️Authoritative Engine</span>
+        <span>⚙️ Authoritative Engine</span>
         <span id="enginePhaseBadge" class="status-pill">PREPARING</span>
       </div>
       <div class="stat-row">
@@ -237,12 +259,12 @@
         <span class="stat-val" id="statDb">CONNECTED</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Outbox Pending (Độ trễ)</span>
-        <span class="stat-val" id="statOutbox">0 pending</span>
+        <span class="stat-label">Outbox Pending (Độ trễ tuổi)</span>
+        <span class="stat-val" id="statOutbox">0 pending (0ms)</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Command Journal Seq</span>
-        <span class="stat-val" id="statJournalSeq">0</span>
+        <span class="stat-label">Command Journal Seq (Watermark)</span>
+        <span class="stat-val" id="statJournalSeq">0 (Watermark: 0)</span>
       </div>
       <div class="stat-row">
         <span class="stat-label">Checkpoint Tick Cuối</span>
@@ -268,6 +290,27 @@
     </div>
   </div>
 
+  <!-- BẢNG KIỂM TOÁN VẬN HÀNH (AUDIT LOGS) -->
+  <div class="card" style="margin-bottom: 20px;">
+    <div class="card-title">
+      <span>📜 Lịch Sử Kiểm Toán Vận Hành (Admin Audit Trail)</span>
+    </div>
+    <table class="audit-table">
+      <thead>
+        <tr>
+          <th>Thời Gian</th>
+          <th>Người Dùng</th>
+          <th>Vai Trò</th>
+          <th>Hành Động</th>
+          <th>Chi Tiết</th>
+        </tr>
+      </thead>
+      <tbody id="auditTableBody">
+        <tr><td colspan="5" style="text-align: center; color: #64748b;">Đang tải nhật ký kiểm toán...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <!-- NHẬT KÝ VẬN HÀNH STREAM -->
   <div class="card">
     <div class="card-title">
@@ -278,17 +321,7 @@
   </div>
 
   <script>
-    let adminToken = localStorage.getItem('zombie_admin_key') || new URLSearchParams(window.location.search).get('token') || '';
-    if (adminToken) {
-      document.getElementById('adminKeyInput').value = adminToken;
-    }
-
-    function saveAdminKey() {
-      adminToken = document.getElementById('adminKeyInput').value.trim();
-      localStorage.setItem('zombie_admin_key', adminToken);
-      appendLog('Đã lưu khóa quản trị.', 'success');
-      fetchMonitoring();
-    }
+    let csrfToken = window.__CSRF_TOKEN__ || '';
 
     function appendLog(msg, type = 'info') {
       const logTerminal = document.getElementById('logTerminal');
@@ -304,18 +337,26 @@
       document.getElementById('logTerminal').innerHTML = '';
     }
 
-    async function adminAction(endpoint, body = {}) {
-      if (!adminToken) {
-        alert('Vui lòng nhập khóa quản trị x-admin-token trước khi thao tác.');
-        return;
-      }
+    async function logout() {
       try {
+        await fetch('/api/admin/logout', { method: 'POST' });
+        window.location.reload();
+      } catch (err) {
+        window.location.reload();
+      }
+    }
+
+    async function adminAction(endpoint, body = {}) {
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        if (csrfToken) {
+          headers['x-csrf-token'] = csrfToken;
+        }
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-admin-token': adminToken,
-          },
+          headers,
           body: JSON.stringify(body),
         });
         const data = await res.json();
@@ -323,7 +364,7 @@
           appendLog(`Thao tác ${endpoint} thành công: ` + JSON.stringify(data), 'success');
           fetchMonitoring();
         } else {
-          appendLog(`Lỗi ${endpoint} (${res.status}): ` + (data.error || res.statusText), 'error');
+          appendLog(`Lỗi ${endpoint} (${res.status}): ` + (data.message || data.error || res.statusText), 'error');
         }
       } catch (err) {
         appendLog(`Không thể kết nối đến máy chủ: ${err.message}`, 'error');
@@ -335,19 +376,28 @@
     }
 
     async function fetchMonitoring() {
-      if (!adminToken) return;
       try {
-        const res = await fetch('/api/admin/monitoring', {
-          headers: { 'x-admin-token': adminToken },
-        });
+        const res = await fetch('/api/admin/monitoring');
         if (!res.ok) {
+          if (res.status === 401) {
+            window.location.reload();
+            return;
+          }
           document.getElementById('connectionPill').className = 'status-pill error';
           document.getElementById('connectionPill').textContent = 'UNAUTHORIZED / ERROR';
           return;
         }
         const m = await res.json();
+        const role = (m.operations && m.operations.currentRole) || 'admin';
+        document.getElementById('rolePill').textContent = `ROLE: ${role.toUpperCase()}`;
+        document.getElementById('sessionUser').textContent = `Authenticated (${role})`;
+
+        const hz = m.operations.simulationHz ?? 20;
+        document.getElementById('statSimulationHz').textContent = `${hz} Hz`;
+        document.getElementById('statConnectedClients').textContent = m.operations.connectedClients ?? 0;
+
         document.getElementById('connectionPill').className = m.engine.isPaused ? 'status-pill paused' : 'status-pill';
-        document.getElementById('connectionPill').textContent = m.engine.isPaused ? 'SIMULATION PAUSED' : 'CONNECTED (20Hz)';
+        document.getElementById('connectionPill').textContent = m.engine.isPaused ? 'SIMULATION PAUSED' : `CONNECTED (${hz}Hz)`;
 
         document.getElementById('enginePhaseBadge').textContent = m.engine.phase;
         document.getElementById('statMatchId').textContent = m.engine.matchId;
@@ -363,10 +413,29 @@
         document.getElementById('statOverclock').textContent = m.engine.activeBuffs.overclock ? 'ACTIVE (x2 FIRE RATE)' : 'OFF';
 
         document.getElementById('statDb').textContent = m.operations.dbConnected ? 'CONNECTED' : 'DISCONNECTED';
-        document.getElementById('statOutbox').textContent = `${m.operations.outboxPendingCount} pending (lag: ${m.operations.outboxLag})`;
-        document.getElementById('statJournalSeq').textContent = m.operations.latestJournalSeq;
+        const ageMs = m.operations.oldestPendingAgeMs ?? 0;
+        document.getElementById('statOutbox').textContent = `${m.operations.outboxPendingCount} pending (${ageMs}ms)`;
+        document.getElementById('statJournalSeq').textContent = `${m.operations.latestJournalSeq} (Watermark: ${m.operations.lastAppliedJournalSeq ?? 0})`;
         document.getElementById('statCheckpointTick').textContent = m.operations.latestCheckpointTick;
         document.getElementById('statMem').textContent = `${m.server.memoryUsageMb} MB`;
+
+        // Render audit logs
+        if (m.operations.recentAuditLogs && m.operations.recentAuditLogs.length > 0) {
+          const tbody = document.getElementById('auditTableBody');
+          tbody.innerHTML = '';
+          for (const log of m.operations.recentAuditLogs) {
+            const tr = document.createElement('tr');
+            const time = new Date(log.createdAt).toLocaleTimeString();
+            tr.innerHTML = `
+              <td>${time}</td>
+              <td>${log.actor}</td>
+              <td><span style="color:#38bdf8;">${log.role}</span></td>
+              <td><strong>${log.action}</strong></td>
+              <td style="color:#94a3b8;">${JSON.stringify(log.details)}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+        }
       } catch (err) {
         document.getElementById('connectionPill').className = 'status-pill error';
         document.getElementById('connectionPill').textContent = 'SERVER DISCONNECTED';

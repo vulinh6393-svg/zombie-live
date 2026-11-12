@@ -82,11 +82,24 @@ export class OutboxRepository {
       `UPDATE outbox_events 
        SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
        WHERE id = $1 
-         AND status != 'PROCESSED'
-         AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)`,
+         AND (status = 'PROCESSING' OR status = 'PENDING')
+         AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)
+         AND (locked_until IS NULL OR locked_until >= CURRENT_TIMESTAMP)`,
       [id, workerId || null]
     );
     return res.rowCount > 0;
+  }
+
+  /**
+   * Tính độ tuổi (ms) của sự kiện outbox đang chờ xử lý lâu nhất (Oldest Pending Age in ms)
+   */
+  public async getOldestPendingAgeMs(): Promise<number> {
+    const res = await this.db.query<{ age_ms: string | number | null }>(
+      `SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MIN(created_at))) * 1000 AS age_ms
+       FROM outbox_events
+       WHERE status = 'PENDING' OR status = 'PROCESSING'`
+    );
+    return res.rows[0]?.age_ms ? Math.max(0, Math.round(Number(res.rows[0].age_ms))) : 0;
   }
 
   public async markFailed(id: string, error: string, workerId?: string): Promise<boolean> {

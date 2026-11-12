@@ -132,7 +132,7 @@ export class CommandJournalRepository {
     matchId: string,
     commandId: string,
     appliedTick: number,
-    status: 'APPLIED' | 'REJECTED' = 'APPLIED',
+    status: 'APPLIED' | 'REJECTED' | 'DEFERRED' | 'FAILED' = 'APPLIED',
     reason?: string
   ): Promise<void> {
     await this.db.query(
@@ -141,6 +141,68 @@ export class CommandJournalRepository {
        WHERE match_id = $3 AND command_id = $4`,
       [status, appliedTick, matchId, commandId]
     );
+  }
+
+  /**
+   * Lưu vết chuyển giao lệnh giữa các trận đấu khi trận cũ kết thúc (Deferred Command Transition Audit Trail)
+   */
+  public async recordTransition(params: {
+    commandId: string;
+    fromMatchId: string;
+    toMatchId: string;
+    reason: string;
+  }): Promise<void> {
+    const id = `trans_${crypto.randomUUID()}`;
+    await this.db.query(
+      `INSERT INTO match_command_transitions (id, command_id, from_match_id, to_match_id, reason, created_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+      [id, params.commandId, params.fromMatchId, params.toMatchId, params.reason]
+    );
+  }
+
+  /**
+   * Ghi log kiểm toán thao tác quản trị (Admin Structured Audit Log)
+   */
+  public async saveAuditLog(params: {
+    actor: string;
+    role: string;
+    action: string;
+    matchId?: string;
+    tick?: number;
+    details: any;
+  }): Promise<string> {
+    const id = `audit_${crypto.randomUUID()}`;
+    await this.db.query(
+      `INSERT INTO admin_audit_logs (id, actor, role, action, match_id, tick, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+      [
+        id,
+        params.actor,
+        params.role,
+        params.action,
+        params.matchId || null,
+        params.tick ?? null,
+        JSON.stringify(params.details || {}),
+      ]
+    );
+    return id;
+  }
+
+  /**
+   * Truy vấn lịch sử kiểm toán thao tác quản trị gần nhất
+   */
+  public async getRecentAuditLogs(limit: number = 20): Promise<any[]> {
+    const res = await this.db.query<any>(
+      `SELECT id, actor, role, action, match_id as "matchId", tick, details, created_at as "createdAt"
+       FROM admin_audit_logs
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.rows.map((r) => ({
+      ...r,
+      details: typeof r.details === 'string' ? JSON.parse(r.details) : r.details,
+    }));
   }
 
   /**

@@ -70,6 +70,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261112_journal_atomic_counters/migration.sql'),
       ],
     },
+    {
+      id: '20261112_command_transitions',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261112_command_transitions/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261112_command_transitions/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261112_command_transitions/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261112_command_transitions/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {

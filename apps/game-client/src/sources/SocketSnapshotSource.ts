@@ -10,6 +10,7 @@ export class SocketSnapshotSource implements GameSnapshotSource {
   private serverUrl: string;
   private lastSequenceId: number = -1;
   private lastMatchId: string = '';
+  private snapshotCount: number = 0;
 
   constructor(serverUrl: string = 'http://localhost:3001') {
     this.serverUrl = serverUrl;
@@ -50,6 +51,7 @@ export class SocketSnapshotSource implements GameSnapshotSource {
         return;
       }
       this.lastSequenceId = snapshot.sequenceId ?? this.lastSequenceId + 1;
+      this.snapshotCount++;
 
       for (const listener of this.listeners) {
         listener(snapshot as any);
@@ -100,5 +102,13 @@ export class SocketSnapshotSource implements GameSnapshotSource {
 
   public getLastSequenceId(): number {
     return this.lastSequenceId;
+  }
+
+  public getLastMatchId(): string {
+    return this.lastMatchId;
+  }
+
+  public getSnapshotCount(): number {
+    return this.snapshotCount;
   }
 }

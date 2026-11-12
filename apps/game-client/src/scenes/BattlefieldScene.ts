@@ -39,6 +39,7 @@ export class BattlefieldScene extends Phaser.Scene {
   private processedEventIds: Set<string> = new Set();
   private receivedEventsHistory: CombatEvent[] = [];
   private latestSnapshot: ExtendedMatchSnapshot | null = null;
+  private activeGiftBanner?: Phaser.GameObjects.Container & { bannerText?: string; bannerSender?: string; createdAt?: number };
 
   // Environment & Fortress
   private fortressRenderer!: FortressRenderer;
@@ -1092,7 +1093,11 @@ export class BattlefieldScene extends Phaser.Scene {
     const colorNum = parseInt(colorHex.replace('#', '0x'), 16) || 0x00f5d4;
 
     // Toast Card at y: 1280 (Verified TikTok 9:16 safe zone, above comments, below fortress)
-    const card = this.add.container(540, 1320).setDepth(160);
+    const card = this.add.container(540, 1320).setDepth(160) as any;
+    card.bannerText = skillName;
+    card.bannerSender = sender;
+    card.createdAt = Date.now();
+    this.activeGiftBanner = card;
 
     const bg = this.add.graphics();
     bg.fillStyle(0x0a1128, 0.94);
@@ -1143,7 +1148,12 @@ export class BattlefieldScene extends Phaser.Scene {
             y: 1260,
             duration: 400,
             ease: 'Cubic.easeIn',
-            onComplete: () => card.destroy(),
+            onComplete: () => {
+              if (this.activeGiftBanner === card) {
+                this.activeGiftBanner = undefined;
+              }
+              card.destroy();
+            },
           });
         });
       },
@@ -1154,10 +1164,51 @@ export class BattlefieldScene extends Phaser.Scene {
   // WINDOW AUTOMATION & QA BENCHMARK API (Restricted to Debug / Dev Test only!)
   // =========================================================================
   private setupWindowBattlefieldAPI(): void {
+    // Read-only QA introspection telemetry available in all modes including /overlay
+    (window as any).__BATTLEFIELD_QA__ = {
+      hasReceivedSnapshot: () => Boolean(this.latestSnapshot),
+      getSocketStatus: () => ({
+        connected: (this.snapshotSource as any)?.isConnected?.() ?? false,
+        matchId: this.latestSnapshot?.matchId || (this.snapshotSource as any)?.getLastMatchId?.() || '',
+        sequenceId: this.latestSnapshot?.sequenceId ?? (this.snapshotSource as any)?.getLastSequenceId?.() ?? -1,
+        snapshotCount: (this.snapshotSource as any)?.getSnapshotCount?.() ?? 0,
+        tick: this.latestSnapshot?.tick ?? 0,
+        baseHp: this.latestSnapshot?.baseHp ?? 0,
+        phase: this.latestSnapshot?.phase ?? '',
+      }),
+      getActiveBanner: () => {
+        if (!this.activeGiftBanner || !this.activeGiftBanner.active) {
+          return { visible: false };
+        }
+        const b = this.activeGiftBanner;
+        return {
+          visible: true,
+          x: b.x,
+          y: b.y,
+          top: b.y - 28,
+          bottom: b.y + 28,
+          left: b.x - 260,
+          right: b.x + 260,
+          text: b.bannerText,
+          sender: b.bannerSender,
+          createdAt: b.createdAt,
+          durationMs: Date.now() - (b.createdAt || 0),
+        };
+      },
+      getPerformanceStats: () => {
+        const loop = this.game.loop;
+        return {
+          actualFps: loop.actualFps,
+          deltaMs: loop.delta,
+          targetFps: loop.targetFps,
+        };
+      },
+    };
+
     const urlParams = new URLSearchParams(window.location.search);
     const isDebugOrTest = this.debugEntities || urlParams.get('debug') === '1' || urlParams.get('test') === '1';
     if (!isDebugOrTest || this.isOverlayMode) {
-      // Vô hiệu hóa tuyệt đối API trên production LIVE và route /overlay
+      // Vô hiệu hóa tuyệt đối API controls trên production LIVE và route /overlay
       return;
     }
 

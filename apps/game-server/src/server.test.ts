@@ -355,18 +355,28 @@ describe('Game Server Security & Event Ingestion', () => {
   });
 
   describe('Phase 07 Admin Operations & Live Monitoring Routes', () => {
-    it('serves admin dashboard HTML at /admin', async () => {
-      const { app, stopEngine } = buildServer();
+    it('serves login HTML with 401 when unauthenticated at /admin, and serves admin dashboard HTML with 200 when authenticated', async () => {
+      const { app, stopEngine, adminSecret } = buildServer();
       stopFn = stopEngine;
 
-      const res = await app.inject({
+      // 1. Unauthenticated guest -> 401 login screen
+      const unauthRes = await app.inject({
         method: 'GET',
         url: '/admin',
       });
+      expect(unauthRes.statusCode).toBe(401);
+      expect(unauthRes.headers['content-type']).toContain('text/html');
+      expect(unauthRes.payload).toContain('XÁC THỰC QUẢN TRỊ VIÊN');
 
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toContain('text/html');
-      expect(res.payload).toContain('Trung Tâm Điều Hành');
+      // 2. Authenticated with admin secret -> 200 dashboard
+      const authRes = await app.inject({
+        method: 'GET',
+        url: '/admin',
+        headers: { 'x-admin-token': adminSecret },
+      });
+      expect(authRes.statusCode).toBe(200);
+      expect(authRes.headers['content-type']).toContain('text/html');
+      expect(authRes.payload).toContain('ZOMBIE ĐẠI CHIẾN');
     });
 
     it('rejects unauthorized requests to /api/admin/monitoring with 401', async () => {
@@ -512,6 +522,140 @@ describe('Game Server Security & Event Ingestion', () => {
       expect(startBody.matchId).toBe('custom_match_1001');
       expect(engine.matchId).toBe('custom_match_1001');
       expect(engine.matchId).not.toBe(oldMatchId);
+    });
+
+    describe('Phase 07.1 Hardened Session Auth, RBAC & Watermark Verification', () => {
+      it('authenticates session via POST /api/admin/login and rejects invalid secret', async () => {
+        const { app, stopEngine, adminSecret } = buildServer();
+        stopFn = stopEngine;
+
+        // Invalid secret
+        const badRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: 'invalid_secret' },
+        });
+        expect(badRes.statusCode).toBe(401);
+
+        // Valid secret with operator role
+        const goodRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret, role: 'operator' },
+        });
+        expect(goodRes.statusCode).toBe(200);
+        const cookie = goodRes.headers['set-cookie'] as string;
+        expect(cookie).toContain('admin_session=');
+        expect(cookie).toContain('HttpOnly');
+        expect(cookie).toContain('SameSite=Strict');
+
+        const body = JSON.parse(goodRes.payload);
+        expect(body.success).toBe(true);
+        expect(body.role).toBe('operator');
+        expect(body.csrfToken).toBeDefined();
+      });
+
+      it('enforces RBAC role restrictions: viewer cannot mutate, operator cannot reset', async () => {
+        const { app, stopEngine, adminSecret } = buildServer();
+        stopFn = stopEngine;
+
+        // 1. Login as Viewer
+        const viewerLogin = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret, role: 'viewer' },
+        });
+        const viewerCookie = viewerLogin.headers['set-cookie'] as string;
+        const viewerSession = viewerCookie.split(';')[0];
+        const viewerCsrf = JSON.parse(viewerLogin.payload).csrfToken;
+
+        // Viewer can read monitoring
+        const monRes = await app.inject({
+          method: 'GET',
+          url: '/api/admin/monitoring',
+          headers: { cookie: viewerSession },
+        });
+        expect(monRes.statusCode).toBe(200);
+
+        // Viewer CANNOT pause (requires operator)
+        const pauseRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/match/pause',
+          headers: {
+            cookie: viewerSession,
+            'x-csrf-token': viewerCsrf,
+          },
+        });
+        expect(pauseRes.statusCode).toBe(403);
+        expect(JSON.parse(pauseRes.payload).error).toBe('FORBIDDEN_INSUFFICIENT_ROLE');
+
+        // 2. Login as Operator
+        const opLogin = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret, role: 'operator' },
+        });
+        const opCookie = opLogin.headers['set-cookie'] as string;
+        const opSession = opCookie.split(';')[0];
+        const opCsrf = JSON.parse(opLogin.payload).csrfToken;
+
+        // Operator CAN pause with CSRF
+        const opPause = await app.inject({
+          method: 'POST',
+          url: '/api/admin/match/pause',
+          headers: {
+            cookie: opSession,
+            'x-csrf-token': opCsrf,
+          },
+        });
+        expect(opPause.statusCode).toBe(200);
+
+        // Missing CSRF rejects with 403
+        const noCsrfPause = await app.inject({
+          method: 'POST',
+          url: '/api/admin/match/pause',
+          headers: {
+            cookie: opSession,
+          },
+        });
+        expect(noCsrfPause.statusCode).toBe(403);
+        expect(JSON.parse(noCsrfPause.payload).error).toBe('CSRF_TOKEN_INVALID');
+
+        // Operator CANNOT emergency reset (requires admin)
+        const opReset = await app.inject({
+          method: 'POST',
+          url: '/api/admin/match/emergency-reset',
+          headers: {
+            cookie: opSession,
+            'x-csrf-token': opCsrf,
+          },
+        });
+        expect(opReset.statusCode).toBe(403);
+        expect(JSON.parse(opReset.payload).error).toBe('FORBIDDEN_INSUFFICIENT_ROLE');
+      });
+
+      it('disallows /api/admin/query in production mode', async () => {
+        const prevEnv = process.env.NODE_ENV;
+        try {
+          process.env.NODE_ENV = 'production';
+          const { app, stopEngine, adminSecret } = buildServer({
+            adminSecret: 'prod_admin_secret_super_long_32chars!',
+          });
+          stopFn = stopEngine;
+
+          const res = await app.inject({
+            method: 'POST',
+            url: '/api/admin/query',
+            headers: { 'x-admin-token': 'prod_admin_secret_super_long_32chars!' },
+            payload: { sql: 'SELECT 1' },
+          });
+
+          expect(res.statusCode).toBe(403);
+          expect(JSON.parse(res.payload).error).toBe('FORBIDDEN_IN_PRODUCTION');
+        } finally {
+          process.env.NODE_ENV = prevEnv;
+        }
+      });
     });
   });
 });

@@ -1,0 +1,347 @@
+{
+  "timestamp": "2026-11-12T14:01:42.559Z",
+  "phase": "Phase 07.1: Final OBS & Live Operations Hardening",
+  "overallStatus": "PASS",
+  "criteriaCount": 5,
+  "passedCount": 5,
+  "criteria": [
+    {
+      "id": "CRIT_1_OBS_OVERLAY_CLEANLINESS",
+      "name": "OBS Browser Source Route (/overlay) 1080x1920 Cleanliness & Live Snapshot",
+      "status": "PASS",
+      "details": "Canvas=1080x1920, SnapshotCount=10, 0 debug controls, 0 console errors.",
+      "metric": {
+        "pageTitle": "Zombie Đại Chiến — OBS Stream Overlay (1080x1920)",
+        "canvasBox": {
+          "x": 0,
+          "y": 0,
+          "width": 1080,
+          "height": 1920
+        },
+        "initialSocketStatus": {
+          "connected": true,
+          "matchId": "match_e2787c9e-288b-4e75-8fd7-bd76a5af6e13",
+          "sequenceId": 1422,
+          "snapshotCount": 10,
+          "tick": 2800,
+          "baseHp": 10000,
+          "phase": "WAVE_3"
+        },
+        "consoleErrorCount": 0
+      }
+    },
+    {
+      "id": "CRIT_2_ADMIN_OPERATIONS_CONTROLS",
+      "name": "Authoritative Admin Operations, RBAC Session Protection & Emergency Reset",
+      "status": "PASS",
+      "details": "Guest /admin blocked with 401 | Pause=true | MonitoringIsPaused=true | ResumeIsPaused=false | GateAction=OPENING | ResetBaseHp=10000,Phase=PREPARING",
+      "metric": {
+        "pauseRes": {
+          "success": true,
+          "phase": "PAUSED",
+          "tick": 2949,
+          "isPaused": true
+        },
+        "resumeRes": {
+          "success": true,
+          "phase": "WAVE_3",
+          "tick": 2949,
+          "isPaused": false
+        },
+        "gateRes": {
+          "success": true,
+          "gateState": "OPENING"
+        },
+        "resetRes": {
+          "success": true,
+          "matchId": "match_467235dc-a034-4126-8d4b-10ce26471927",
+          "phase": "PREPARING",
+          "tick": 2951,
+          "baseHp": 10000
+        },
+        "guestStatus": 401
+      }
+    },
+    {
+      "id": "CRIT_3_REAL_OBS_RECONNECT",
+      "name": "Real Process Kill & Reconnect with Snapshot Resync (No Page Reload)",
+      "status": "PASS",
+      "details": "Reconnected successfully without reload: Snapshots advanced from 87 to 99, Match=match_467235dc-a034-4126-8d4b-10ce26471927",
+      "metric": {
+        "statusBefore": {
+          "connected": true,
+          "matchId": "match_467235dc-a034-4126-8d4b-10ce26471927",
+          "sequenceId": 1502,
+          "snapshotCount": 87,
+          "tick": 2954,
+          "baseHp": 10000,
+          "phase": "PREPARING"
+        },
+        "statusAfter": {
+          "connected": true,
+          "matchId": "match_467235dc-a034-4126-8d4b-10ce26471927",
+          "sequenceId": 27,
+          "snapshotCount": 99,
+          "tick": 50,
+          "baseHp": 10000,
+          "phase": "PREPARING"
+        },
+        "sawDisconnect": true,
+        "sawReconnect": true
+      }
+    },
+    {
+      "id": "CRIT_4_TIKTOK_SAFE_ZONE",
+      "name": "TikTok LIVE 9:16 Safe Zone Banner Layout Bounds (1250-1350px, <= 3s)",
+      "status": "PASS",
+      "details": "Active Phaser Banner: top=1249.549480748948px, bottom=1305.549480748948px, y=1277.549480748948px, durationMs=179ms, text=\"TIỂU ĐỘI CHI VIỆN\"",
+      "metric": {
+        "visible": true,
+        "x": 540,
+        "y": 1277.549480748948,
+        "top": 1249.549480748948,
+        "bottom": 1305.549480748948,
+        "left": 280,
+        "right": 800,
+        "text": "TIỂU ĐỘI CHI VIỆN",
+        "sender": "OBS_VIP_User",
+        "createdAt": 1794492012439,
+        "durationMs": 179
+      }
+    },
+    {
+      "id": "CRIT_5_SIMULATION_STABILITY_AND_FPS",
+      "name": "Multi-Round Continuous Live Simulation & 60s Verified Telemetry",
+      "status": "PASS",
+      "details": "Duration=62s, Avg FPS=60, Min FPS=60, Max FPS=61, p5 FPS=60, Samples=62, Server Uptime=82s, Memory=279MB",
+      "metric": {
+        "avgFps": 60,
+        "minFps": 60,
+        "maxFps": 61,
+        "p5Fps": 60,
+        "durationSeconds": 62,
+        "sampleCount": 62,
+        "samples": [
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          61,
+          60,
+          61,
+          61,
+          61,
+          61,
+          60,
+          61,
+          61,
+          60,
+          61,
+          60,
+          61,
+          61,
+          61,
+          61,
+          61,
+          60,
+          61,
+          61,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          60,
+          61,
+          61,
+          61,
+          61,
+          61,
+          61,
+          61,
+          60,
+          60,
+          60,
+          61,
+          60,
+          61,
+          60,
+          60,
+          60,
+          60,
+          61,
+          61,
+          60,
+          60,
+          61,
+          60,
+          61,
+          60,
+          61
+        ],
+        "memoryUsageMb": 279
+      }
+    }
+  ],
+  "runtimeTelemetry": {
+    "server": {
+      "uptimeSeconds": 82,
+      "memoryUsageMb": 279,
+      "nodeVersion": "v24.12.0",
+      "environment": "development"
+    },
+    "engine": {
+      "matchId": "match_467235dc-a034-4126-8d4b-10ce26471927",
+      "tick": 1514,
+      "phase": "WAVE_1",
+      "result": "IN_PROGRESS",
+      "isPaused": false,
+      "baseHp": 10000,
+      "maxBaseHp": 10000,
+      "waveNumber": 1,
+      "gateState": "CLOSED",
+      "entities": {
+        "zombies": 1,
+        "soldiers": 3,
+        "players": 5,
+        "mechActive": false,
+        "airstrikesActive": 0
+      },
+      "activeBuffs": {
+        "shield": false,
+        "overclock": false
+      }
+    },
+    "operations": {
+      "dbConnected": true,
+      "outboxPendingCount": 0,
+      "outboxLag": 0,
+      "oldestPendingAgeMs": 0,
+      "latestJournalSeq": 4,
+      "lastAppliedJournalSeq": 0,
+      "latestCheckpointTick": 1500,
+      "simulationHz": 20,
+      "connectedClients": 1,
+      "recentAuditLogs": [
+        {
+          "id": "audit_b9e0078d-a7db-48a7-b0f9-4e16dd58f3fb",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "EMERGENCY_RESET",
+          "matchId": "match_467235dc-a034-4126-8d4b-10ce26471927",
+          "tick": 2951,
+          "details": {
+            "tick": 2951,
+            "baseHp": 10000
+          },
+          "createdAt": "2026-11-12T06:59:59.135Z"
+        },
+        {
+          "id": "audit_448c62dc-9778-48ff-b315-b71b99a824a0",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "OPEN_GATE",
+          "matchId": "match_e2787c9e-288b-4e75-8fd7-bd76a5af6e13",
+          "tick": 2951,
+          "details": {
+            "gateState": "OPENING"
+          },
+          "createdAt": "2026-11-12T06:59:59.112Z"
+        },
+        {
+          "id": "audit_e6dac6ae-f41b-4272-ba44-a4b24bc70e13",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "RESUME_SIMULATION",
+          "matchId": "match_e2787c9e-288b-4e75-8fd7-bd76a5af6e13",
+          "tick": 2949,
+          "details": {
+            "tick": 2949
+          },
+          "createdAt": "2026-11-12T06:59:59.046Z"
+        },
+        {
+          "id": "audit_f8314510-2764-4b40-854a-8b64158abd87",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "PAUSE_SIMULATION",
+          "matchId": "match_e2787c9e-288b-4e75-8fd7-bd76a5af6e13",
+          "tick": 2949,
+          "details": {
+            "tick": 2949
+          },
+          "createdAt": "2026-11-12T06:59:57.662Z"
+        },
+        {
+          "id": "audit_fbc8169a-a4a5-44d3-9628-22313703d1df",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "EMERGENCY_RESET",
+          "matchId": "match_e2787c9e-288b-4e75-8fd7-bd76a5af6e13",
+          "tick": 9574,
+          "details": {
+            "tick": 9574,
+            "baseHp": 10000
+          },
+          "createdAt": "2026-11-12T06:49:38.127Z"
+        },
+        {
+          "id": "audit_c6f02e37-bfb9-4b0d-b56f-91599708c34b",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "OPEN_GATE",
+          "matchId": "match_1794459026086",
+          "tick": 9574,
+          "details": {
+            "gateState": "OPENING"
+          },
+          "createdAt": "2026-11-12T06:49:38.092Z"
+        },
+        {
+          "id": "audit_b24f9af7-ecdc-4059-8f22-4987b65446b7",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "RESUME_SIMULATION",
+          "matchId": "match_1794459026086",
+          "tick": 9574,
+          "details": {
+            "tick": 9574
+          },
+          "createdAt": "2026-11-12T06:49:38.086Z"
+        },
+        {
+          "id": "audit_441ba51c-4991-40ca-8669-7439d610bcdc",
+          "actor": "api_token",
+          "role": "admin",
+          "action": "PAUSE_SIMULATION",
+          "matchId": "match_1794459026086",
+          "tick": 9574,
+          "details": {
+            "tick": 9574
+          },
+          "createdAt": "2026-11-12T06:49:36.806Z"
+        }
+      ],
+      "currentRole": "admin"
+    }
+  },
+  "summary": {
+    "averageFps": 60,
+    "minFps": 60,
+    "maxFps": 61,
+    "p5Fps": 60,
+    "recordedDurationSeconds": 62,
+    "sampleCount": 62,
+    "serverUptimeSeconds": 82,
+    "memoryUsageMb": 279,
+    "simulationHz": 20,
+    "outboxLag": 0,
+    "lastAppliedJournalSeq": 0
+  }
+}

@@ -261,7 +261,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   engine.onCheckpointNeeded = async (tick, state) => {
     if (journalRepo) {
       try {
-        const lastJournalSeq = await journalRepo.getLatestJournalSeq(engine.matchId);
+        const lastJournalSeq = state.lastAppliedJournalSeq ?? (await journalRepo.getLatestJournalSeq(engine.matchId));
         const stateHash = engine.getStateHash();
         await journalRepo.saveCheckpoint({
           matchId: engine.matchId,
@@ -273,6 +273,22 @@ export function buildServer(opts: BuildServerOptions = {}): {
         });
       } catch (chkErr: any) {
         app.log.warn(`[CHECKPOINT] Periodic save warning: ${chkErr.message}`);
+      }
+    }
+  };
+
+  // Wire command transition callback when deferred commands are transitioned across matches
+  engine.onCommandTransitionNeeded = async (transition) => {
+    if (journalRepo) {
+      try {
+        await journalRepo.recordTransition({
+          commandId: transition.commandId,
+          fromMatchId: transition.fromMatchId,
+          toMatchId: transition.toMatchId,
+          reason: transition.reason || 'MATCH_ENDED_DEFERRED_TRANSITION',
+        });
+      } catch (err: any) {
+        app.log.warn(`[JOURNAL] Failed to record command transition: ${err.message}`);
       }
     }
   };
@@ -425,6 +441,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
                 app.log.warn(`[OUTBOX] Event ${ev.id} targeted past match ${targetMatchId}. Transitioning to stale.`);
                 await outboxRepo.markProcessed(ev.id, workerInstanceId);
                 if (journalRepo) {
+                  await journalRepo.recordTransition({
+                    commandId: ev.id,
+                    fromMatchId: targetMatchId,
+                    toMatchId: engine.matchId,
+                    reason: 'REJECTED_OBSOLETE_MATCH',
+                  });
                   await journalRepo.appendCommand({
                     matchId: targetMatchId,
                     commandId: ev.id,
@@ -603,24 +625,249 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return { accepted: false, reason: 'UNSUPPORTED_EVENT_TYPE' };
   };
 
-  // Helper to authenticate administrative access via x-admin-token or Bearer token
-  const verifyAdminAuth = (request: any, reply: any): boolean => {
-    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
-    if (authHeader !== adminSecret && authHeader !== `Bearer ${adminSecret}`) {
-      reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
-      return false;
+  // Cookie & Session Token Helpers for Admin Dashboard (HttpOnly, CSRF Protected)
+  const parseCookies = (header: string | undefined): Record<string, string> => {
+    if (!header) return {};
+    const out: Record<string, string> = {};
+    const parts = header.split(';');
+    for (const part of parts) {
+      const idx = part.indexOf('=');
+      if (idx > -1) {
+        const k = part.substring(0, idx).trim();
+        const v = part.substring(idx + 1).trim();
+        out[k] = decodeURIComponent(v);
+      }
     }
-    return true;
+    return out;
   };
+
+  const signAdminSession = (payload: any, secret: string): string => {
+    const b64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const hmac = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
+    return `${b64}.${hmac}`;
+  };
+
+  const verifyAdminSession = (token: string | undefined, secret: string): { valid: boolean; role?: 'viewer' | 'operator' | 'admin'; csrfToken?: string } => {
+    if (!token || !token.includes('.')) return { valid: false };
+    const [b64, hmac] = token.split('.');
+    const expectedHmac = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
+    try {
+      if (hmac.length !== expectedHmac.length || !crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expectedHmac))) {
+        return { valid: false };
+      }
+      const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf-8'));
+      if (payload.exp && Date.now() > payload.exp) {
+        return { valid: false };
+      }
+      return { valid: true, role: payload.role, csrfToken: payload.csrfToken };
+    } catch {
+      return { valid: false };
+    }
+  };
+
+  const ROLE_HIERARCHY: Record<'viewer' | 'operator' | 'admin', number> = {
+    viewer: 1,
+    operator: 2,
+    admin: 3,
+  };
+
+  // Helper to authenticate administrative access via session cookie or direct API header
+  const verifyAdminAuth = (
+    request: any,
+    reply: any,
+    requiredRole: 'viewer' | 'operator' | 'admin' = 'viewer'
+  ): { authenticated: boolean; role: 'viewer' | 'operator' | 'admin'; actor: string } | null => {
+    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
+    const cookies = parseCookies(request.headers.cookie);
+    const sessionCookie = cookies['admin_session'];
+
+    // 1. Direct API Header Auth (Automated scripts / E2E / testing) -> grants admin role
+    if (authHeader === adminSecret || authHeader === `Bearer ${adminSecret}`) {
+      return { authenticated: true, role: 'admin', actor: 'api_token' };
+    }
+
+    // 2. Session Cookie Auth
+    if (sessionCookie) {
+      const verified = verifyAdminSession(sessionCookie, adminSecret);
+      if (verified.valid && verified.role) {
+        // Enforce CSRF protection on state-mutating requests
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method.toUpperCase())) {
+          const csrfHeader = request.headers['x-csrf-token'];
+          if (!csrfHeader || csrfHeader !== verified.csrfToken) {
+            reply.status(403).send({ error: 'CSRF_TOKEN_INVALID', message: 'Valid x-csrf-token header is required for session mutations.' });
+            return null;
+          }
+        }
+
+        const userRoleLevel = ROLE_HIERARCHY[verified.role] || 0;
+        const requiredLevel = ROLE_HIERARCHY[requiredRole];
+        if (userRoleLevel >= requiredLevel) {
+          return { authenticated: true, role: verified.role, actor: `session_${verified.role}` };
+        } else {
+          reply.status(403).send({ error: 'FORBIDDEN_INSUFFICIENT_ROLE', message: `Role '${verified.role}' cannot perform '${requiredRole}' action.` });
+          return null;
+        }
+      }
+    }
+
+    reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN', message: 'Valid admin authentication required.' });
+    return null;
+  };
+
+  // Structured Admin Audit Logging Helper
+  const logAdminAction = async (actor: string, role: string, action: string, details: any = {}) => {
+    if (journalRepo) {
+      try {
+        await journalRepo.saveAuditLog({
+          actor,
+          role,
+          action,
+          matchId: engine.matchId,
+          tick: engine.tick,
+          details,
+        });
+      } catch (err: any) {
+        app.log.warn(`[AUDIT] Failed to save audit log: ${err.message}`);
+      }
+    }
+  };
+
+  // Sliding window tick measurement for actualSimulationHz
+  const tickHistory: number[] = [];
+  const recordTickTimestamp = () => {
+    const now = Date.now();
+    tickHistory.push(now);
+    if (tickHistory.length > 40) {
+      tickHistory.shift();
+    }
+  };
+
+  const getActualSimulationHz = (): number => {
+    if (engine.isPaused()) return 0;
+    if (tickHistory.length < 5) return 20;
+    const durationMs = tickHistory[tickHistory.length - 1] - tickHistory[0];
+    if (durationMs <= 0) return 20;
+    return Math.round(((tickHistory.length - 1) / durationMs) * 1000 * 10) / 10;
+  };
+
+  // POST /api/admin/login — Issue HttpOnly Session Cookie + CSRF Token
+  app.post('/api/admin/login', async (request, reply) => {
+    const { secret, role } = (request.body || {}) as { secret?: string; role?: string };
+    if (!secret || secret !== adminSecret) {
+      return reply.status(401).send({ error: 'INVALID_ADMIN_SECRET', message: 'Incorrect admin secret.' });
+    }
+    const targetRole: 'viewer' | 'operator' | 'admin' =
+      role === 'viewer' || role === 'operator' || role === 'admin' ? role : 'admin';
+    const csrfToken = crypto.randomBytes(16).toString('hex');
+    const sessionToken = signAdminSession(
+      {
+        role: targetRole,
+        csrfToken,
+        exp: Date.now() + 24 * 3600 * 1000,
+      },
+      adminSecret
+    );
+
+    const secureFlag = isProduction ? '; Secure' : '';
+    reply.header('Set-Cookie', `admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict${secureFlag}`);
+    await logAdminAction(`session_${targetRole}`, targetRole, 'LOGIN', { ip: request.ip });
+    return reply.send({
+      success: true,
+      role: targetRole,
+      csrfToken,
+    });
+  });
+
+  // POST /api/admin/logout — Invalidate Session Cookie
+  app.post('/api/admin/logout', async (request, reply) => {
+    const secureFlag = isProduction ? '; Secure' : '';
+    reply.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureFlag}`);
+    return reply.send({ success: true, message: 'Logged out successfully.' });
+  });
 
   // OBS Live Operations Admin Dashboard UI Route
   app.get('/admin', async (request, reply) => {
-    const tokenHeader = request.headers['x-admin-token'] || request.headers.authorization;
-    const tokenQuery = (request.query as any)?.token;
-    const isAuthed =
-      tokenHeader === adminSecret ||
-      tokenHeader === `Bearer ${adminSecret}` ||
-      tokenQuery === adminSecret;
+    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
+    const cookies = parseCookies(request.headers.cookie);
+    const sessionCookie = cookies['admin_session'];
+
+    let isAuthed = authHeader === adminSecret || authHeader === `Bearer ${adminSecret}`;
+    let userRole = 'admin';
+    if (!isAuthed && sessionCookie) {
+      const verified = verifyAdminSession(sessionCookie, adminSecret);
+      if (verified.valid && verified.role) {
+        isAuthed = true;
+        userRole = verified.role;
+      }
+    }
+
+    if (!isAuthed) {
+      // Return 401 with secure login UI (Zero sensitive controls or data rendered to unauthenticated guests)
+      const loginHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Zombie Đại Chiến — Đăng Nhập Quản Trị Viên (Live Operations)</title>
+  <style>
+    body { background: #0a0e17; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .card { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 32px; width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    h2 { font-size: 18px; color: #00f5d4; margin-bottom: 20px; text-align: center; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+    input, select { width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px; color: #fff; font-size: 14px; }
+    button { width: 100%; background: #0284c7; color: #fff; border: none; padding: 12px; border-radius: 6px; font-weight: 700; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #0369a1; }
+    #err { color: #f43f5e; font-size: 13px; margin-top: 12px; text-align: center; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🔒 XÁC THỰC QUẢN TRỊ VIÊN</h2>
+    <div class="field">
+      <label>Khóa Quản Trị (Admin Secret)</label>
+      <input type="password" id="secretInput" placeholder="Nhập ADMIN_SECRET_KEY..." autofocus />
+    </div>
+    <div class="field">
+      <label>Vai Trò (Role)</label>
+      <select id="roleSelect">
+        <option value="admin">Administrator (Toàn quyền)</option>
+        <option value="operator">Operator (Điều hành trận & cổng)</option>
+        <option value="viewer">Viewer (Chỉ xem giám sát)</option>
+      </select>
+    </div>
+    <button onclick="login()">ĐĂNG NHẬP VẬN HÀNH</button>
+    <div id="err"></div>
+  </div>
+  <script>
+    async function login() {
+      const secret = document.getElementById('secretInput').value.trim();
+      const role = document.getElementById('roleSelect').value;
+      const err = document.getElementById('err');
+      err.style.display = 'none';
+      if (!secret) return;
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret, role })
+        });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const d = await res.json();
+          err.textContent = d.message || 'Khóa bí mật không hợp lệ!';
+          err.style.display = 'block';
+        }
+      } catch (e) {
+        err.textContent = e.message;
+        err.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>`;
+      return reply.status(401).type('text/html').send(loginHtml);
+    }
 
     try {
       const candidates = [
@@ -640,9 +887,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   });
 
-  // Admin Authoritative Operations: Start / Restart Match
+  // Admin Authoritative Operations: Start / Restart Match (Requires 'operator')
   app.post('/api/admin/match/start', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
     const body = (request.body || {}) as { matchId?: string; seed?: number };
     const newMatchId = body.matchId || `match_${Date.now()}`;
     if (body.seed !== undefined) {
@@ -654,6 +902,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         .startMatch(newMatchId, engine.seed, engine.phase, engine.baseHp)
         .catch((e: any) => app.log.warn(`[ADMIN] Failed to persist new match: ${e.message}`));
     }
+    await logAdminAction(auth.actor, auth.role, 'START_MATCH', { newMatchId, seed: engine.seed });
     return reply.send({
       success: true,
       matchId: engine.matchId,
@@ -663,10 +912,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // Admin Authoritative Operations: Pause Simulation Loop
+  // Admin Authoritative Operations: Pause Simulation Loop (Requires 'operator')
   app.post('/api/admin/match/pause', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
     engine.pauseSimulation();
+    await logAdminAction(auth.actor, auth.role, 'PAUSE_SIMULATION', { tick: engine.tick });
     return reply.send({
       success: true,
       phase: engine.phase,
@@ -675,10 +926,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // Admin Authoritative Operations: Resume Simulation Loop
+  // Admin Authoritative Operations: Resume Simulation Loop (Requires 'operator')
   app.post('/api/admin/match/resume', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
     engine.resumeSimulation();
+    await logAdminAction(auth.actor, auth.role, 'RESUME_SIMULATION', { tick: engine.tick });
     return reply.send({
       success: true,
       phase: engine.phase,
@@ -687,10 +940,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // Admin Authoritative Operations: Emergency Reset
+  // Admin Authoritative Operations: Emergency Reset (Requires 'admin')
   app.post('/api/admin/match/emergency-reset', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'admin');
+    if (!auth) return;
     engine.emergencyReset();
+    await logAdminAction(auth.actor, auth.role, 'EMERGENCY_RESET', { tick: engine.tick, baseHp: engine.baseHp });
     return reply.send({
       success: true,
       matchId: engine.matchId,
@@ -700,9 +955,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // Admin Authoritative Operations: Blast Gate Control
+  // Admin Authoritative Operations: Blast Gate Control (Requires 'operator')
   app.post('/api/admin/gate', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
     const body = (request.body || {}) as { action: 'OPEN' | 'CLOSE' };
     if (body.action === 'OPEN') {
       engine.openGate();
@@ -711,24 +967,33 @@ export function buildServer(opts: BuildServerOptions = {}): {
     } else {
       return reply.status(400).send({ error: 'INVALID_GATE_ACTION', message: 'Action must be OPEN or CLOSE' });
     }
+    await logAdminAction(auth.actor, auth.role, body.action === 'OPEN' ? 'OPEN_GATE' : 'CLOSE_GATE', {
+      gateState: engine.getGateCollisionState(),
+    });
     return reply.send({
       success: true,
       gateState: engine.getGateCollisionState(),
     });
   });
 
-  // Admin Live Operations Monitoring & Telemetry Endpoint
+  // Admin Live Operations Monitoring & Telemetry Endpoint (Requires 'viewer')
   app.get('/api/admin/monitoring', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    const auth = verifyAdminAuth(request, reply, 'viewer');
+    if (!auth) return;
     if (!dbClient) await initDb();
 
     let outboxLag = 0;
     let pendingOutbox = 0;
+    let oldestPendingAgeMs = 0;
     let latestCheckpointTick = 0;
     let latestJournalSeq = 0;
+    let recentAuditLogs: any[] = [];
 
     if (dbClient) {
       try {
+        if (outboxRepo) {
+          oldestPendingAgeMs = await outboxRepo.getOldestPendingAgeMs();
+        }
         const obRes = await dbClient.query(`SELECT count(*) as count FROM outbox_events WHERE status = 'PENDING' OR status = 'PROCESSING'`);
         pendingOutbox = Number(obRes.rows[0]?.count || 0);
         outboxLag = pendingOutbox;
@@ -738,9 +1003,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
           latestJournalSeq = await journalRepo.getLatestJournalSeq(engine.matchId);
           const cp = await journalRepo.getLatestCheckpoint(engine.matchId);
           latestCheckpointTick = cp ? cp.tick : 0;
+          recentAuditLogs = await journalRepo.getRecentAuditLogs(10);
         }
       } catch {}
     }
+
+    const connectedClients = (io.of('/game').sockets?.size ?? 0) + (io.sockets?.sockets?.size ?? 0);
 
     return reply.send({
       server: {
@@ -775,16 +1043,29 @@ export function buildServer(opts: BuildServerOptions = {}): {
         dbConnected: Boolean(dbClient),
         outboxPendingCount: pendingOutbox,
         outboxLag,
+        oldestPendingAgeMs,
         latestJournalSeq,
+        lastAppliedJournalSeq: engine.getLastAppliedJournalSeq(),
         latestCheckpointTick,
-        simulationHz: 20,
+        simulationHz: getActualSimulationHz(),
+        connectedClients,
+        recentAuditLogs,
+        currentRole: auth.role,
       },
     });
   });
 
-  // Admin Read-Only Database Inspection Endpoint (For QA, Health & Verification)
+  // Admin Read-Only Database Inspection Endpoint (Disabled in Production, Requires 'admin' in Dev/Test)
   app.post('/api/admin/query', async (request, reply) => {
-    if (!verifyAdminAuth(request, reply)) return;
+    if (isProduction) {
+      return reply.status(403).send({
+        error: 'FORBIDDEN_IN_PRODUCTION',
+        message: 'Arbitrary database queries are strictly prohibited in production mode.',
+      });
+    }
+
+    const auth = verifyAdminAuth(request, reply, 'admin');
+    if (!auth) return;
 
     if (!dbClient) await initDb();
     if (!dbClient) {
@@ -803,6 +1084,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
     try {
       const res = await dbClient.query(sql, params || []);
+      await logAdminAction(auth.actor, auth.role, 'EXECUTE_QUERY', { sql: sql.substring(0, 100) });
       return reply.send({ rows: res.rows, rowCount: res.rowCount });
     } catch (err: any) {
       return reply.status(500).send({ error: err.message });
@@ -1167,6 +1449,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
     if (token === adminSecret || token === `Bearer ${adminSecret}`) {
       return next();
     }
+    const cookieHeader = socket.handshake.headers?.cookie;
+    const cookies = parseCookies(cookieHeader);
+    const sessionToken = cookies['admin_session'];
+    if (sessionToken) {
+      const verified = verifyAdminSession(sessionToken, adminSecret);
+      if (verified.valid) {
+        return next();
+      }
+    }
     return next(new Error('UNAUTHORIZED_ADMIN_ACCESS'));
   });
 
@@ -1257,6 +1548,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
       let ticksRan = 0;
       while (accumulator >= TICK_DURATION_MS && ticksRan < CATCH_UP_LIMIT) {
         engine.step();
+        recordTickTimestamp();
         accumulator -= TICK_DURATION_MS;
         ticksRan++;
 

@@ -20,6 +20,7 @@ import { resolveGiftSkill, SKILL_REGISTRY, SkillConfig } from './SkillRegistry.j
 export interface SkillCommand {
   commandId: string;
   matchId: string;
+  targetMatchId?: string;
   seq?: number;
   targetTick: number;
   sourceUserId: string;
@@ -180,8 +181,26 @@ export class AuthoritativeGameEngine {
   private skillActivationCounts: Map<string, number> = new Map();
   private skillCooldowns: Map<string, number> = new Map();
   private reinforcementSoldierLifespans: Map<string, number> = new Map();
-  public onCommandApplied?: (cmd: SkillCommand, appliedTick: number, result: { success: boolean; reason?: string }) => void;
-  public onCheckpointNeeded?: (tick: number, state: any) => Promise<void> | void;
+  public onCommandApplied?: (cmd: SkillCommand, appliedTick: number, result: { success: boolean; status: 'APPLIED' | 'REJECTED' | 'DEFERRED' | 'FAILED'; reason?: string }) => void;
+  public onCheckpointNeeded?: (tick: number, state: any, lastAppliedJournalSeq: number) => Promise<void> | void;
+  public onCommandTransitionNeeded?: (transition: { commandId: string; fromMatchId: string; toMatchId: string; reason: string }) => Promise<void> | void;
+
+  // Contiguous applied journal sequence watermark tracker
+  public lastAppliedJournalSeq: number = 0;
+  private processedSeqs: Set<number> = new Set();
+
+  public recordProcessedSeq(seq?: number): void {
+    if (seq === undefined || seq === null) return;
+    this.processedSeqs.add(seq);
+    while (this.processedSeqs.has(this.lastAppliedJournalSeq + 1)) {
+      this.lastAppliedJournalSeq++;
+      this.processedSeqs.delete(this.lastAppliedJournalSeq);
+    }
+  }
+
+  public getLastAppliedJournalSeq(): number {
+    return this.lastAppliedJournalSeq;
+  }
 
   private waveNumber: number = 1;
   private waveTicksRemaining: number = 20 * 20; // 20s for PREPARING
@@ -534,8 +553,9 @@ export class AuthoritativeGameEngine {
    */
   public applySkillCommand(cmd: SkillCommand): { success: boolean; reason?: string; skillName: string } {
     const notifyReject = (reason: string, skillName: string = 'UNKNOWN') => {
+      this.recordProcessedSeq(cmd.seq);
       if (this.onCommandApplied) {
-        this.onCommandApplied(cmd, this.tick, { success: false, reason });
+        this.onCommandApplied(cmd, this.tick, { success: false, status: 'REJECTED', reason });
       }
       return { success: false, reason, skillName };
     };
@@ -829,8 +849,9 @@ export class AuthoritativeGameEngine {
       if (first) this.executedCommandIds.delete(first);
     }
 
+    this.recordProcessedSeq(cmd.seq);
     if (this.onCommandApplied) {
-      this.onCommandApplied(cmd, this.tick, { success: true });
+      this.onCommandApplied(cmd, this.tick, { success: true, status: 'APPLIED' });
     }
 
     return { success: true, skillName: config.name };
@@ -1052,7 +1073,7 @@ export class AuthoritativeGameEngine {
 
     // 7. Checkpoint Trigger: Kích hoạt định kỳ tại simulation tick boundary (mỗi 100 ticks)
     if (this.tick > 0 && this.tick % 100 === 0) {
-      this.onCheckpointNeeded?.(this.tick, this.getSimulationState());
+      this.onCheckpointNeeded?.(this.tick, this.getSimulationState(), this.lastAppliedJournalSeq);
     }
   }
 
@@ -1172,12 +1193,22 @@ export class AuthoritativeGameEngine {
     this.collisionSystem.setWallState('RIGHT', 'INTACT', 1000);
     this.closeGate();
 
-    // P0: Chuyển toàn bộ deferred commands từ vòng RESULTS sang trận mới mà không đánh mất quà của người xem!
+    // P0: Chuyển toàn bộ deferred commands từ vòng RESULTS sang trận mới với transition audit trail!
     if (this.deferredSkillCommands.length > 0) {
       for (const cmd of this.deferredSkillCommands) {
+        const fromMatchId = cmd.matchId;
+        cmd.targetMatchId = this.matchId;
         cmd.matchId = this.matchId;
         cmd.targetTick = this.tick + 5;
         this.commandQueue.push(cmd);
+        if (this.onCommandTransitionNeeded) {
+          this.onCommandTransitionNeeded({
+            commandId: cmd.commandId,
+            fromMatchId,
+            toMatchId: this.matchId,
+            reason: 'DEFERRED_MATCH_TRANSITION',
+          });
+        }
       }
       this.deferredSkillCommands = [];
     }
@@ -1805,6 +1836,7 @@ export class AuthoritativeGameEngine {
       seed: this.seed,
       tick: this.tick,
       sequenceId: this.sequenceId,
+      lastAppliedJournalSeq: this.lastAppliedJournalSeq,
       rngState: this.rng.getState(),
       phase: this.phase,
       result: this.result,
@@ -1851,12 +1883,14 @@ export class AuthoritativeGameEngine {
   public loadSimulationState(state: any): void {
     if (!state) return;
     if (state.engineVersion && state.engineVersion !== '1.0.0') {
-      console.warn(`[Engine] Checkpoint version mismatch: ${state.engineVersion} vs current 1.0.0`);
+      throw new Error(`[Engine] Fatal checkpoint schema version mismatch: checkpoint version '${state.engineVersion}' is incompatible with engine version '1.0.0'`);
     }
     this.matchId = state.matchId || this.matchId;
     this.seed = state.seed ?? this.seed;
     this.tick = state.tick ?? this.tick;
     this.sequenceId = state.sequenceId ?? this.sequenceId;
+    this.lastAppliedJournalSeq = state.lastAppliedJournalSeq ?? this.lastAppliedJournalSeq;
+    this.processedSeqs.clear();
     if (state.rngState !== undefined) this.rng.setState(state.rngState);
     this.phase = state.phase ?? this.phase;
     this.result = state.result ?? this.result;
