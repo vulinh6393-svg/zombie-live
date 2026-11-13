@@ -51,7 +51,7 @@ export class LiveEventDispatcher {
     if (isProd && (!token || token.trim().length < 16)) {
       throw new Error('FATAL_SECURITY_ERROR: LIVE_BRIDGE_INGRESS_TOKEN must be configured with at least 16 characters in production mode.');
     }
-    this.ingressToken = token || 'live_bridge_ingress_secret_2026';
+    this.ingressToken = token || 'live_bridge_ingress_secret_2026_token';
     this.streakTracker = new GiftStreakTracker(opts.streakTimeoutSeconds || 300);
   }
 
@@ -98,6 +98,7 @@ export class LiveEventDispatcher {
 
     try {
       let payload: any = null;
+      let streakInfo: { userId: string; giftId: string; liveSessionId: string; quantity: number; streakId?: string } | null = null;
 
       if (event.type === 'comment' && event.comment) {
         let norm = normalizeCommand(event.comment);
@@ -119,8 +120,8 @@ export class LiveEventDispatcher {
         const liveSessionId = event.liveSessionId || 'default_session';
         const streakId = event.gift.streakGroupId;
 
-        // B4: Cumulative vs Incremental Gift Streak Calculation
-        const streakRes = this.streakTracker.processGiftStreak(
+        // P0.5 (Phase 08.1): Prepare streak mà KHÔNG commit RAM sớm
+        const streakRes = this.streakTracker.prepareStreak(
           event.userId,
           giftId,
           liveSessionId,
@@ -132,6 +133,14 @@ export class LiveEventDispatcher {
           this.stats.duplicateStreakCount++;
           return { accepted: false, reason: streakRes.reason || 'DUPLICATE_STREAK' };
         }
+
+        streakInfo = {
+          userId: event.userId,
+          giftId,
+          liveSessionId,
+          quantity: giftCount,
+          streakId,
+        };
 
         const providerEvId = event.eventKey;
 
@@ -158,34 +167,82 @@ export class LiveEventDispatcher {
 
       this.stats.dispatchedCount++;
 
-      // Dispatch tới Authoritative Game Server sử dụng Dedicated Ingress Token (P0.1)
-      const res = await fetch(`${this.serverUrl}/api/live/event`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-live-bridge-token': this.ingressToken,
-          'Authorization': `Bearer ${this.ingressToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      // Dispatch tới Authoritative Game Server kèm chính sách retry và idempotency (P0.5)
+      let res: Response | null = null;
+      let data: any = null;
+      let lastErr: Error | null = null;
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          res = await fetch(`${this.serverUrl}/api/live/event`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-live-bridge-token': this.ingressToken,
+              'Authorization': `Bearer ${this.ingressToken}`,
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(5000),
+          });
+
+          if (res.ok) {
+            data = await res.json().catch(() => ({}));
+            break;
+          } else if (res.status >= 500 && attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, attempt * 100));
+            continue;
+          } else {
+            data = await res.json().catch(() => ({}));
+            break;
+          }
+        } catch (fetchErr: any) {
+          lastErr = fetchErr;
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, attempt * 100));
+          }
+        }
+      }
 
       const elapsed = performance.now() - startMs;
       this.latencies.push(elapsed);
       if (this.latencies.length > 200) this.latencies.shift();
 
-      if (!res.ok) {
+      if (!res && lastErr) {
         this.stats.errorCount++;
-        return { accepted: false, reason: `HTTP_${res.status}` };
+        // Không ACK streak khi mạng lỗi / timeout để retry sau tính đúng delta
+        return { accepted: false, reason: `NETWORK_ERROR: ${lastErr.message}` };
       }
 
-      const data = await res.json() as any;
-      if (data.accepted) {
+      if (!res || !res.ok) {
+        this.stats.errorCount++;
+        return { accepted: false, reason: `HTTP_${res?.status || 500}` };
+      }
+
+      const isAccepted = Boolean(
+        data?.accepted || 
+        data?.idempotentDuplicate || 
+        data?.reason === 'DUPLICATE_EVENT_ALREADY_SETTLED'
+      );
+
+      // P0.5 (Phase 08.1): Chỉ xác nhận (ACK) streak trong RAM sau khi Game Server xác nhận thành công
+      if (isAccepted && streakInfo) {
+        this.streakTracker.acknowledgeStreak(
+          streakInfo.userId,
+          streakInfo.giftId,
+          streakInfo.liveSessionId,
+          streakInfo.quantity,
+          streakInfo.streakId
+        );
+      }
+
+      if (isAccepted) {
         this.stats.acceptedCount++;
       } else {
         this.stats.rejectedCount++;
       }
 
-      return { accepted: !!data.accepted, reason: data.reason || data.skillName };
+      return { accepted: isAccepted, reason: data?.reason || data?.skillName };
     } catch (err) {
       this.stats.errorCount++;
       return { accepted: false, reason: (err as Error).message };

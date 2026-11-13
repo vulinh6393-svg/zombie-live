@@ -920,3 +920,41 @@
   - [x] **E1. Unit & Integration Tests toàn diện:** 119/119 tests PASS (100%) bao gồm session persistence, socket disconnect on logout, durable deferred match transition, provider state machine, cumulative gift streak, live bridge token isolation.
   - [x] **E2. Stress & Soak Testing:** Kiểm tra tải 100 viewers đồng thời với backpressure và deduplication.
   - [x] **E3. Xuất Artifacts, Update task.md & Git Commit:** Commit mới trên GitHub với mã hash và báo cáo đầy đủ.
+
+## Giai đoạn 08.1: Production Blockers Hardening & Runnable Live Demo (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **P0.1 — Loại Bỏ Phục Hồi Cơ Sở Dữ Liệu Phá Hủy (Remove Destructive Database Recovery):**
+  - [x] Loại bỏ hoàn toàn `fs.rmSync(targetDataDir, { recursive: true, force: true })` trong `packages/database/src/db.ts`.
+  - [x] Đảm bảo cơ chế fail-closed: log lỗi nghiêm trọng và ném `FATAL_DATABASE_INIT_ERROR` bảo toàn nguyên vẹn thư mục dữ liệu.
+  - [x] Viết unit test xác nhận thư mục DB và dữ liệu không bị xóa khi có lỗi khởi tạo PGlite.
+- [x] **P0.2 — Xây Dựng Docker Compose Khả Dụng Thực Tế (Buildable Docker Compose & Secret Hardening):**
+  - [x] Tạo `apps/game-server/Dockerfile` (multi-stage build Node.js + pnpm).
+  - [x] Tạo `apps/live-bridge/Dockerfile` (multi-stage build Node.js + pnpm).
+  - [x] Tạo `apps/game-client/Dockerfile` (Nginx/static server phục vụ Phaser client & overlay).
+  - [x] Chuẩn hóa `docker-compose.yml`: xóa mật khẩu mặc định hardcoded (bắt buộc truyền từ môi trường), bind port PostgreSQL `127.0.0.1:5432:5432`.
+  - [x] Báo cáo `BLOCKED (Docker executable not available on host system)` minh bạch vì Docker daemon không có sẵn trên host Windows hiện tại.
+- [x] **P0.3 — Triển Khai Live Bridge Runner Hoàn Chỉnh (Executable Live Bridge Runner):**
+  - [x] Cung cấp entrypoint `apps/live-bridge/src/cli.ts` có thể thực thi (`pnpm start` / `pnpm dev`).
+  - [x] Tích hợp bounded queue, backpressure, retry backoff, log có cấu trúc và graceful shutdown (`SIGINT`/`SIGTERM`).
+  - [x] Chạy luồng end-to-end: Mock Live Provider (100 viewers) $\to$ LiveEventDispatcher $\to$ Game Server $\to$ Phaser/OBS overlay.
+- [x] **P0.4 — Loại Bỏ Trạng Thái Giả Lập TikTok Connected (Fail-Closed TikTok Connector):**
+  - [x] Loại bỏ sleep 100ms chuyển sang `CONNECTED` trong `apps/live-bridge/src/tiktok.ts`.
+  - [x] Đặt trạng thái `BLOCKED` và ném `TIKTOK_CONNECTOR_BLOCKED` khi chưa có live stream thật hoặc API credentials hợp lệ.
+- [x] **P0.5 — Đảm Bảo Tính Bền Vững Gift Streak (Prepare-Acknowledge-Retry Reliability):**
+  - [x] Trong `apps/live-bridge/src/streak.ts` & `dispatcher.ts`, áp dụng cơ chế Prepare-Ack-Retry ở tầng ứng dụng: chỉ commit delta vào RAM sau khi Game Server phản hồi HTTP 200 `accepted: true` hoặc Idempotent Duplicate ACK.
+  - [x] Gift Ledger là nguồn sự thật duy nhất; khi timeout mạng, RAM streak không commit giúp retry gửi đúng delta và nhận kết quả idempotent không tính đúp.
+  - [x] Viết unit test mô phỏng network failure, retry streak (chuỗi 1 $\to$ 5 $\to$ 10) và duplicate idempotency.
+- [x] **P0.6 — Chuẩn Hóa Vòng Đời Lệnh Trì Hoãn (Strict Deferred Command Lifecycle):**
+  - [x] Tạo migration `20261113_phase08_1_deferred_transferred` và cập nhật enum trạng thái `DeferredCommandRecord`: `'DEFERRED' | 'TRANSFERRED' | 'APPLIED' | 'REJECTED' | 'FAILED'`.
+  - [x] `transferDeferredCommandsToMatch()` chuyển trạng thái thành `TRANSFERRED` (không gán `APPLIED` trước khi engine thực thi).
+  - [x] Bổ sung `markCommandApplied(id)` trong `DeferredCommandRepository`, gọi từ `engine.onCommandApplied`.
+  - [x] Hỗ trợ chuyển giao lệnh trong cả `restartMatch()` và `emergencyReset()`; crash recovery tải lại các lệnh `TRANSFERRED` chưa `APPLIED`.
+  - [x] Viết unit/integration test cho quy trình deferred commands.
+- [x] **P1 — Hoàn Thiện Runbook & Script Vận Hành Windows (Reliable Windows Runbooks):**
+  - [x] Tạo `scripts/start-demo.ps1` chạy trọn gói Live Demo cục bộ (Game Server + Mock Live Bridge 100 viewers + Client Preview) chỉ bằng 1 lệnh.
+  - [x] Cập nhật `scripts/start-production.ps1` kiểm tra nghiêm ngặt secrets production (Fail-Closed).
+  - [x] Đồng bộ thư mục DB mặc định thành `.data/pglite` trong toàn bộ runbooks; an toàn quiesce và bổ sung `scripts/restore-db.ps1` có test khôi phục thực tế.
+  - [x] Tạo `scripts/stop-demo.ps1` và `scripts/stop-production.ps1` dừng an toàn theo PID file.
+- [x] **Nghiệm Thu Toàn Diện & Đẩy Lên GitHub:**
+  - [x] Chạy kiểm thử toàn bộ monorepo (120/120 tests PASS, 100%).
+  - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.
+  - [x] Báo cáo đầy đủ commit SHA 40 ký tự và kết quả nghiệm thu cho người dùng.

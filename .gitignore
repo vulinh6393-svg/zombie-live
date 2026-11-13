@@ -26,6 +26,8 @@ prisma/*.db
 prisma/*.db-journal
 .data/
 **/.data/
+backups/
+.*_pids.json
 
 # OS files
 .DS_Store

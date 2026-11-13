@@ -102,7 +102,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const viewerSecret = opts.viewerSecret || process.env.VIEWER_SECRET_KEY || `view_${crypto.createHash('sha256').update(adminSecret + ':viewer').digest('hex').substring(0, 24)}`;
 
   // P0.1 (Phase 08): Dedicated Live Bridge Ingress Token (Tách biệt hoàn toàn khỏi Admin Secret)
-  const liveBridgeToken = opts.liveBridgeToken || process.env.LIVE_BRIDGE_INGRESS_TOKEN || (isProduction ? `lb_${crypto.createHash('sha256').update(adminSecret + ':live_bridge').digest('hex').substring(0, 24)}` : 'live_bridge_ingress_secret_2026');
+  const liveBridgeToken = opts.liveBridgeToken || process.env.LIVE_BRIDGE_INGRESS_TOKEN || (isProduction ? `lb_${crypto.createHash('sha256').update(adminSecret + ':live_bridge').digest('hex').substring(0, 24)}` : 'live_bridge_ingress_secret_2026_token');
   if (isProduction && (!liveBridgeToken || liveBridgeToken.trim().length < 16)) {
     throw new Error('FATAL_SECURITY_ERROR: LIVE_BRIDGE_INGRESS_TOKEN must be configured with at least 16 characters in production mode.');
   }
@@ -307,6 +307,20 @@ export function buildServer(opts: BuildServerOptions = {}): {
         app.log.warn(`[OUTBOX] Failed to mark outbox event processed: ${err.message}`);
       }
     }
+
+    // P0.6 (Phase 08.1): Cập nhật trạng thái Deferred Command sang APPLIED hoặc FAILED
+    // Chỉ cập nhật khi authoritative engine đã thực thi thành công trên simulation tick!
+    if (deferredRepo) {
+      try {
+        if (result.success) {
+          await deferredRepo.markCommandApplied(cmd.commandId);
+        } else {
+          await deferredRepo.markCommandFailed(cmd.commandId, result.reason || 'ENGINE_REJECTED');
+        }
+      } catch (err: any) {
+        app.log.warn(`[DEFERRED] Failed to update deferred command terminal status: ${err.message}`);
+      }
+    }
   };
 
   // Checkpointing deterministically triggered at simulation tick boundary (every 100 ticks = 5s)
@@ -345,6 +359,80 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   };
 
+  // P0.6 (Phase 08.1): Chuyển giao các lệnh hoãn bền vững (Durable Deferred Commands) sang trận mới
+  const transferAndQueueDeferredCommands = async (targetMatchId: string) => {
+    if (!deferredRepo) return;
+    try {
+      const transferred = await deferredRepo.transferDeferredCommandsToMatch(targetMatchId);
+      for (const cmd of transferred) {
+        let jSeq: number | undefined;
+        if (journalRepo) {
+          const jRes = await journalRepo.appendCommand({
+            matchId: targetMatchId,
+            commandId: cmd.id,
+            tick: engine.tick + 1,
+            commandType: 'GIFT_SKILL_DEFERRED',
+            payload: cmd.commandPayload,
+          });
+          jSeq = jRes.entry.seq;
+        }
+        engine.queueSkillCommand({
+          commandId: cmd.id,
+          matchId: targetMatchId,
+          seq: jSeq,
+          targetTick: engine.tick + 1,
+          sourceUserId: cmd.commandPayload.senderId,
+          sourceUserName: cmd.commandPayload.senderName,
+          skillId: cmd.commandPayload.skillId,
+          quantity: cmd.commandPayload.deltaQuantity,
+          streakId: cmd.commandPayload.streakId,
+        });
+      }
+      if (transferred.length > 0) {
+        app.log.info(`[DEFERRED] Transferred and queued ${transferred.length} deferred commands to match ${targetMatchId}`);
+      }
+    } catch (err: any) {
+      app.log.warn(`[DEFERRED] Lỗi khi chuyển giao lệnh hoãn sang trận mới: ${err.message}`);
+    }
+  };
+
+  // P0.6 (Phase 08.1): Phục hồi các lệnh đã chuyển giao (TRANSFERRED) nhưng server bị crash trước khi APPLIED
+  const recoverUnappliedTransferredCommands = async (targetMatchId: string) => {
+    if (!deferredRepo) return;
+    try {
+      const unapplied = await deferredRepo.getUnappliedTransferredCommands(targetMatchId);
+      for (const cmd of unapplied) {
+        let jSeq: number | undefined;
+        if (journalRepo) {
+          const jRes = await journalRepo.appendCommand({
+            matchId: targetMatchId,
+            commandId: cmd.id,
+            tick: engine.tick + 1,
+            commandType: 'GIFT_SKILL_RECOVERED',
+            payload: cmd.commandPayload,
+          });
+          jSeq = jRes.entry.seq;
+        }
+        engine.queueSkillCommand({
+          commandId: cmd.id,
+          matchId: targetMatchId,
+          seq: jSeq,
+          targetTick: engine.tick + 1,
+          sourceUserId: cmd.commandPayload.senderId,
+          sourceUserName: cmd.commandPayload.senderName,
+          skillId: cmd.commandPayload.skillId,
+          quantity: cmd.commandPayload.deltaQuantity,
+          streakId: cmd.commandPayload.streakId,
+        });
+      }
+      if (unapplied.length > 0) {
+        app.log.info(`[RECOVERY] Recovered and re-queued ${unapplied.length} unapplied transferred commands for match ${targetMatchId}`);
+      }
+    } catch (err: any) {
+      app.log.warn(`[RECOVERY] Lỗi khi phục hồi transferred commands: ${err.message}`);
+    }
+  };
+
   // Register onMatchStart callback to persist each new match to DB at its beginning
   engine.onMatchStart = async (matchId, seed, phase, baseHp) => {
     await initDb();
@@ -355,6 +443,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
         app.log.warn(`[MATCH_PERSISTENCE] Error on match start: ${err.message}`);
       }
     }
+    // Chuyển giao các lệnh đang hoãn cho trận mới
+    await transferAndQueueDeferredCommands(matchId);
   };
 
   app.addHook('onRequest', async () => {
@@ -401,6 +491,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
           app.log.info(`[MATCH_PERSISTENCE] No active match found. Starting new match: ${engine.matchId}`);
           await matchRepo.startMatch(engine.matchId, engine.seed, engine.phase, engine.baseHp);
         }
+
+        // P0.6 (Phase 08.1): Phục hồi các lệnh hoãn đã chuyển giao nhưng chưa hoàn thành (crash recovery)
+        await recoverUnappliedTransferredCommands(engine.matchId);
       } catch (recoveryErr: any) {
         app.log.warn(`[RECOVERY] Startup recovery error: ${recoveryErr.message}`);
       }
@@ -675,6 +768,16 @@ export function buildServer(opts: BuildServerOptions = {}): {
         });
 
         if (!sRes.success) {
+          // P0.5 (Phase 08.1): Idempotent duplicate ACK nếu event đã được settle trước đó trong Gift Ledger
+          if (sRes.reason === 'DUPLICATE_EVENT') {
+            return {
+              accepted: false,
+              idempotentDuplicate: true,
+              reason: 'DUPLICATE_EVENT',
+              skillName: 'ALREADY_PROCESSED',
+              deltaQuantity: 0,
+            };
+          }
           return { accepted: false, reason: sRes.reason, skillName: 'ALREADY_PROCESSED' };
         }
 
@@ -1039,6 +1142,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
         .startMatch(newMatchId, engine.seed, engine.phase, engine.baseHp)
         .catch((e: any) => app.log.warn(`[ADMIN] Failed to persist new match: ${e.message}`));
     }
+    // P0.6 (Phase 08.1): Chuyển giao các lệnh hoãn sang trận mới khi restart match
+    await transferAndQueueDeferredCommands(newMatchId);
     await logAdminAction(auth.actor, auth.role, 'START_MATCH', { newMatchId, seed: engine.seed });
     return reply.send({
       success: true,
@@ -1083,38 +1188,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
     if (!auth) return;
     engine.emergencyReset();
 
-    // A3 (Phase 08): Chuyển giao các lệnh hoãn bền vững (Durable Deferred Commands) sang trận mới
-    if (deferredRepo) {
-      try {
-        const transferred = await deferredRepo.transferDeferredCommandsToMatch(engine.matchId);
-        for (const cmd of transferred) {
-          let jSeq: number | undefined;
-          if (journalRepo) {
-            const jRes = await journalRepo.appendCommand({
-              matchId: engine.matchId,
-              commandId: cmd.id,
-              tick: engine.tick + 1,
-              commandType: 'GIFT_SKILL_DEFERRED',
-              payload: cmd.commandPayload,
-            });
-            jSeq = jRes.entry.seq;
-          }
-          engine.queueSkillCommand({
-            commandId: cmd.id,
-            matchId: engine.matchId,
-            seq: jSeq,
-            targetTick: engine.tick + 1,
-            sourceUserId: cmd.commandPayload.senderId,
-            sourceUserName: cmd.commandPayload.senderName,
-            skillId: cmd.commandPayload.skillId,
-            quantity: cmd.commandPayload.deltaQuantity,
-            streakId: cmd.commandPayload.streakId,
-          });
-        }
-      } catch (err: any) {
-        app.log.warn(`[DEFERRED] Lỗi khi chuyển giao lệnh hoãn sang trận mới: ${err.message}`);
-      }
-    }
+    // P0.6 (Phase 08.1): Chuyển giao các lệnh hoãn bền vững (Durable Deferred Commands) sang trận mới
+    await transferAndQueueDeferredCommands(engine.matchId);
 
     await logAdminAction(auth.actor, auth.role, 'EMERGENCY_RESET', { tick: engine.tick, baseHp: engine.baseHp });
     return reply.send({

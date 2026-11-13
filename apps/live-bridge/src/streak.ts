@@ -2,6 +2,13 @@
  * Cumulative Gift Streak Tracker (Incremental Delta Engine)
  * Đảm bảo chỉ xử lý phần chênh lệch (delta quantity) khi người xem tặng combo quà.
  * Chống trùng lặp (deduplication) và bảo vệ an toàn trước các gói tin đến trễ / out-of-order.
+ * 
+ * Chuẩn hóa theo quy trình Prepare - Acknowledge - Retry:
+ * 1. prepareStreak(): Tính toán delta dựa trên lastSettledQuantity trong RAM, KHÔNG commit sớm.
+ * 2. Khi Game Server xác nhận HTTP thành công (hoặc Idempotent duplicate ACK từ Gift Ledger),
+ *    gọi acknowledgeStreak() để ghi nhận mốc số lượng mới.
+ * 3. Khi gặp lỗi mạng / timeout, streak RAM không bị đẩy lên, cho phép retry với cùng providerEventId
+ *    và payload gốc mà không sợ bị từ chối sai là DUPLICATE_OR_OUT_OF_ORDER_STREAK.
  */
 
 export interface StreakState {
@@ -36,9 +43,9 @@ export class GiftStreakTracker {
   }
 
   /**
-   * Tính toán delta cho sự kiện gift tiếp theo trong chuỗi streak.
+   * Tính toán trước delta cho sự kiện gift tiếp theo trong chuỗi streak (chưa chốt state trong RAM).
    */
-  public processGiftStreak(
+  public prepareStreak(
     userId: string,
     giftId: string,
     liveSessionId: string,
@@ -49,16 +56,8 @@ export class GiftStreakTracker {
     const now = Date.now();
     const existing = this.streaks.get(key);
 
-    // Nếu đã hết hạn (timeout), reset streak mới
+    // Nếu chưa có streak hoặc đã hết hạn (timeout), bắt đầu streak mới
     if (!existing || now - existing.lastUpdated > this.streakTimeoutMs) {
-      this.streaks.set(key, {
-        userId,
-        giftId,
-        liveSessionId,
-        lastSettledQuantity: quantity,
-        lastUpdated: now,
-      });
-
       return {
         valid: true,
         deltaQuantity: quantity,
@@ -68,7 +67,7 @@ export class GiftStreakTracker {
       };
     }
 
-    // Nếu số lượng hiện tại <= số lượng đã ghi nhận: gói tin bị trễ hoặc trùng lặp (duplicate)
+    // Nếu số lượng hiện tại <= số lượng đã ghi nhận: gói tin bị trễ hoặc trùng lặp
     if (quantity <= existing.lastSettledQuantity) {
       return {
         valid: false,
@@ -82,17 +81,66 @@ export class GiftStreakTracker {
 
     // Tính delta gia tăng
     const delta = quantity - existing.lastSettledQuantity;
-    const prev = existing.lastSettledQuantity;
-    existing.lastSettledQuantity = quantity;
-    existing.lastUpdated = now;
-
     return {
       valid: true,
       deltaQuantity: delta,
       currentTotal: quantity,
-      previousTotal: prev,
+      previousTotal: existing.lastSettledQuantity,
       isNewStreak: false,
     };
+  }
+
+  /**
+   * Xác nhận (ACK) streak sau khi Game Server đã ghi nhận thành công vào Gift Ledger.
+   */
+  public acknowledgeStreak(
+    userId: string,
+    giftId: string,
+    liveSessionId: string,
+    settledQuantity: number,
+    streakId?: string
+  ): void {
+    const key = this.buildKey(userId, giftId, liveSessionId, streakId);
+    const now = Date.now();
+    const existing = this.streaks.get(key);
+
+    if (!existing) {
+      this.streaks.set(key, {
+        userId,
+        giftId,
+        liveSessionId,
+        lastSettledQuantity: settledQuantity,
+        lastUpdated: now,
+      });
+    } else {
+      existing.lastSettledQuantity = Math.max(existing.lastSettledQuantity, settledQuantity);
+      existing.lastUpdated = now;
+    }
+  }
+
+  /**
+   * Phương thức tương thích ngược: tự động tính và commit ngay trong RAM.
+   */
+  public processGiftStreak(
+    userId: string,
+    giftId: string,
+    liveSessionId: string,
+    quantity: number,
+    streakId?: string
+  ): StreakDeltaResult {
+    const prep = this.prepareStreak(userId, giftId, liveSessionId, quantity, streakId);
+    if (prep.valid) {
+      this.acknowledgeStreak(userId, giftId, liveSessionId, quantity, streakId);
+    }
+    return prep;
+  }
+
+  /**
+   * Lấy số lượng đã settle hiện tại của một streak.
+   */
+  public getLastSettledQuantity(userId: string, giftId: string, liveSessionId: string, streakId?: string): number {
+    const key = this.buildKey(userId, giftId, liveSessionId, streakId);
+    return this.streaks.get(key)?.lastSettledQuantity ?? 0;
   }
 
   /**

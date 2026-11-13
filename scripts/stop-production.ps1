@@ -5,7 +5,10 @@
 
 $ErrorActionPreference = "SilentlyContinue"
 $RootPath = Resolve-Path "$PSScriptRoot\.."
-$pidFile = Join-Path $RootPath ".running_pids.json"
+$pidFile = Join-Path $RootPath ".production_pids.json"
+if (-not (Test-Path $pidFile)) {
+  $pidFile = Join-Path $RootPath ".running_pids.json"
+}
 
 if (-not (Test-Path $pidFile)) {
   Write-Host "[INFO] Không tìm thấy file PID ($pidFile). Không có tiến trình nào đang lưu vết." -ForegroundColor Yellow

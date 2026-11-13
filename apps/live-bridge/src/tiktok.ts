@@ -59,20 +59,12 @@ export class TikTokLiveAdapter implements LiveEventAdapter {
   }
 
   public getStatus(): TikTokProviderStatus {
-    if (!this.isConfigured) {
-      return {
-        status: 'BLOCKED',
-        provider: 'tiktok',
-        reason: 'TIKTOK_UNIQUE_ID_NOT_CONFIGURED: Thiếu thông tin phòng LIVE TikTok hợp lệ trong biến môi trường.',
-        disclaimer: 'TikTok Webcast không phải là API chính thức có SLA. Cần tài khoản LIVE và định danh phòng thật.',
-      };
-    }
-
     return {
-      status: this.state === 'CONNECTED' ? 'CONNECTED' : 'READY',
+      status: 'BLOCKED',
       provider: 'tiktok',
       uniqueId: this.config.uniqueId,
-      disclaimer: 'Adapter sẵn sàng kết nối qua Webcast connector client.',
+      reason: 'TIKTOK_CONNECTOR_BLOCKED: Giao thức TikTok Webcast chưa có kết nối WebSocket chính thức được xác minh.',
+      disclaimer: 'TikTok Webcast không phải là API chính thức có SLA. Chưa cho phép dùng live stream thật khi chưa qua xác minh.',
     };
   }
 
@@ -81,7 +73,7 @@ export class TikTokLiveAdapter implements LiveEventAdapter {
   }
 
   public isConnected(): boolean {
-    return this.state === 'CONNECTED';
+    return false;
   }
 
   public onStateChange(handler: (state: ConnectionState, detail?: string) => void): void {
@@ -99,26 +91,8 @@ export class TikTokLiveAdapter implements LiveEventAdapter {
   }
 
   async connect(): Promise<void> {
-    if (!this.isConfigured) {
-      this.setState('ERROR', 'BLOCKED: Không thể kết nối TikTok LIVE khi chưa cấu hình TIKTOK_UNIQUE_ID.');
-      throw new Error('TIKTOK_LIVE_BLOCKED: Missing verified live session credentials.');
-    }
-
-    if (this.state === 'CONNECTED') return;
-
-    this.setState('CONNECTING', `Đang thiết lập kết nối Webcast tới @${this.config.uniqueId}...`);
-
-    try {
-      // Trong môi trường test/dev không có kết nối internet ra TikTok servers thật,
-      // adapter mô phỏng quá trình handshake và bảo đảm không ném lỗi unhandled
-      await new Promise((res) => setTimeout(res, 100));
-
-      this.reconnectAttempts = 0;
-      this.setState('CONNECTED', `Đã kết nối luồng Webcast phòng LIVE @${this.config.uniqueId}`);
-    } catch (err: any) {
-      this.handleConnectionFailure(err.message);
-      throw err;
-    }
+    this.setState('ERROR', 'BLOCKED: TikTok LIVE Connector is BLOCKED until a verified live session and sanctioned feed is configured.');
+    throw new Error('TIKTOK_CONNECTOR_BLOCKED: Active live stream connection is not verified. Synthetic connection is strictly prohibited.');
   }
 
   async disconnect(): Promise<void> {

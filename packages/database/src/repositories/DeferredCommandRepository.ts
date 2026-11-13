@@ -4,8 +4,9 @@ export interface DeferredCommandRecord {
   id: string;
   matchId: string;
   commandPayload: any;
-  status: 'DEFERRED' | 'APPLIED' | 'REJECTED' | 'FAILED';
+  status: 'DEFERRED' | 'TRANSFERRED' | 'APPLIED' | 'REJECTED' | 'FAILED';
   createdAt: Date;
+  transferredAt?: Date;
   appliedAt?: Date;
   targetMatchId?: string;
   transitionReason?: string;
@@ -39,7 +40,7 @@ export class DeferredCommandRepository {
    * Lấy danh sách các lệnh đang ở trạng thái DEFERRED.
    */
   public async getPendingDeferredCommands(matchId?: string): Promise<DeferredCommandRecord[]> {
-    let sql = `SELECT id, match_id, command_payload, status, created_at, applied_at, target_match_id, transition_reason
+    let sql = `SELECT id, match_id, command_payload, status, created_at, transferred_at, applied_at, target_match_id, transition_reason
                FROM deferred_match_commands
                WHERE status = 'DEFERRED'`;
     const params: any[] = [];
@@ -56,6 +57,35 @@ export class DeferredCommandRepository {
       commandPayload: typeof r.command_payload === 'string' ? JSON.parse(r.command_payload) : r.command_payload,
       status: r.status,
       createdAt: new Date(r.created_at),
+      transferredAt: r.transferred_at ? new Date(r.transferred_at) : undefined,
+      appliedAt: r.applied_at ? new Date(r.applied_at) : undefined,
+      targetMatchId: r.target_match_id,
+      transitionReason: r.transition_reason,
+    }));
+  }
+
+  /**
+   * Lấy danh sách các lệnh đã TRANSFERRED sang match mới nhưng chưa APPLIED (dùng khi phục hồi sau crash).
+   */
+  public async getUnappliedTransferredCommands(targetMatchId?: string): Promise<DeferredCommandRecord[]> {
+    let sql = `SELECT id, match_id, command_payload, status, created_at, transferred_at, applied_at, target_match_id, transition_reason
+               FROM deferred_match_commands
+               WHERE status = 'TRANSFERRED'`;
+    const params: any[] = [];
+    if (targetMatchId) {
+      sql += ` AND target_match_id = $1`;
+      params.push(targetMatchId);
+    }
+    sql += ` ORDER BY created_at ASC`;
+
+    const res = await this.db.query<any>(sql, params);
+    return res.rows.map((r) => ({
+      id: r.id,
+      matchId: r.match_id,
+      commandPayload: typeof r.command_payload === 'string' ? JSON.parse(r.command_payload) : r.command_payload,
+      status: r.status,
+      createdAt: new Date(r.created_at),
+      transferredAt: r.transferred_at ? new Date(r.transferred_at) : undefined,
       appliedAt: r.applied_at ? new Date(r.applied_at) : undefined,
       targetMatchId: r.target_match_id,
       transitionReason: r.transition_reason,
@@ -64,7 +94,8 @@ export class DeferredCommandRepository {
 
   /**
    * Chuyển toàn bộ các lệnh đang hoãn sang trận mới một cách nguyên tử trong transaction.
-   * Cập nhật status = 'APPLIED', ghi nhận target_match_id và applied_at.
+   * Cập nhật status = 'TRANSFERRED' (KHÔNG PHẢI 'APPLIED'), ghi nhận target_match_id và transferred_at.
+   * Lệnh chỉ chuyển sang 'APPLIED' khi authoritative engine thực sự xử lý thành công.
    */
   public async transferDeferredCommandsToMatch(targetMatchId: string): Promise<DeferredCommandRecord[]> {
     return this.db.transaction(async (tx) => {
@@ -84,16 +115,15 @@ export class DeferredCommandRepository {
       const records: DeferredCommandRecord[] = [];
       for (const r of pendingRes.rows) {
         const payload = typeof r.command_payload === 'string' ? JSON.parse(r.command_payload) : r.command_payload;
-        // Gắn targetMatchId vào payload
         if (payload) {
           payload.targetMatchId = targetMatchId;
         }
 
         await tx.query(
           `UPDATE deferred_match_commands
-           SET status = 'APPLIED',
+           SET status = 'TRANSFERRED',
                target_match_id = $1,
-               applied_at = CURRENT_TIMESTAMP,
+               transferred_at = CURRENT_TIMESTAMP,
                command_payload = $2
            WHERE id = $3`,
           [targetMatchId, JSON.stringify(payload), r.id]
@@ -103,9 +133,9 @@ export class DeferredCommandRepository {
           id: r.id,
           matchId: r.match_id,
           commandPayload: payload,
-          status: 'APPLIED',
+          status: 'TRANSFERRED',
           createdAt: new Date(r.created_at),
-          appliedAt: new Date(),
+          transferredAt: new Date(),
           targetMatchId,
           transitionReason: r.transition_reason,
         });
@@ -116,7 +146,35 @@ export class DeferredCommandRepository {
   }
 
   /**
-   * Từ chối lệnh hoãn có lý do cụ thể (terminal state REJECTED).
+   * Đánh dấu lệnh hoãn đã được Authoritative Engine áp dụng thành công (terminal status APPLIED).
+   */
+  public async markCommandApplied(id: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE deferred_match_commands
+       SET status = 'APPLIED',
+           applied_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND status = 'TRANSFERRED'`,
+      [id]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Đánh dấu lệnh hoãn thất bại (status FAILED).
+   */
+  public async markCommandFailed(id: string, reason: string): Promise<void> {
+    await this.db.query(
+      `UPDATE deferred_match_commands
+       SET status = 'FAILED',
+           transition_reason = $1,
+           applied_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [reason, id]
+    );
+  }
+
+  /**
+   * Từ chối lệnh hoãn có lý do cụ thể (terminal status REJECTED).
    */
   public async rejectDeferredCommand(id: string, reason: string): Promise<void> {
     await this.db.query(

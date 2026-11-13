@@ -88,6 +88,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261113_phase08_reliability/migration.sql'),
       ],
     },
+    {
+      id: '20261113_phase08_1_deferred_transferred',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261113_phase08_1_deferred_transferred/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261113_phase08_1_deferred_transferred/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261113_phase08_1_deferred_transferred/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261113_phase08_1_deferred_transferred/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {
@@ -361,16 +370,12 @@ export async function getDatabaseClient(options?: GetDatabaseOptions | string): 
       pgliteAdapter = new PGliteDatabaseAdapter(targetDataDir);
       await runVersionedMigrations(pgliteAdapter);
     } catch (err: any) {
-      if (!isProduction && targetDataDir !== ':memory:') {
-        // Tự động phục hồi khi process trước bị kill/crash đột ngột để lại lock
-        try {
-          fs.rmSync(targetDataDir, { recursive: true, force: true });
-        } catch {}
-        pgliteAdapter = new PGliteDatabaseAdapter(targetDataDir);
-        await runVersionedMigrations(pgliteAdapter);
-      } else {
-        throw err;
-      }
+      // P0.1 (Phase 08.1): FAIL-CLOSED on database initialization/migration error.
+      // NEVER delete targetDataDir automatically; preserve player progress, ledger, and match history intact!
+      console.error(`[DATABASE FATAL] PGlite initialization or migration failed at ${targetDataDir}: ${err.message}`);
+      throw new Error(
+        `FATAL_DATABASE_INIT_ERROR: Failed to initialize database at ${targetDataDir}. Data preserved without deletion. Original error: ${err.message}`
+      );
     }
     defaultInstance = pgliteAdapter;
     return pgliteAdapter;

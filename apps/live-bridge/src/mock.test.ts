@@ -4,7 +4,7 @@ import { GiftStreakTracker } from './streak.js';
 import { TikTokLiveAdapter } from './tiktok.js';
 import { NormalizedLiveEvent } from '@zombie-live/shared';
 
-describe('Live Bridge & Provider Adapters (Phase 08)', () => {
+describe('Live Bridge & Provider Adapters (Phase 08 & Phase 08.1)', () => {
   describe('1. MockLiveAdapter & 100 Concurrent Viewers', () => {
     it('connects and receives normalized mock events', async () => {
       const adapter = new MockLiveAdapter();
@@ -79,8 +79,8 @@ describe('Live Bridge & Provider Adapters (Phase 08)', () => {
     });
   });
 
-  describe('2. Cumulative Gift Streak Tracker (Incremental Delta)', () => {
-    it('calculates exact delta quantity for combo streaks and rejects duplicates/out-of-order', () => {
+  describe('2. Cumulative Gift Streak Tracker (Prepare-Ack-Retry Reliability)', () => {
+    it('calculates exact delta quantity for combo streaks (1 -> 5 -> 10) and rejects duplicates', () => {
       const tracker = new GiftStreakTracker(60);
 
       // 1. Initial gift (streak = 1) -> delta = 1
@@ -112,44 +112,60 @@ describe('Live Bridge & Provider Adapters (Phase 08)', () => {
       expect(res3.deltaQuantity).toBe(5);
       expect(res3.currentTotal).toBe(10);
     });
+
+    it('P0.5 Streak Resilience: network timeout preserves previous settled state for retry', () => {
+      const tracker = new GiftStreakTracker(60);
+
+      // Bước 1: Packet 1 (qty = 1) prepare thành công
+      const prep1 = tracker.prepareStreak('user_streamer', 'missile', 'sess_net', 1, 'stk_net');
+      expect(prep1.valid).toBe(true);
+      expect(prep1.deltaQuantity).toBe(1);
+
+      // Giả lập Game Server phản hồi 200 OK -> Client ACK
+      tracker.acknowledgeStreak('user_streamer', 'missile', 'sess_net', 1, 'stk_net');
+      expect(tracker.getLastSettledQuantity('user_streamer', 'missile', 'sess_net', 'stk_net')).toBe(1);
+
+      // Bước 2: Packet 2 (qty = 5) prepare delta = 4
+      const prep2 = tracker.prepareStreak('user_streamer', 'missile', 'sess_net', 5, 'stk_net');
+      expect(prep2.valid).toBe(true);
+      expect(prep2.deltaQuantity).toBe(4);
+
+      // Giả lập HTTP TIMEOUT! KHÔNG gọi acknowledgeStreak.
+      // Trạng thái trong RAM vẫn giữ nguyên ở mức 1:
+      expect(tracker.getLastSettledQuantity('user_streamer', 'missile', 'sess_net', 'stk_net')).toBe(1);
+
+      // Bước 3: Retry gửi lại cùng số lượng 5
+      const retryPrep = tracker.prepareStreak('user_streamer', 'missile', 'sess_net', 5, 'stk_net');
+      // Không bị từ chối là DUPLICATE vì RAM chưa commit 5
+      expect(retryPrep.valid).toBe(true);
+      expect(retryPrep.deltaQuantity).toBe(4);
+
+      // Server nhận và phản hồi thành công -> Giờ mới ACK
+      tracker.acknowledgeStreak('user_streamer', 'missile', 'sess_net', 5, 'stk_net');
+      expect(tracker.getLastSettledQuantity('user_streamer', 'missile', 'sess_net', 'stk_net')).toBe(5);
+
+      // Bước 4: Combo nhảy tiếp lên 10 -> delta tính chuẩn = 5 (10 - 5)
+      const prep3 = tracker.prepareStreak('user_streamer', 'missile', 'sess_net', 10, 'stk_net');
+      expect(prep3.valid).toBe(true);
+      expect(prep3.deltaQuantity).toBe(5);
+      tracker.acknowledgeStreak('user_streamer', 'missile', 'sess_net', 10, 'stk_net');
+      expect(tracker.getLastSettledQuantity('user_streamer', 'missile', 'sess_net', 'stk_net')).toBe(10);
+    });
   });
 
-  describe('3. TikTokLiveAdapter Status & Boundary Guard', () => {
-    it('reports BLOCKED when TIKTOK_UNIQUE_ID is not configured and throws on connect', async () => {
-      const adapter = new TikTokLiveAdapter({ uniqueId: '' });
-      const status = adapter.getStatus();
-
-      expect(status.status).toBe('BLOCKED');
-      expect(status.provider).toBe('tiktok');
-      expect(status.reason).toContain('TIKTOK_UNIQUE_ID_NOT_CONFIGURED');
-
-      await expect(adapter.connect()).rejects.toThrow('TIKTOK_LIVE_BLOCKED');
-      expect(adapter.getConnectionState()).toBe('ERROR');
-    });
-
-    it('normalizes chat and gift webcast events correctly when configured', async () => {
+  describe('3. TikTokLiveAdapter Status & Boundary Guard (P0.4 Fail-Closed)', () => {
+    it('always reports BLOCKED and rejects connect with TIKTOK_CONNECTOR_BLOCKED', async () => {
       const adapter = new TikTokLiveAdapter({ uniqueId: 'zombie_live_vietnam' });
       const status = adapter.getStatus();
-      expect(status.status).toBe('READY');
 
-      await adapter.connect();
-      expect(adapter.isConnected()).toBe(true);
+      // Zero fake CONNECTED: luôn báo BLOCKED khi chưa có kết nối WebSocket chính thức
+      expect(status.status).toBe('BLOCKED');
+      expect(status.provider).toBe('tiktok');
+      expect(status.reason).toContain('TIKTOK_CONNECTOR_BLOCKED');
+      expect(adapter.isConnected()).toBe(false);
 
-      const received: NormalizedLiveEvent[] = [];
-      adapter.onEvent((e) => received.push(e));
-
-      adapter.dispatchRawWebcastEvent({
-        eventType: 'chat',
-        msgId: 'msg_999',
-        user: { userId: 'tt_u1', nickname: 'TikTokGamer' },
-        content: 'BẮN',
-      });
-
-      expect(received.length).toBe(1);
-      expect(received[0].comment).toBe('BAN');
-      expect(received[0].provider).toBe('tiktok');
-
-      await adapter.disconnect();
+      await expect(adapter.connect()).rejects.toThrow('TIKTOK_CONNECTOR_BLOCKED');
+      expect(adapter.getConnectionState()).toBe('ERROR');
     });
   });
 });
