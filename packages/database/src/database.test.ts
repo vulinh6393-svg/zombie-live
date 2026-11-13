@@ -5,6 +5,8 @@ import { GiftLedgerRepository } from './repositories/GiftLedgerRepository.js';
 import { MissionRepository } from './repositories/MissionRepository.js';
 import { MatchRepository } from './repositories/MatchRepository.js';
 import { OutboxRepository } from './repositories/OutboxRepository.js';
+import { SessionRevocationRepository } from './repositories/SessionRevocationRepository.js';
+import { DeferredCommandRepository } from './repositories/DeferredCommandRepository.js';
 
 describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
   let db: PGliteDatabaseAdapter;
@@ -446,5 +448,101 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
         }
       }
     }, 30000);
+  });
+
+  describe('6. Phase 08 Reliability & Persistence (Session Revocation & Deferred Gifts)', () => {
+    it('persists session revocation across database reconnect and denies revoked sessions', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const testDir = path.resolve(process.cwd(), '.data/test_revoke_' + Date.now());
+
+      try {
+        const db1 = new PGliteDatabaseAdapter(testDir);
+        await db1.init({ runMigrations: true });
+        const revokeRepo1 = new SessionRevocationRepository(db1);
+
+        const expFuture = new Date(Date.now() + 3600 * 1000); // +1 hour
+        const expPast = new Date(Date.now() - 3600 * 1000); // -1 hour
+
+        await revokeRepo1.revokeSession('sess_active_logout', expFuture, 'ADMIN_MANUAL_LOGOUT');
+        await revokeRepo1.revokeSession('sess_expired', expPast, 'NATURAL_EXPIRY');
+
+        expect(await revokeRepo1.isSessionRevoked('sess_active_logout')).toBe(true);
+        expect(await revokeRepo1.isSessionRevoked('sess_expired')).toBe(false);
+        expect(await revokeRepo1.isSessionRevoked('sess_never_revoked')).toBe(false);
+
+        await db1.close();
+
+        // Restart instance
+        const db2 = new PGliteDatabaseAdapter(testDir);
+        await db2.init({ runMigrations: true });
+        const revokeRepo2 = new SessionRevocationRepository(db2);
+
+        // Verification persists after restart
+        expect(await revokeRepo2.isSessionRevoked('sess_active_logout')).toBe(true);
+        const activeIds = await revokeRepo2.getActiveRevokedSessionIds();
+        expect(activeIds).toContain('sess_active_logout');
+        expect(activeIds).not.toContain('sess_expired');
+
+        await db2.close();
+      } finally {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      }
+    });
+
+    it('persists deferred match commands and transfers them atomically to next match', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const testDir = path.resolve(process.cwd(), '.data/test_deferred_' + Date.now());
+
+      try {
+        const db1 = new PGliteDatabaseAdapter(testDir);
+        await db1.init({ runMigrations: true });
+        const defRepo1 = new DeferredCommandRepository(db1);
+
+        await defRepo1.deferCommand('cmd_def_1', 'match_old_1', { giftId: 'rose', quantity: 1, userId: 'u1' }, 'MATCH_ENDED');
+        await defRepo1.deferCommand('cmd_def_2', 'match_old_1', { giftId: 'shield', quantity: 1, userId: 'u2' }, 'MATCH_ENDED');
+
+        const pending1 = await defRepo1.getPendingDeferredCommands('match_old_1');
+        expect(pending1.length).toBe(2);
+        expect(pending1[0].status).toBe('DEFERRED');
+
+        await db1.close();
+
+        // Restart instance (crash recovery simulation)
+        const db2 = new PGliteDatabaseAdapter(testDir);
+        await db2.init({ runMigrations: true });
+        const defRepo2 = new DeferredCommandRepository(db2);
+
+        // Data survives restart
+        const pending2 = await defRepo2.getPendingDeferredCommands();
+        expect(pending2.length).toBe(2);
+
+        // Atomically transfer to new match
+        const transferred = await defRepo2.transferDeferredCommandsToMatch('match_new_2');
+        expect(transferred.length).toBe(2);
+        expect(transferred[0].status).toBe('APPLIED');
+        expect(transferred[0].targetMatchId).toBe('match_new_2');
+        expect(transferred[0].commandPayload.targetMatchId).toBe('match_new_2');
+
+        // Queue is now empty
+        const pendingAfter = await defRepo2.getPendingDeferredCommands();
+        expect(pendingAfter.length).toBe(0);
+
+        // Rejection test
+        await defRepo2.deferCommand('cmd_reject_1', 'match_new_2', { giftId: 'invalid' }, 'UNSUPPORTED');
+        await defRepo2.rejectDeferredCommand('cmd_reject_1', 'INVALID_BALANCE');
+        const pendingReject = await defRepo2.getPendingDeferredCommands();
+        expect(pendingReject.length).toBe(0);
+
+        await db2.close();
+      } finally {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      }
+    });
   });
 });

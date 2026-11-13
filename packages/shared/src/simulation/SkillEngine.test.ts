@@ -77,11 +77,11 @@ describe('Phase 06 — Config-Driven Skill Engine & Deterministic Effects', () =
       expect(firstZ.hp).toBe(Math.max(0, initialHp - 450));
     });
 
-    it('Fortress Shield: reduces Base and Wall incoming damage by 50% and expires cleanly', () => {
+    it('Fortress Shield: reduces Base and Wall incoming damage by 30% and expires cleanly', () => {
       const engine = new AuthoritativeGameEngine({ seed: 200, disableCombat: true });
       expect(engine.isShieldActive()).toBe(false);
 
-      // Kích hoạt khiên bảo vệ (12s = 240 ticks)
+      // Kích hoạt khiên bảo vệ (10s = 200 ticks theo docs/GAME_BALANCE.json)
       engine.handleGift({
         provider: 'mock',
         liveSessionId: engine.matchId,
@@ -95,18 +95,18 @@ describe('Phase 06 — Config-Driven Skill Engine & Deterministic Effects', () =
 
       expect(engine.isShieldActive()).toBe(true);
 
-      // Thử sát thương tường thành: 200 damage bị giảm 50% còn 100
+      // Thử sát thương tường thành: 200 damage bị giảm 30% còn 140
       engine.damageWall('LEFT', 200);
       const wallLeft = engine.collisionSystem.getWallState('LEFT');
-      expect(wallLeft.hp).toBe(900); // 1000 - 100 = 900
+      expect(wallLeft.hp).toBe(860); // 1000 - 140 = 860
 
-      // Cho chạy qua 240 ticks
-      for (let i = 0; i < 245; i++) engine.step();
+      // Cho chạy qua 200 ticks (10s)
+      for (let i = 0; i < 205; i++) engine.step();
       expect(engine.isShieldActive()).toBe(false);
 
       // Khi khiên hết hạn: 200 damage nhận đủ 200
       engine.damageWall('LEFT', 200);
-      expect(engine.collisionSystem.getWallState('LEFT').hp).toBe(700); // 900 - 200 = 700
+      expect(engine.collisionSystem.getWallState('LEFT').hp).toBe(660); // 860 - 200 = 660
     });
 
     it('Turret Overclock: doubles fire rate for 15s then cleanly restores original cooldowns', () => {

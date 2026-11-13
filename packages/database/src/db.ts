@@ -79,6 +79,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261112_command_transitions/migration.sql'),
       ],
     },
+    {
+      id: '20261113_phase08_reliability',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261113_phase08_reliability/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261113_phase08_reliability/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261113_phase08_reliability/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261113_phase08_reliability/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {

@@ -7,6 +7,8 @@ export * from './repositories/MatchRepository.js';
 export * from './repositories/MissionRepository.js';
 export * from './repositories/OutboxRepository.js';
 export * from './repositories/CommandJournalRepository.js';
+export * from './repositories/SessionRevocationRepository.js';
+export * from './repositories/DeferredCommandRepository.js';
 
 export interface DatabaseStatus {
   isConfigured: boolean;

@@ -1,5 +1,5 @@
 import { NormalizedLiveEvent } from '@zombie-live/shared';
-import { LiveEventAdapter } from './adapter.js';
+import { LiveEventAdapter, ConnectionState } from './adapter.js';
 
 export class ReplayLiveAdapter implements LiveEventAdapter {
   readonly provider = 'replay' as const;
@@ -31,6 +31,10 @@ export class ReplayLiveAdapter implements LiveEventAdapter {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  getConnectionState(): ConnectionState {
+    return this.connected ? 'CONNECTED' : 'DISCONNECTED';
   }
 
   onEvent(handler: (event: NormalizedLiveEvent) => void): void {

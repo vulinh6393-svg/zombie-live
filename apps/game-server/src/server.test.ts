@@ -63,7 +63,7 @@ describe('Game Server Security & Event Ingestion', () => {
 
     expect(res.statusCode).toBe(401);
     const body = JSON.parse(res.payload);
-    expect(body.error).toBe('UNAUTHORIZED_ADMIN_TOKEN');
+    expect(body.error).toBe('UNAUTHORIZED_LIVE_BRIDGE_TOKEN');
   });
 
   it('accepts authorized JOIN command and prevents duplicate player count', async () => {
@@ -828,6 +828,140 @@ describe('Game Server Security & Event Ingestion', () => {
 
         // Watermark phải tiến lên 1 liên tục!
         expect(engine.getLastAppliedJournalSeq()).toBe(1);
+      });
+
+      it('enforces dedicated LIVE_BRIDGE_INGRESS_TOKEN and isolates from admin APIs (P0.1)', async () => {
+        const testBridgeToken = 'live_bridge_ingress_token_test_12345';
+        const { app, stopEngine } = buildServer({
+          liveBridgeToken: testBridgeToken,
+          adminSecret: 'super_admin_secret_99999',
+        });
+        stopFn = stopEngine;
+
+        // 1. Gửi sự kiện với token Live Bridge hợp lệ -> 200 OK
+        const validRes = await app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: { 'x-live-bridge-token': testBridgeToken },
+          payload: {
+            type: 'COMMENT',
+            userId: 'bridge_user_1',
+            userName: 'BridgeUser',
+            command: 'JOIN 1',
+          },
+        });
+        expect(validRes.statusCode).toBe(200);
+
+        // 2. Gửi với token sai -> 401
+        const invalidRes = await app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: { 'x-live-bridge-token': 'wrong_bridge_token' },
+          payload: {
+            type: 'COMMENT',
+            userId: 'bridge_user_1',
+            userName: 'BridgeUser',
+            command: 'JOIN 1',
+          },
+        });
+        expect(invalidRes.statusCode).toBe(401);
+
+        // 3. Sử dụng LIVE_BRIDGE_INGRESS_TOKEN để gọi Admin API -> BỊ TỪ CHỐI (401/403)
+        const adminBypassRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/match/emergency-reset',
+          headers: { 'x-admin-token': testBridgeToken },
+        });
+        expect(adminBypassRes.statusCode).toBe(401);
+      });
+
+      it('disconnects active Socket.IO connection on logout and persists revocation across server restart (A1)', async () => {
+        const { io: Client } = await import('socket.io-client');
+        const testDbDir = path.resolve(process.cwd(), '.data/test_db_revocation_' + Date.now());
+        const adminSecret = 'admin_secret_revocation_test_123';
+
+        let srv1 = buildServer({
+          adminSecret,
+          dbDataDir: testDbDir,
+          disableAutoTick: true,
+        });
+        stopFn = () => {
+          srv1.stopEngine();
+          try {
+            if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+          } catch {}
+        };
+
+        await srv1.app.listen({ port: 0 });
+        const port1 = (srv1.app.server.address() as any).port;
+
+        // 1. Đăng nhập để lấy session token
+        const loginRes = await srv1.app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret },
+        });
+        expect(loginRes.statusCode).toBe(200);
+        const setCookie = loginRes.headers['set-cookie'] as string;
+        const sessionToken = setCookie.split(';')[0].replace('admin_session=', '');
+
+        // 2. Kết nối Socket.IO /admin bằng session token
+        const adminSocket = Client(`http://127.0.0.1:${port1}/admin`, {
+          auth: { token: sessionToken },
+          transports: ['websocket'],
+          reconnection: false,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          adminSocket.on('connect', () => resolve());
+          adminSocket.on('connect_error', reject);
+        });
+        expect(adminSocket.connected).toBe(true);
+
+        let socketWasDisconnected = false;
+        adminSocket.on('disconnect', () => {
+          socketWasDisconnected = true;
+        });
+
+        // 3. Đăng xuất qua HTTP với session cookie
+        const logoutRes = await srv1.app.inject({
+          method: 'POST',
+          url: '/api/admin/logout',
+          headers: { cookie: `admin_session=${sessionToken}` },
+        });
+        expect(logoutRes.statusCode).toBe(200);
+
+        // Chờ socket nhận sự kiện disconnect
+        await new Promise((r) => setTimeout(r, 200));
+        expect(socketWasDisconnected).toBe(true);
+        expect(adminSocket.connected).toBe(false);
+
+        // Đóng server 1
+        await srv1.app.close();
+        srv1.stopEngine();
+
+        // 4. Khởi động lại Server 2 trên cùng dbDataDir (mô phỏng process restart)
+        const srv2 = buildServer({
+          adminSecret,
+          dbDataDir: testDbDir,
+          disableAutoTick: true,
+        });
+        stopFn = () => {
+          srv2.stopEngine();
+          try {
+            if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+          } catch {}
+        };
+
+        // Thử truy cập API bảo vệ bằng session token cũ đã bị revoke
+        const reusedRes = await srv2.app.inject({
+          method: 'GET',
+          url: '/api/admin/monitoring',
+          headers: { cookie: `admin_session=${sessionToken}` },
+        });
+
+        // Phải bị chặn 401 vì session revocation đã được lưu bền vững vào database!
+        expect(reusedRes.statusCode).toBe(401);
       });
     });
   });

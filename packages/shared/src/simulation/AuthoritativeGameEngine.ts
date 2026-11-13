@@ -430,14 +430,15 @@ export class AuthoritativeGameEngine {
     const cd = this.checkCooldown(userId, 'SUA', 300); // 15s cooldown
     if (!cd.ready) return { success: false, reason: `COOLDOWN_${cd.remainingSeconds}s` };
 
-    // Sửa chữa tường thành đang bị hư hại nhất
+    // Sửa chữa tường thành đang bị hư hại nhất theo cấu hình SSOT docs/GAME_BALANCE.json
+    const repairProgress = DEFAULT_GAME_BALANCE.commands.SUA.repairProgress || 15;
     const walls = this.collisionSystem.getWallStates();
     if (walls.left.hp < walls.left.maxHp) {
-      this.collisionSystem.setWallState('LEFT', walls.left.hp + 50 >= walls.left.maxHp ? 'INTACT' : 'DAMAGED', walls.left.hp + 50);
+      this.collisionSystem.setWallState('LEFT', walls.left.hp + repairProgress >= walls.left.maxHp ? 'INTACT' : 'DAMAGED', walls.left.hp + repairProgress);
     } else if (walls.right.hp < walls.right.maxHp) {
-      this.collisionSystem.setWallState('RIGHT', walls.right.hp + 50 >= walls.right.maxHp ? 'INTACT' : 'DAMAGED', walls.right.hp + 50);
+      this.collisionSystem.setWallState('RIGHT', walls.right.hp + repairProgress >= walls.right.maxHp ? 'INTACT' : 'DAMAGED', walls.right.hp + repairProgress);
     } else {
-      this.baseHp = Math.min(this.maxBaseHp, this.baseHp + 50);
+      this.baseHp = Math.min(this.maxBaseHp, this.baseHp + repairProgress);
     }
 
     player.repairs++;

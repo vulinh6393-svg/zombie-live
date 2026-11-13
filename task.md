@@ -892,3 +892,31 @@
   - [x] Chạy full test monorepo (110/110 tests PASS, 100%) và chạy E2E Live Ops QA (5/5 PASS không fallback).
   - [x] Cập nhật `phase07_live_ops_telemetry.json` và `player.html`.
   - [x] Git commit và push remote branch `feat/phase02-visual-refinement`.
+
+## Giai đoạn 08: Live Provider Integration & Production Deployment Readiness (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **PHÂN MỤC A — Đóng Các Lỗ Hổng Tin Cậy (Close Remaining Reliability Gaps):**
+  - [x] **A1. Bền vững Session Revocation:** Tạo bảng `revoked_sessions` với versioned migration `20261113_phase08_reliability`; server tự động nạp danh sách vào memory cache khi khởi động (`SessionRevocationRepository.getActiveRevokedSessionIds()`).
+  - [x] **A2. Vô hiệu hóa & Ngắt Socket.IO khi Logout/Revoke:** Khi session bị thu hồi qua `/api/admin/logout`, quét namespace `/admin` và gọi `sock.disconnect(true)` ngay lập tức đối với các socket đang dùng sessionId đó.
+  - [x] **A3. Tính nguyên tử Journal Persistence & Outbox ACK:** Nếu việc ghi journal (`appendCommand`/`markCommandApplied`) hoặc áp dụng vào engine thất bại, Outbox Worker từ chối ACK `PROCESSED`, gọi `markFailed(JOURNAL_PERSISTENCE_FAILED)` để reconciliation an toàn.
+  - [x] **A4. Durable Deferred Match Transitions:** Lưu trữ command chuyển tiếp sang trận mới vào bảng `deferred_match_commands` khi match đang ở trạng thái `RESULTS` qua `DeferredCommandRepository`, tự động chuyển giao vào match mới khi bắt đầu hoặc emergency reset.
+  - [x] **A5. Loại bỏ fallback 16.7ms còn sót lại trong QA E2E:** Fail-closed nếu không có mẫu frame-time hợp lệ (`frameDeltas.length === 0`), tuân thủ 100% Zero Synthetic Fallback.
+  - [x] **A6. Minh bạch trạng thái Production Gate:** Giữ PostgreSQL standalone và 60-minute soak test ở trạng thái rõ ràng (chỉ mark READY khi có cơ sở hạ tầng production thật).
+- [x] **PHÂN MỤC B — Live Provider Adapter Architecture:**
+  - [x] **B1. Connection State Machine:** Thiết lập state machine (`DISCONNECTED`, `CONNECTING`, `CONNECTED`, `RECONNECTING`, `ERROR`, `BACKOFF`) với cơ chế exponential backoff và jitter.
+  - [x] **B2. MockLiveProvider mở rộng (100 Concurrent Viewers):** Giả lập luồng 100 viewers tương tác đồng thời với đầy đủ JOIN (1/2/3), COMMENT (BAN, SUA, CUU, BOSS), GIFT, FOLLOW, SHARE.
+  - [x] **B3. TikTokLiveProvider chuẩn hóa:** Xây dựng adapter kết nối TikTok LIVE (Webcast connector pattern), kèm backpressure, retry tự phục hồi, chống trùng lặp theo `providerEventId`, và tài liệu `docs/ops/LIVE_PROVIDER_ACCESS.md` nêu rõ nguồn cấp/giới hạn API.
+  - [x] **B4. Cumulative Gift Streak Tracker:** Xử lý combo quà liên tiếp (delta incremental quantity qua `GiftStreakTracker`), chỉ kích hoạt kỹ năng tương ứng với số lượng gia tăng mới.
+  - [x] **B5. Bảo mật Provider Credentials:** Giữ bí mật provider (`LIVE_BRIDGE_INGRESS_TOKEN`, `TIKTOK_SESSION_ID`, `TIKTOK_ROOM_ID`) trong backend/live-bridge, tách biệt hoàn toàn khỏi `ADMIN_SECRET_KEY`, không public ra client hoặc OBS.
+- [x] **PHÂN MỤC C — Viewer Commands & Authoritative Engine Ingestion:**
+  - [x] **C1. Chuẩn hóa lệnh người xem:** `JOIN 1/2/3`, `BAN`, `SUA`, `CUU`, `BOSS` qua authoritative ingestion; SSOT `docs/GAME_BALANCE.json` định nghĩa `SUA` sửa 15 HP tường/căn cứ.
+  - [x] **C2. Authoritative Gift Ingestion:** Mọi gift đều được ghi nhận qua `gift_ledger` idempotent và transactional outbox; cấm client tự sinh gift.
+  - [x] **C3. Đồng bộ tương tác:** Cập nhật XP, cấp độ, nhiệm vụ ngày và bảng xếp hạng trận đấu real-time.
+- [x] **PHÂN MỤC D — Windows OBS Deployment & Production Tooling:**
+  - [x] **D1. Docker Compose cấu hình production:** Phân tách `postgres`, `game-server`, `live-bridge`, `game-client` trong `docker-compose.yml`.
+  - [x] **D2. Kịch bản vận hành Windows PowerShell:** `scripts/start-production.ps1`, `scripts/health-check.ps1`, `scripts/backup-db.ps1`, `scripts/stop-production.ps1` hỗ trợ tự khởi động lại khi crash.
+  - [x] **D3. Health & Readiness Endpoints:** Chuẩn hóa `/health`, `/ready`, `/metrics`, `/api/admin/monitoring`.
+  - [x] **D4. Tài liệu OBS & Runbook vận hành 24/7:** Soạn thảo `docs/ops/DEPLOYMENT.md` và `docs/ops/LIVE_PROVIDER_ACCESS.md` hướng dẫn deploy và kịch bản ứng phó sự cố.
+- [x] **PHÂN MỤC E — Kiểm Thử, Nghiệm Thu & Commit:**
+  - [x] **E1. Unit & Integration Tests toàn diện:** 119/119 tests PASS (100%) bao gồm session persistence, socket disconnect on logout, durable deferred match transition, provider state machine, cumulative gift streak, live bridge token isolation.
+  - [x] **E2. Stress & Soak Testing:** Kiểm tra tải 100 viewers đồng thời với backpressure và deduplication.
+  - [x] **E3. Xuất Artifacts, Update task.md & Git Commit:** Commit mới trên GitHub với mã hash và báo cáo đầy đủ.

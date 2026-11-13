@@ -464,8 +464,11 @@ async function runPhase07OpsLiveQA() {
   }
 
   const finalMon = await adminClient.getMonitoring();
+  if (frameDeltas.length === 0) {
+    throw new Error('FATAL_QA_ERROR: Zero frame delta samples collected from Phaser loop. Fail-closed on missing telemetry (Zero Synthetic Fallback).');
+  }
   const sortedDeltas = [...frameDeltas].sort((a, b) => a - b);
-  const p95FrameTimeMs = sortedDeltas.length > 0 ? Math.round(sortedDeltas[Math.floor(sortedDeltas.length * 0.95)] * 10) / 10 : 16.7;
+  const p95FrameTimeMs = Math.round(sortedDeltas[Math.floor(sortedDeltas.length * 0.95)] * 10) / 10;
   const avgFps = Math.round(fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length);
   const minFps = Math.min(...fpsSamples);
   const maxFps = Math.max(...fpsSamples);

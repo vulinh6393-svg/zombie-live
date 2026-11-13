@@ -16,6 +16,8 @@ import {
   MatchRepository,
   OutboxRepository,
   CommandJournalRepository,
+  SessionRevocationRepository,
+  DeferredCommandRepository,
 } from '@zombie-live/database';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +30,7 @@ export interface BuildServerOptions {
   adminSecret?: string;
   operatorSecret?: string;
   viewerSecret?: string;
+  liveBridgeToken?: string;
   allowedOrigins?: string[];
   disableCombat?: boolean;
   enableMockDashboard?: boolean;
@@ -97,6 +100,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
   // P1.2: Phân tách rõ ràng secret credentials theo vai trò (Role Separation)
   const operatorSecret = opts.operatorSecret || process.env.OPERATOR_SECRET_KEY || `op_${crypto.createHash('sha256').update(adminSecret + ':operator').digest('hex').substring(0, 24)}`;
   const viewerSecret = opts.viewerSecret || process.env.VIEWER_SECRET_KEY || `view_${crypto.createHash('sha256').update(adminSecret + ':viewer').digest('hex').substring(0, 24)}`;
+
+  // P0.1 (Phase 08): Dedicated Live Bridge Ingress Token (Tách biệt hoàn toàn khỏi Admin Secret)
+  const liveBridgeToken = opts.liveBridgeToken || process.env.LIVE_BRIDGE_INGRESS_TOKEN || (isProduction ? `lb_${crypto.createHash('sha256').update(adminSecret + ':live_bridge').digest('hex').substring(0, 24)}` : 'live_bridge_ingress_secret_2026');
+  if (isProduction && (!liveBridgeToken || liveBridgeToken.trim().length < 16)) {
+    throw new Error('FATAL_SECURITY_ERROR: LIVE_BRIDGE_INGRESS_TOKEN must be configured with at least 16 characters in production mode.');
+  }
 
   // Server-side session revocation store (P1.2: Vô hiệu hóa phiên đăng xuất phía máy chủ)
   const revokedSessionIds = new Set<string>();
@@ -218,6 +227,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
   let matchRepo: MatchRepository | null = null;
   let outboxRepo: OutboxRepository | null = null;
   let journalRepo: CommandJournalRepository | null = null;
+  let sessionRevocationRepo: SessionRevocationRepository | null = null;
+  let deferredRepo: DeferredCommandRepository | null = null;
 
   const initDb = async () => {
     if (!dbClient) {
@@ -230,6 +241,21 @@ export function buildServer(opts: BuildServerOptions = {}): {
         matchRepo = new MatchRepository(db);
         outboxRepo = new OutboxRepository(db);
         journalRepo = new CommandJournalRepository(db);
+        sessionRevocationRepo = new SessionRevocationRepository(db);
+        deferredRepo = new DeferredCommandRepository(db);
+
+        // A1: Nạp các phiên đã thu hồi từ database để duy trì tính bền vững qua restart
+        try {
+          const persistedRevoked = await sessionRevocationRepo.getActiveRevokedSessionIds();
+          for (const sId of persistedRevoked) {
+            revokedSessionIds.add(sId);
+          }
+          if (persistedRevoked.length > 0) {
+            app.log.info(`[SECURITY] Đã nạp ${persistedRevoked.length} phiên đã bị thu hồi từ cơ sở dữ liệu`);
+          }
+        } catch (e: any) {
+          app.log.warn(`[SECURITY] Không thể nạp revoked_sessions: ${e.message}`);
+        }
       } catch (err: any) {
         app.log.warn(`[DATABASE] Lazy init warning: ${err.message}`);
         if (isProduction) {
@@ -244,6 +270,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
   // Wire command execution callback from engine to persistent journal and outbox ACK
   engine.onCommandApplied = async (cmd, tick, result) => {
+    let journalUpdated = false;
     if (journalRepo) {
       try {
         await journalRepo.markCommandApplied(
@@ -253,10 +280,23 @@ export function buildServer(opts: BuildServerOptions = {}): {
           result.success ? 'APPLIED' : 'REJECTED',
           result.reason
         );
+        journalUpdated = true;
       } catch (err: any) {
         app.log.warn(`[JOURNAL] Failed to mark command applied: ${err.message}`);
       }
+    } else {
+      journalUpdated = true;
     }
+
+    // A2 (Phase 08): Không ACK outbox nếu ghi kết quả command vào journal thất bại!
+    if (!journalUpdated) {
+      app.log.error(`[RELIABILITY] Journal update failed for command ${cmd.commandId}. Withholding outbox ACK to allow reconciliation.`);
+      if (outboxRepo) {
+        await outboxRepo.markFailed(cmd.commandId, 'JOURNAL_PERSISTENCE_FAILED', workerInstanceId);
+      }
+      return;
+    }
+
     if (outboxRepo) {
       try {
         const acked = await outboxRepo.markProcessed(cmd.commandId, workerInstanceId);
@@ -316,6 +356,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
       }
     }
   };
+
+  app.addHook('onRequest', async () => {
+    if (!dbClient) await initDb();
+  });
 
   app.addHook('onReady', async () => {
     await initDb();
@@ -434,6 +478,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
             // P0.3: Match Scoping Policy & Transparent Transitions
             if (targetMatchId !== engine.matchId) {
               if (engine.phase === 'RESULTS') {
+                // A3 (Phase 08): Bền vững hóa deferred match commands vào database
+                if (deferredRepo) {
+                  await deferredRepo.deferCommand(ev.id, targetMatchId, p, 'MATCH_IN_RESULTS');
+                }
                 // Trận đấu đang ở màn kết quả: đưa vào hàng đợi hoãn cho trận kế tiếp
                 const queueRes = engine.queueSkillCommand({
                   commandId: ev.id,
@@ -446,7 +494,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   streakId: p.streakId,
                 });
                 if (queueRes.queued) {
-                  app.log.info(`[OUTBOX] Event ${ev.id} deferred for next match transition.`);
+                  app.log.info(`[OUTBOX] Event ${ev.id} deferred durable for next match transition.`);
                 }
                 continue;
               } else if (engine.phase !== 'RESET') {
@@ -841,7 +889,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // POST /api/admin/logout — Server-side Session Revocation + Invalidate Cookie
+  // POST /api/admin/logout — Server-side Session Revocation + Invalidate Cookie + Socket Disconnect (A1)
   app.post('/api/admin/logout', async (request, reply) => {
     const cookies = parseCookies(request.headers.cookie);
     const sessionCookie = cookies['admin_session'];
@@ -851,7 +899,20 @@ export function buildServer(opts: BuildServerOptions = {}): {
         const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf-8'));
         if (payload?.sessionId) {
           revokedSessionIds.add(payload.sessionId);
+          if (sessionRevocationRepo) {
+            const exp = payload.exp ? new Date(payload.exp) : new Date(Date.now() + 24 * 3600 * 1000);
+            await sessionRevocationRepo.revokeSession(payload.sessionId, exp, 'ADMIN_LOGOUT');
+          }
           await logAdminAction(`session_${payload.role || 'user'}`, payload.role || 'viewer', 'LOGOUT', { sessionId: payload.sessionId });
+
+          // A1: Ngắt toàn bộ kết nối WebSocket /admin đang hoạt động sử dụng session vừa bị thu hồi
+          const adminNs = io.of('/admin');
+          for (const [_, sock] of adminNs.sockets) {
+            if (sock.data?.sessionId === payload.sessionId) {
+              app.log.info(`[SECURITY] Đóng kết nối socket ${sock.id} do session ${payload.sessionId} đã đăng xuất.`);
+              sock.disconnect(true);
+            }
+          }
         }
       } catch {}
     }
@@ -1021,6 +1082,40 @@ export function buildServer(opts: BuildServerOptions = {}): {
     const auth = verifyAdminAuth(request, reply, 'admin');
     if (!auth) return;
     engine.emergencyReset();
+
+    // A3 (Phase 08): Chuyển giao các lệnh hoãn bền vững (Durable Deferred Commands) sang trận mới
+    if (deferredRepo) {
+      try {
+        const transferred = await deferredRepo.transferDeferredCommandsToMatch(engine.matchId);
+        for (const cmd of transferred) {
+          let jSeq: number | undefined;
+          if (journalRepo) {
+            const jRes = await journalRepo.appendCommand({
+              matchId: engine.matchId,
+              commandId: cmd.id,
+              tick: engine.tick + 1,
+              commandType: 'GIFT_SKILL_DEFERRED',
+              payload: cmd.commandPayload,
+            });
+            jSeq = jRes.entry.seq;
+          }
+          engine.queueSkillCommand({
+            commandId: cmd.id,
+            matchId: engine.matchId,
+            seq: jSeq,
+            targetTick: engine.tick + 1,
+            sourceUserId: cmd.commandPayload.senderId,
+            sourceUserName: cmd.commandPayload.senderName,
+            skillId: cmd.commandPayload.skillId,
+            quantity: cmd.commandPayload.deltaQuantity,
+            streakId: cmd.commandPayload.streakId,
+          });
+        }
+      } catch (err: any) {
+        app.log.warn(`[DEFERRED] Lỗi khi chuyển giao lệnh hoãn sang trận mới: ${err.message}`);
+      }
+    }
+
     await logAdminAction(auth.actor, auth.role, 'EMERGENCY_RESET', { tick: engine.tick, baseHp: engine.baseHp });
     return reply.send({
       success: true,
@@ -1167,11 +1262,19 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   });
 
-  // Secure HTTP endpoint for Live Bridge / Admin Event Ingestion
+  // Secure HTTP endpoint for Live Bridge Ingress (P0.1: Dedicated Ingress Token)
   app.post('/api/live/event', async (request, reply) => {
-    const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
-    if (authHeader !== adminSecret && authHeader !== `Bearer ${adminSecret}`) {
-      return reply.status(401).send({ error: 'UNAUTHORIZED_ADMIN_TOKEN' });
+    const ingressTokenHeader = request.headers['x-live-bridge-token'] || request.headers.authorization;
+    const legacyAdminHeader = request.headers['x-admin-token'];
+
+    // P0.1: Kiểm tra riêng biệt LIVE_BRIDGE_INGRESS_TOKEN (không yêu cầu hay cấp quyền admin)
+    const isValidToken = 
+      ingressTokenHeader === liveBridgeToken || 
+      ingressTokenHeader === `Bearer ${liveBridgeToken}` ||
+      (!isProduction && (legacyAdminHeader === adminSecret || legacyAdminHeader === `Bearer ${adminSecret}`));
+
+    if (!isValidToken) {
+      return reply.status(401).send({ error: 'UNAUTHORIZED_LIVE_BRIDGE_TOKEN', message: 'Ingress requires valid LIVE_BRIDGE_INGRESS_TOKEN.' });
     }
 
     if (!checkHttpRateLimit('ingress', 400)) {
@@ -1520,7 +1623,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const adminNamespace = io.of('/admin');
 
   // Middleware xác thực bảo mật trước khi cho phép kết nối Socket.IO /admin
-  adminNamespace.use((socket, next) => {
+  adminNamespace.use(async (socket, next) => {
+    if (!dbClient) await initDb();
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
     if (token === adminSecret || token === `Bearer ${adminSecret}`) {
       socket.data.role = 'admin';
@@ -1529,7 +1633,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
     const cookieHeader = socket.handshake.headers?.cookie;
     const cookies = parseCookies(cookieHeader);
-    const sessionToken = cookies['admin_session'];
+    const sessionToken = cookies['admin_session'] || (token && token.includes('.') ? token : undefined);
     if (sessionToken) {
       const verified = verifyAdminSession(sessionToken, adminSecret);
       if (verified.valid && verified.role) {

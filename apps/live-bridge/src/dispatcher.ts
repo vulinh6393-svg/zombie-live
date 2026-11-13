@@ -1,10 +1,13 @@
 import { NormalizedLiveEvent, normalizeCommand } from '@zombie-live/shared';
 import { LiveEventAdapter } from './adapter.js';
+import { GiftStreakTracker } from './streak.js';
 
 export interface DispatcherOptions {
   serverUrl?: string;
-  adminSecret?: string;
+  ingressToken?: string;
+  adminSecret?: string; // Legacy fallback in test mode only
   maxQueueSize?: number;
+  streakTimeoutSeconds?: number;
 }
 
 export interface DispatcherStats {
@@ -15,13 +18,15 @@ export interface DispatcherStats {
   errorCount: number;
   eventsPerSecond: number;
   p95LatencyMs: number;
+  duplicateStreakCount: number;
 }
 
 export class LiveEventDispatcher {
   private serverUrl: string;
-  private adminSecret: string;
+  private ingressToken: string;
   private adapter: LiveEventAdapter | null = null;
   private isRunning: boolean = false;
+  private streakTracker: GiftStreakTracker;
 
   private stats: DispatcherStats = {
     receivedCount: 0,
@@ -31,6 +36,7 @@ export class LiveEventDispatcher {
     errorCount: 0,
     eventsPerSecond: 0,
     p95LatencyMs: 0,
+    duplicateStreakCount: 0,
   };
 
   private latencies: number[] = [];
@@ -39,11 +45,14 @@ export class LiveEventDispatcher {
   constructor(opts: DispatcherOptions = {}) {
     this.serverUrl = opts.serverUrl || process.env.GAME_SERVER_URL || 'http://localhost:3001';
     const isProd = process.env.NODE_ENV === 'production';
-    const secret = opts.adminSecret || process.env.ADMIN_SECRET_KEY;
-    if (isProd && (!secret || secret.trim().length < 16)) {
-      throw new Error('FATAL_SECURITY_ERROR: ADMIN_SECRET_KEY must be configured with at least 16 characters in production mode.');
+    
+    // P0.1: Tách biệt quyền Live Bridge Ingress Token khỏi Admin Secret
+    const token = opts.ingressToken || process.env.LIVE_BRIDGE_INGRESS_TOKEN || opts.adminSecret || process.env.ADMIN_SECRET_KEY;
+    if (isProd && (!token || token.trim().length < 16)) {
+      throw new Error('FATAL_SECURITY_ERROR: LIVE_BRIDGE_INGRESS_TOKEN must be configured with at least 16 characters in production mode.');
     }
-    this.adminSecret = secret || '';
+    this.ingressToken = token || 'live_bridge_ingress_secret_2026';
+    this.streakTracker = new GiftStreakTracker(opts.streakTimeoutSeconds || 300);
   }
 
   public bindAdapter(adapter: LiveEventAdapter): void {
@@ -105,16 +114,38 @@ export class LiveEventDispatcher {
           timestamp: now,
         };
       } else if (event.type === 'gift' && event.gift) {
+        const giftId = event.gift.giftId;
+        const giftCount = event.gift.quantity;
+        const liveSessionId = event.liveSessionId || 'default_session';
+        const streakId = event.gift.streakGroupId;
+
+        // B4: Cumulative vs Incremental Gift Streak Calculation
+        const streakRes = this.streakTracker.processGiftStreak(
+          event.userId,
+          giftId,
+          liveSessionId,
+          giftCount,
+          streakId
+        );
+
+        if (!streakRes.valid) {
+          this.stats.duplicateStreakCount++;
+          return { accepted: false, reason: streakRes.reason || 'DUPLICATE_STREAK' };
+        }
+
+        const providerEvId = event.eventKey;
+
         payload = {
           type: 'GIFT',
           provider: event.provider,
-          liveSessionId: event.liveSessionId,
-          providerEventId: event.eventKey, // Unique providerEventId from eventKey
+          liveSessionId,
+          providerEventId: providerEvId,
           userId: event.userId,
           userName: event.username,
-          giftId: event.gift.giftId,
-          quantity: event.gift.quantity,
-          streakId: event.gift.streakGroupId,
+          giftId,
+          quantity: streakRes.currentTotal,
+          deltaQuantity: streakRes.deltaQuantity,
+          streakId,
           streakStatus: event.gift.isFinal ? 'FINISHED' : 'IN_PROGRESS',
           timestamp: now,
         };
@@ -127,12 +158,13 @@ export class LiveEventDispatcher {
 
       this.stats.dispatchedCount++;
 
-      // Dispatch tới Authoritative Game Server
+      // Dispatch tới Authoritative Game Server sử dụng Dedicated Ingress Token (P0.1)
       const res = await fetch(`${this.serverUrl}/api/live/event`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-token': this.adminSecret,
+          'x-live-bridge-token': this.ingressToken,
+          'Authorization': `Bearer ${this.ingressToken}`,
         },
         body: JSON.stringify(payload),
       });

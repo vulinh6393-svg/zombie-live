@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zombie-live-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zombie_live
+      POSTGRES_USER: zombie_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ZombieLiveSecurePass2026!}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zombie_admin -d zombie_live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  game-server:
+    build:
+      context: .
+      dockerfile: apps/game-server/Dockerfile
+    container_name: zombie-live-game-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://zombie_admin:${DB_PASSWORD:-ZombieLiveSecurePass2026!}@postgres:5432/zombie_live
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-admin_super_secret_production_2026_key}
+      LIVE_BRIDGE_INGRESS_TOKEN: ${LIVE_BRIDGE_INGRESS_TOKEN:-live_bridge_ingress_secret_2026_token}
+      OPERATOR_SECRET_KEY: ${OPERATOR_SECRET_KEY:-operator_secret_production_2026}
+      VIEWER_SECRET_KEY: ${VIEWER_SECRET_KEY:-viewer_secret_production_2026}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  live-bridge:
+    build:
+      context: .
+      dockerfile: apps/live-bridge/Dockerfile
+    container_name: zombie-live-bridge
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      GAME_SERVER_URL: http://game-server:3001
+      LIVE_BRIDGE_INGRESS_TOKEN: ${LIVE_BRIDGE_INGRESS_TOKEN:-live_bridge_ingress_secret_2026_token}
+      TIKTOK_UNIQUE_ID: ${TIKTOK_UNIQUE_ID:-}
+      TIKTOK_ROOM_ID: ${TIKTOK_ROOM_ID:-}
+    depends_on:
+      game-server:
+        condition: service_healthy
+
+  game-client:
+    build:
+      context: .
+      dockerfile: apps/game-client/Dockerfile
+    container_name: zombie-live-client
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - game-server
+
+volumes:
+  pgdata:
+    driver: local
