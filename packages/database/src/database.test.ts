@@ -323,8 +323,8 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
       expect(target).toBeDefined();
       expect(target?.status).toBe('PENDING');
 
-      // Đánh dấu đã xử lý
-      await outboxRepo.markProcessed(target!.id);
+      // Đánh dấu đã xử lý (legacy / non-strict mode)
+      await outboxRepo.markProcessed(target!.id, undefined, false);
 
       const remaining = await outboxRepo.fetchPendingEvents(10);
       const targetAfter = remaining.find((e) => e.aggregateId === 'evt_outbox_test');
@@ -353,7 +353,45 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
       expect(secondTarget).toBeUndefined();
 
       // Đánh dấu processed
-      await outboxRepo.markProcessed(claimedTarget!.id);
+      await outboxRepo.markProcessed(claimedTarget!.id, 'worker_default');
+    });
+
+    it('enforces strict lease ownership: expired worker A cannot ACK after worker B claims (P0.3)', async () => {
+      await giftRepo.settleGift({
+        provider: 'mock',
+        liveSessionId: 'sess_lease_test',
+        providerEventId: `evt_lease_${Date.now()}`,
+        senderId: 'usr_lease',
+        senderName: 'LeaseTester',
+        giftId: 'gift_airstrike',
+        quantity: 1,
+      });
+
+      // 1. Worker A claim event với thời hạn lease 1 giây
+      const claimedA = await outboxRepo.claimPendingEvents(1, 'worker_A', 1);
+      expect(claimedA.length).toBe(1);
+      const ev = claimedA[0];
+      expect(ev.lockedBy).toBe('worker_A');
+
+      // 2. Chờ 1.2 giây để lease của Worker A hết hạn
+      await new Promise((r) => setTimeout(r, 1200));
+
+      // 3. Worker B claim lại event đã quá hạn lease
+      const claimedB = await outboxRepo.claimPendingEvents(1, 'worker_B', 30);
+      expect(claimedB.length).toBe(1);
+      expect(claimedB[0].id).toBe(ev.id);
+      expect(claimedB[0].lockedBy).toBe('worker_B');
+
+      // 4. Worker A chậm chân cố tình ACK -> Thất bại! (returns false)
+      const ackA = await outboxRepo.markProcessed(ev.id, 'worker_A');
+      expect(ackA).toBe(false);
+
+      // 5. Worker B ACK với đúng quyền sở hữu lease -> Thành công!
+      const ackB = await outboxRepo.markProcessed(ev.id, 'worker_B');
+      expect(ackB).toBe(true);
+
+      // 6. Kiểm tra chế độ nghiêm ngặt (strict mode): thiếu workerId sẽ ném lỗi STRICT_LEASE_VIOLATION
+      await expect(outboxRepo.markProcessed(ev.id, '')).rejects.toThrow('STRICT_LEASE_VIOLATION');
     });
 
     it('recovers data 100% after closing and reopening database connection with persistent storage', async () => {

@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { buildServer } from './server.js';
 
 describe('Game Server Security & Event Ingestion', () => {
@@ -655,6 +657,177 @@ describe('Game Server Security & Event Ingestion', () => {
         } finally {
           process.env.NODE_ENV = prevEnv;
         }
+      });
+
+      it('invalidates and revokes session server-side upon logout (P1.2 Session Revocation)', async () => {
+        const { app, stopEngine, adminSecret } = buildServer();
+        stopFn = stopEngine;
+
+        // 1. Đăng nhập thành công
+        const loginRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret, role: 'viewer' },
+        });
+        expect(loginRes.statusCode).toBe(200);
+        const cookie = loginRes.headers['set-cookie'] as string;
+        const sessionCookie = cookie.split(';')[0];
+
+        // 2. Truy cập monitoring trước khi đăng xuất -> 200 OK
+        const beforeRes = await app.inject({
+          method: 'GET',
+          url: '/api/admin/monitoring',
+          headers: { cookie: sessionCookie },
+        });
+        expect(beforeRes.statusCode).toBe(200);
+
+        // 3. Thực hiện Đăng xuất
+        const logoutRes = await app.inject({
+          method: 'POST',
+          url: '/api/admin/logout',
+          headers: { cookie: sessionCookie },
+        });
+        expect(logoutRes.statusCode).toBe(200);
+
+        // 4. Cố tình sử dụng lại session cookie cũ sau khi đã đăng xuất -> 401 UNAUTHORIZED
+        const afterRes = await app.inject({
+          method: 'GET',
+          url: '/api/admin/monitoring',
+          headers: { cookie: sessionCookie },
+        });
+        expect(afterRes.statusCode).toBe(401);
+      });
+
+      it('enforces credential-based role scoping and prevents privilege escalation (P1.2)', async () => {
+        const operatorSecret = 'operator_secret_test_key_123';
+        const viewerSecret = 'viewer_secret_test_key_123';
+        const adminSecret = 'master_admin_secret_key_123';
+
+        const { app, stopEngine } = buildServer({
+          adminSecret,
+          operatorSecret,
+          viewerSecret,
+        });
+        stopFn = stopEngine;
+
+        // 1. Viewer key chỉ cấp role viewer
+        const viewerLogin = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: viewerSecret, role: 'admin' }, // Cố thăng quyền admin
+        });
+        expect(viewerLogin.statusCode).toBe(200);
+        expect(JSON.parse(viewerLogin.payload).role).toBe('viewer'); // Bị giới hạn ở viewer
+
+        // 2. Operator key chỉ cấp role operator (không thể thăng quyền admin)
+        const opLogin = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: operatorSecret, role: 'admin' }, // Cố thăng quyền admin
+        });
+        expect(opLogin.statusCode).toBe(200);
+        expect(JSON.parse(opLogin.payload).role).toBe('operator'); // Bị giới hạn ở operator
+      });
+
+      it('enforces Socket.IO /admin RBAC: viewer is blocked from all gameplay mutations (P0.1)', async () => {
+        const { app, engine, stopEngine, adminSecret } = buildServer({ disableAutoTick: true });
+        stopFn = stopEngine;
+
+        const port = await new Promise<number>((resolve) => {
+          app.listen({ port: 0, host: '127.0.0.1' }, () => {
+            const addr = app.server.address() as any;
+            resolve(addr.port);
+          });
+        });
+
+        const { io: ioClient } = await import('socket.io-client');
+
+        // Tạo viewer session cookie
+        const viewerLogin = await app.inject({
+          method: 'POST',
+          url: '/api/admin/login',
+          payload: { secret: adminSecret, role: 'viewer' },
+        });
+        const viewerCookie = (viewerLogin.headers['set-cookie'] as string).split(';')[0];
+
+        const viewerSocket = ioClient(`http://127.0.0.1:${port}/admin`, {
+          extraHeaders: { cookie: viewerCookie },
+          transports: ['websocket'],
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          viewerSocket.on('connect', () => resolve());
+          viewerSocket.on('connect_error', reject);
+        });
+
+        // 1. Viewer cố mở cổng thành -> Bị từ chối qua error:unauthorized
+        const unauthorizedEvents: any[] = [];
+        viewerSocket.on('error:unauthorized', (data) => unauthorizedEvents.push(data));
+
+        viewerSocket.emit('admin:openGate');
+        await new Promise((r) => setTimeout(r, 100));
+
+        expect(unauthorizedEvents.length).toBe(1);
+        expect(unauthorizedEvents[0].action).toBe('openGate');
+        expect(engine.getGateCollisionState()).toBe('CLOSED'); // Trạng thái engine không đổi!
+
+        // 2. Viewer cố gây sát thương tường -> Bị từ chối
+        viewerSocket.emit('admin:damageWall', { side: 'LEFT', amount: 500 });
+        await new Promise((r) => setTimeout(r, 100));
+        expect(unauthorizedEvents.length).toBe(2);
+        expect(unauthorizedEvents[1].action).toBe('damageWall');
+        expect(engine.collisionSystem.getWallState('LEFT').hp).toBe(1000); // Máu tường không đổi!
+
+        viewerSocket.disconnect();
+      });
+
+      it('advances lastAppliedJournalSeq contiguous watermark from real HTTP gift ingress (P0.2)', async () => {
+        const testDbDir = path.resolve(process.cwd(), '.data/test_db_watermark_' + Date.now());
+        const { app, engine, stopEngine, adminSecret } = buildServer({
+          disableAutoTick: true,
+          dbDataDir: testDbDir,
+        });
+        stopFn = () => {
+          stopEngine();
+          try {
+            if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+          } catch {}
+        };
+
+        // Kiểm tra ban đầu watermark = 0
+        expect(engine.getLastAppliedJournalSeq()).toBe(0);
+
+        // Gửi 1 Gift HTTP hợp lệ
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: { 'x-admin-token': adminSecret },
+          payload: {
+            type: 'GIFT',
+            provider: 'mock',
+            liveSessionId: engine.matchId,
+            providerEventId: `p02_gift_test_${Date.now()}`,
+            userId: 'user_p02',
+            userName: 'WatermarkTester',
+            giftId: 'rose',
+            quantity: 1,
+          },
+        });
+
+        expect(res.statusCode).toBe(200);
+
+        // Chờ outbox worker claim và đưa vào hàng đợi engine
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          if (engine.getCommandQueueLength() > 0) break;
+        }
+
+        // Kích hoạt tick engine để xử lý lệnh từ hàng đợi
+        engine.step();
+        engine.step();
+
+        // Watermark phải tiến lên 1 liên tục!
+        expect(engine.getLastAppliedJournalSeq()).toBe(1);
       });
     });
   });

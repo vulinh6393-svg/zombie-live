@@ -1092,8 +1092,8 @@ export class BattlefieldScene extends Phaser.Scene {
     const colorHex = ev.color || '#00f5d4';
     const colorNum = parseInt(colorHex.replace('#', '0x'), 16) || 0x00f5d4;
 
-    // Toast Card at y: 1280 (Verified TikTok 9:16 safe zone, above comments, below fortress)
-    const card = this.add.container(540, 1320).setDepth(160) as any;
+    // Animate: Slide up from 1305 to 1280 (Strict TikTok Safe Zone 1250-1350px, no overshoot)
+    const card = this.add.container(540, 1305).setDepth(160) as any;
     card.bannerText = skillName;
     card.bannerSender = sender;
     card.createdAt = Date.now();
@@ -1133,19 +1133,19 @@ export class BattlefieldScene extends Phaser.Scene {
 
     card.add([bg, avatar, star, mainText, subText, qtyBadge]);
 
-    // Animate: Slide up from 1320 to 1280, wait, fade out
+    // Animate: Slide up from 1305 to 1280 smoothly with Cubic.easeOut
     this.tweens.add({
       targets: card,
       y: 1280,
       alpha: 1,
       duration: 300,
-      ease: 'Back.easeOut',
+      ease: 'Cubic.easeOut',
       onComplete: () => {
         this.time.delayedCall(2000, () => {
           this.tweens.add({
             targets: card,
             alpha: 0,
-            y: 1260,
+            y: 1265,
             duration: 400,
             ease: 'Cubic.easeIn',
             onComplete: () => {

@@ -77,17 +77,35 @@ export class OutboxRepository {
     });
   }
 
-  public async markProcessed(id: string, workerId?: string): Promise<boolean> {
-    const res = await this.db.query(
-      `UPDATE outbox_events 
-       SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
-       WHERE id = $1 
-         AND (status = 'PROCESSING' OR status = 'PENDING')
-         AND ($2::text IS NULL OR locked_by = $2 OR locked_by IS NULL)
-         AND (locked_until IS NULL OR locked_until >= CURRENT_TIMESTAMP)`,
-      [id, workerId || null]
-    );
-    return res.rowCount > 0;
+  /**
+   * P0.3: ACK Outbox Event as PROCESSED.
+   * Yêu cầu nghiêm ngặt (Strict Lease Ownership):
+   * - Trạng thái phải là PROCESSING (đã được claim hợp lệ qua transaction/lock).
+   * - workerId phải khớp chính xác với locked_by.
+   * - Lease chưa hết hạn (locked_until >= CURRENT_TIMESTAMP).
+   * Trả về true nếu cập nhật thành công 1 dòng, false nếu vi phạm lease/mất quyền sở hữu.
+   */
+  public async markProcessed(id: string, workerId?: string, strict: boolean = true): Promise<boolean> {
+    if (strict && (!workerId || workerId.trim().length === 0)) {
+      throw new Error('STRICT_LEASE_VIOLATION: workerId is mandatory to ACK outbox event in strict mode.');
+    }
+
+    const query = strict
+      ? `UPDATE outbox_events 
+         SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
+         WHERE id = $1 
+           AND status = 'PROCESSING'
+           AND locked_by = $2
+           AND locked_until >= CURRENT_TIMESTAMP`
+      : `UPDATE outbox_events 
+         SET status = 'PROCESSED', locked_by = NULL, locked_until = NULL, processed_at = CURRENT_TIMESTAMP 
+         WHERE id = $1 
+           AND (status = 'PROCESSING' OR status = 'PENDING')
+           AND ($2::text IS NULL OR locked_by = $2)
+           AND (locked_until IS NULL OR locked_until >= CURRENT_TIMESTAMP)`;
+
+    const res = await this.db.query(query, strict ? [id, workerId] : [id, workerId || null]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   /**
@@ -102,20 +120,38 @@ export class OutboxRepository {
     return res.rows[0]?.age_ms ? Math.max(0, Math.round(Number(res.rows[0].age_ms))) : 0;
   }
 
-  public async markFailed(id: string, error: string, workerId?: string): Promise<boolean> {
-    const res = await this.db.query(
-      `UPDATE outbox_events 
-       SET status = CASE WHEN retry_count >= 3 THEN 'FAILED' ELSE 'PENDING' END,
-           retry_count = retry_count + 1,
-           locked_by = NULL,
-           locked_until = NULL,
-           error = $1 
-       WHERE id = $2 
-         AND (status = 'PROCESSING' OR status = 'PENDING')
-         AND ($3::text IS NULL OR locked_by = $3 OR locked_by IS NULL)`,
-      [error, id, workerId || null]
-    );
-    return res.rowCount > 0;
+  /**
+   * P0.3: Mark Outbox Event as FAILED or retryable PENDING with strict lease verification.
+   */
+  public async markFailed(id: string, error: string, workerId?: string, strict: boolean = true): Promise<boolean> {
+    if (strict && (!workerId || workerId.trim().length === 0)) {
+      throw new Error('STRICT_LEASE_VIOLATION: workerId is mandatory to fail outbox event in strict mode.');
+    }
+
+    const query = strict
+      ? `UPDATE outbox_events 
+         SET status = CASE WHEN retry_count >= 3 THEN 'FAILED' ELSE 'PENDING' END,
+             retry_count = retry_count + 1,
+             locked_by = NULL,
+             locked_until = NULL,
+             error = $1 
+         WHERE id = $2 
+           AND status = 'PROCESSING'
+           AND locked_by = $3
+           AND locked_until >= CURRENT_TIMESTAMP`
+      : `UPDATE outbox_events 
+         SET status = CASE WHEN retry_count >= 3 THEN 'FAILED' ELSE 'PENDING' END,
+             retry_count = retry_count + 1,
+             locked_by = NULL,
+             locked_until = NULL,
+             error = $1 
+         WHERE id = $2 
+           AND (status = 'PROCESSING' OR status = 'PENDING')
+           AND ($3::text IS NULL OR locked_by = $3)
+           AND (locked_until IS NULL OR locked_until >= CURRENT_TIMESTAMP)`;
+
+    const res = await this.db.query(query, strict ? [error, id, workerId] : [error, id, workerId || null]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   public async getQueueMetrics(): Promise<{ pendingCount: number; oldestAgeMs: number }> {

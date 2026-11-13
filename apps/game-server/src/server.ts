@@ -26,6 +26,8 @@ export interface BuildServerOptions {
   engineSeed?: number;
   maxZombies?: number;
   adminSecret?: string;
+  operatorSecret?: string;
+  viewerSecret?: string;
   allowedOrigins?: string[];
   disableCombat?: boolean;
   enableMockDashboard?: boolean;
@@ -91,6 +93,13 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const adminSecret = configuredSecret && configuredSecret.trim().length > 0
     ? configuredSecret
     : crypto.randomBytes(32).toString('hex');
+
+  // P1.2: Phân tách rõ ràng secret credentials theo vai trò (Role Separation)
+  const operatorSecret = opts.operatorSecret || process.env.OPERATOR_SECRET_KEY || `op_${crypto.createHash('sha256').update(adminSecret + ':operator').digest('hex').substring(0, 24)}`;
+  const viewerSecret = opts.viewerSecret || process.env.VIEWER_SECRET_KEY || `view_${crypto.createHash('sha256').update(adminSecret + ':viewer').digest('hex').substring(0, 24)}`;
+
+  // Server-side session revocation store (P1.2: Vô hiệu hóa phiên đăng xuất phía máy chủ)
+  const revokedSessionIds = new Set<string>();
 
   // Token phiên làm việc cho Mock Dashboard (P0.1)
   const dashboardDevToken = crypto.randomBytes(24).toString('hex');
@@ -250,7 +259,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
     if (outboxRepo) {
       try {
-        await outboxRepo.markProcessed(cmd.commandId, workerInstanceId);
+        const acked = await outboxRepo.markProcessed(cmd.commandId, workerInstanceId);
+        if (!acked) {
+          app.log.warn(`[OUTBOX] Failed to ACK command ${cmd.commandId}: lease lost, expired or status not processing`);
+        }
       } catch (err: any) {
         app.log.warn(`[OUTBOX] Failed to mark outbox event processed: ${err.message}`);
       }
@@ -417,11 +429,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
           if (ev.eventType === 'GIFT_SKILL_TRIGGER') {
             const p = ev.payload;
             const targetMatchId = p.matchId || engine.matchId;
+            let activeTargetMatchId = targetMatchId;
 
-            // P0.3: Match Scoping Policy (No silent mutation of matchId)
+            // P0.3: Match Scoping Policy & Transparent Transitions
             if (targetMatchId !== engine.matchId) {
               if (engine.phase === 'RESULTS') {
-                // Game in results, queue as deferred for the next match
+                // Trận đấu đang ở màn kết quả: đưa vào hàng đợi hoãn cho trận kế tiếp
                 const queueRes = engine.queueSkillCommand({
                   commandId: ev.id,
                   matchId: targetMatchId,
@@ -436,10 +449,21 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   app.log.info(`[OUTBOX] Event ${ev.id} deferred for next match transition.`);
                 }
                 continue;
+              } else if (engine.phase !== 'RESET') {
+                // Trận đích cũ đã kết thúc nhưng trận hiện tại đang diễn ra: Chuyển quyền áp dụng sang trận hiện tại
+                app.log.info(`[OUTBOX] Transferring gift ${ev.id} from past match ${targetMatchId} to active match ${engine.matchId}`);
+                if (journalRepo) {
+                  await journalRepo.recordTransition({
+                    commandId: ev.id,
+                    fromMatchId: targetMatchId,
+                    toMatchId: engine.matchId,
+                    reason: 'TRANSFERRED_TO_ACTIVE_MATCH',
+                  });
+                }
+                activeTargetMatchId = engine.matchId;
               } else {
-                // Event belonged to an obsolete/past match
-                app.log.warn(`[OUTBOX] Event ${ev.id} targeted past match ${targetMatchId}. Transitioning to stale.`);
-                await outboxRepo.markProcessed(ev.id, workerInstanceId);
+                // Không thể chuyển: ghi nhận transition bị từ chối rõ ràng kèm lý do
+                app.log.warn(`[OUTBOX] Event ${ev.id} targeted obsolete match ${targetMatchId}. Transitioning to rejected.`);
                 if (journalRepo) {
                   await journalRepo.recordTransition({
                     commandId: ev.id,
@@ -456,25 +480,32 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   });
                   await journalRepo.markCommandApplied(targetMatchId, ev.id, engine.tick, 'REJECTED', 'MATCH_ALREADY_COMPLETED');
                 }
+                const acked = await outboxRepo.markProcessed(ev.id, workerInstanceId);
+                if (!acked) {
+                  app.log.warn(`[OUTBOX] Failed to ACK rejected obsolete event ${ev.id}`);
+                }
                 continue;
               }
             }
 
-            // P0: Ghi nhận vào Command Journal trước khi đẩy vào engine queue (Durable Command Journal)
+            // P0.2: Ghi nhận vào Command Journal trước khi đẩy vào engine queue và thu nhận seq thực tế
+            let journalSeq: number | undefined;
             if (journalRepo) {
-              await journalRepo.appendCommand({
-                matchId: targetMatchId,
+              const res = await journalRepo.appendCommand({
+                matchId: activeTargetMatchId,
                 commandId: ev.id,
                 tick: engine.tick + 1,
                 commandType: 'GIFT_SKILL',
                 payload: p,
               });
+              journalSeq = res.entry.seq;
             }
 
-            // P0: Đưa vào hàng đợi lệnh theo tick của Authoritative Engine (Tick-Ordered Queue)
+            // P0.2: Đưa vào hàng đợi lệnh theo tick của Authoritative Engine kèm journalSeq liên tục
             const queueRes = engine.queueSkillCommand({
               commandId: ev.id,
-              matchId: targetMatchId,
+              matchId: activeTargetMatchId,
+              seq: journalSeq,
               targetTick: engine.tick + 1,
               sourceUserId: p.senderId,
               sourceUserName: p.senderName,
@@ -485,14 +516,16 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
             if (!queueRes.queued) {
               if (queueRes.reason === 'COMMAND_ALREADY_EXECUTED') {
-                await outboxRepo.markProcessed(ev.id, workerInstanceId);
+                const acked = await outboxRepo.markProcessed(ev.id, workerInstanceId);
+                if (!acked) app.log.warn(`[OUTBOX] Failed to ACK already executed command ${ev.id}`);
               } else {
                 await outboxRepo.markFailed(ev.id, queueRes.reason || 'ENGINE_QUEUE_REJECTED', workerInstanceId);
               }
             }
             // Note: When queued === true, outboxRepo.markProcessed will be called via engine.onCommandApplied when simulation processes it
           } else {
-            await outboxRepo.markProcessed(ev.id, workerInstanceId);
+            const acked = await outboxRepo.markProcessed(ev.id, workerInstanceId);
+            if (!acked) app.log.warn(`[OUTBOX] Failed to ACK non-gift outbox event ${ev.id}`);
           }
         } catch (dispatchErr: any) {
           await outboxRepo.markFailed(ev.id, dispatchErr.message || 'DISPATCH_ERROR', workerInstanceId);
@@ -642,12 +675,19 @@ export function buildServer(opts: BuildServerOptions = {}): {
   };
 
   const signAdminSession = (payload: any, secret: string): string => {
-    const b64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const enriched = {
+      sessionId: payload.sessionId || crypto.randomUUID(),
+      ...payload,
+    };
+    const b64 = Buffer.from(JSON.stringify(enriched)).toString('base64url');
     const hmac = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
     return `${b64}.${hmac}`;
   };
 
-  const verifyAdminSession = (token: string | undefined, secret: string): { valid: boolean; role?: 'viewer' | 'operator' | 'admin'; csrfToken?: string } => {
+  const verifyAdminSession = (
+    token: string | undefined,
+    secret: string
+  ): { valid: boolean; role?: 'viewer' | 'operator' | 'admin'; csrfToken?: string; sessionId?: string } => {
     if (!token || !token.includes('.')) return { valid: false };
     const [b64, hmac] = token.split('.');
     const expectedHmac = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
@@ -659,7 +699,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
       if (payload.exp && Date.now() > payload.exp) {
         return { valid: false };
       }
-      return { valid: true, role: payload.role, csrfToken: payload.csrfToken };
+      if (payload.sessionId && revokedSessionIds.has(payload.sessionId)) {
+        return { valid: false };
+      }
+      return { valid: true, role: payload.role, csrfToken: payload.csrfToken, sessionId: payload.sessionId };
     } catch {
       return { valid: false };
     }
@@ -676,7 +719,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
     request: any,
     reply: any,
     requiredRole: 'viewer' | 'operator' | 'admin' = 'viewer'
-  ): { authenticated: boolean; role: 'viewer' | 'operator' | 'admin'; actor: string } | null => {
+  ): { authenticated: boolean; role: 'viewer' | 'operator' | 'admin'; actor: string; sessionId?: string } | null => {
     const authHeader = request.headers['x-admin-token'] || request.headers.authorization;
     const cookies = parseCookies(request.headers.cookie);
     const sessionCookie = cookies['admin_session'];
@@ -702,7 +745,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         const userRoleLevel = ROLE_HIERARCHY[verified.role] || 0;
         const requiredLevel = ROLE_HIERARCHY[requiredRole];
         if (userRoleLevel >= requiredLevel) {
-          return { authenticated: true, role: verified.role, actor: `session_${verified.role}` };
+          return { authenticated: true, role: verified.role, actor: `session_${verified.role}`, sessionId: verified.sessionId };
         } else {
           reply.status(403).send({ error: 'FORBIDDEN_INSUFFICIENT_ROLE', message: `Role '${verified.role}' cannot perform '${requiredRole}' action.` });
           return null;
@@ -750,18 +793,38 @@ export function buildServer(opts: BuildServerOptions = {}): {
     return Math.round(((tickHistory.length - 1) / durationMs) * 1000 * 10) / 10;
   };
 
-  // POST /api/admin/login — Issue HttpOnly Session Cookie + CSRF Token
+  // POST /api/admin/login — Issue HttpOnly Session Cookie + CSRF Token with Rate Limiting & Strict Role Resolution
   app.post('/api/admin/login', async (request, reply) => {
-    const { secret, role } = (request.body || {}) as { secret?: string; role?: string };
-    if (!secret || secret !== adminSecret) {
-      return reply.status(401).send({ error: 'INVALID_ADMIN_SECRET', message: 'Incorrect admin secret.' });
+    const ip = request.ip || 'unknown_ip';
+    if (!checkHttpRateLimit(`login_${ip}`, 5)) {
+      return reply.status(429).send({ error: 'RATE_LIMIT_EXCEEDED', message: 'Quá nhiều yêu cầu đăng nhập. Vui lòng thử lại sau.' });
     }
-    const targetRole: 'viewer' | 'operator' | 'admin' =
-      role === 'viewer' || role === 'operator' || role === 'admin' ? role : 'admin';
+
+    const { secret, role } = (request.body || {}) as { secret?: string; role?: string };
+    if (!secret) {
+      return reply.status(401).send({ error: 'MISSING_SECRET', message: 'Khóa bí mật là bắt buộc.' });
+    }
+
+    let determinedRole: 'viewer' | 'operator' | 'admin' | null = null;
+    if (secret === adminSecret) {
+      // Master secret: cho phép toàn quyền 'admin' hoặc hạ quyền tự nguyện 'operator' / 'viewer'
+      determinedRole = role === 'viewer' || role === 'operator' ? role : 'admin';
+    } else if (secret === operatorSecret) {
+      // Operator secret: chỉ được gán 'operator' hoặc 'viewer' (không thể tự thăng lên 'admin')
+      determinedRole = role === 'viewer' ? 'viewer' : 'operator';
+    } else if (secret === viewerSecret) {
+      // Viewer secret: nghiêm ngặt chỉ được cấp 'viewer'
+      determinedRole = 'viewer';
+    } else {
+      return reply.status(401).send({ error: 'INVALID_ADMIN_SECRET', message: 'Thông tin xác thực quản trị không chính xác.' });
+    }
+
+    const sessionId = crypto.randomUUID();
     const csrfToken = crypto.randomBytes(16).toString('hex');
     const sessionToken = signAdminSession(
       {
-        role: targetRole,
+        sessionId,
+        role: determinedRole,
         csrfToken,
         exp: Date.now() + 24 * 3600 * 1000,
       },
@@ -770,19 +833,32 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
     const secureFlag = isProduction ? '; Secure' : '';
     reply.header('Set-Cookie', `admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict${secureFlag}`);
-    await logAdminAction(`session_${targetRole}`, targetRole, 'LOGIN', { ip: request.ip });
+    await logAdminAction(`session_${determinedRole}`, determinedRole, 'LOGIN', { ip, sessionId });
     return reply.send({
       success: true,
-      role: targetRole,
+      role: determinedRole,
       csrfToken,
     });
   });
 
-  // POST /api/admin/logout — Invalidate Session Cookie
+  // POST /api/admin/logout — Server-side Session Revocation + Invalidate Cookie
   app.post('/api/admin/logout', async (request, reply) => {
+    const cookies = parseCookies(request.headers.cookie);
+    const sessionCookie = cookies['admin_session'];
+    if (sessionCookie && sessionCookie.includes('.')) {
+      try {
+        const [b64] = sessionCookie.split('.');
+        const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf-8'));
+        if (payload?.sessionId) {
+          revokedSessionIds.add(payload.sessionId);
+          await logAdminAction(`session_${payload.role || 'user'}`, payload.role || 'viewer', 'LOGOUT', { sessionId: payload.sessionId });
+        }
+      } catch {}
+    }
+
     const secureFlag = isProduction ? '; Secure' : '';
     reply.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureFlag}`);
-    return reply.send({ success: true, message: 'Logged out successfully.' });
+    return reply.send({ success: true, message: 'Đăng xuất thành công. Phiên đã được thu hồi.' });
   });
 
   // OBS Live Operations Admin Dashboard UI Route
@@ -1439,14 +1515,16 @@ export function buildServer(opts: BuildServerOptions = {}): {
   });
 
   // =========================================================================
-  // PROTECTED /admin NAMESPACE (REQUIRES AUTHENTICATION & RATE LIMITING)
+  // PROTECTED /admin NAMESPACE (REQUIRES AUTHENTICATION, RBAC & RATE LIMITING)
   // =========================================================================
   const adminNamespace = io.of('/admin');
 
-  // Middleware xác thực bảo mật trước khi cho phép kết nối
+  // Middleware xác thực bảo mật trước khi cho phép kết nối Socket.IO /admin
   adminNamespace.use((socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization;
     if (token === adminSecret || token === `Bearer ${adminSecret}`) {
+      socket.data.role = 'admin';
+      socket.data.actor = 'api_token';
       return next();
     }
     const cookieHeader = socket.handshake.headers?.cookie;
@@ -1454,12 +1532,34 @@ export function buildServer(opts: BuildServerOptions = {}): {
     const sessionToken = cookies['admin_session'];
     if (sessionToken) {
       const verified = verifyAdminSession(sessionToken, adminSecret);
-      if (verified.valid) {
+      if (verified.valid && verified.role) {
+        socket.data.role = verified.role;
+        socket.data.actor = `session_${verified.role}`;
+        socket.data.sessionId = verified.sessionId;
         return next();
       }
     }
     return next(new Error('UNAUTHORIZED_ADMIN_ACCESS'));
   });
+
+  // Helper kiểm tra thẩm quyền RBAC cho từng sự kiện Socket.IO
+  const authorizeSocketAction = (
+    socket: any,
+    minRole: 'viewer' | 'operator' | 'admin',
+    action: string
+  ): boolean => {
+    const role = (socket.data?.role || 'viewer') as 'viewer' | 'operator' | 'admin';
+    const currentLevel = ROLE_HIERARCHY[role] || 0;
+    const requiredLevel = ROLE_HIERARCHY[minRole];
+    if (currentLevel < requiredLevel) {
+      socket.emit('error:unauthorized', {
+        action,
+        error: `FORBIDDEN_INSUFFICIENT_ROLE: Role '${role}' is not authorized to execute '${action}'. Required: '${minRole}'.`,
+      });
+      return false;
+    }
+    return true;
+  };
 
   // Rate Limiting in-memory sliding window
   const adminRateLimits = new Map<string, number[]>();
@@ -1481,38 +1581,77 @@ export function buildServer(opts: BuildServerOptions = {}): {
   };
 
   adminNamespace.on('connection', (socket) => {
-    socket.emit('admin:status', { authenticated: true, tick: engine.tick, phase: engine.phase });
+    socket.emit('admin:status', {
+      authenticated: true,
+      role: socket.data?.role || 'viewer',
+      actor: socket.data?.actor || 'unknown',
+      tick: engine.tick,
+      phase: engine.phase,
+    });
 
     socket.on('admin:openGate', () => {
       if (!checkRateLimit(socket.id)) return socket.emit('error:rate_limit');
+      if (!authorizeSocketAction(socket, 'operator', 'openGate')) return;
       engine.openGate();
       const snap = engine.generateSnapshot();
       gameNamespace.emit('match:snapshot', snap);
       adminNamespace.emit('match:snapshot', snap);
+      logAdminAction(socket.data?.actor || 'socket_op', socket.data?.role || 'operator', 'SOCKET_OPEN_GATE');
     });
 
     socket.on('admin:closeGate', () => {
       if (!checkRateLimit(socket.id)) return socket.emit('error:rate_limit');
+      if (!authorizeSocketAction(socket, 'operator', 'closeGate')) return;
       engine.closeGate();
       const snap = engine.generateSnapshot();
       gameNamespace.emit('match:snapshot', snap);
       adminNamespace.emit('match:snapshot', snap);
+      logAdminAction(socket.data?.actor || 'socket_op', socket.data?.role || 'operator', 'SOCKET_CLOSE_GATE');
     });
 
-    socket.on('admin:giftSkill', (data: unknown) => {
+    socket.on('admin:giftSkill', async (data: unknown) => {
       if (!checkRateLimit(socket.id)) return socket.emit('error:rate_limit');
+      if (!authorizeSocketAction(socket, 'operator', 'giftSkill')) return;
       const parsed = GiftSkillSchema.safeParse(data);
       if (!parsed.success) {
         return socket.emit('error:invalid_payload', parsed.error.format());
       }
-      engine.triggerGiftSkill(parsed.data.name, parsed.data.sender);
-      const snap = engine.generateSnapshot();
-      gameNamespace.emit('match:snapshot', snap);
-      adminNamespace.emit('match:snapshot', snap);
+
+      // P0.1: Tuyệt đối không bypass Gift Ledger & Outbox! Định tuyến qua processLiveEvent
+      let giftId = 'rose';
+      const nameLower = (parsed.data.name || '').toLowerCase();
+      if (nameLower.includes('lửa') || nameLower.includes('airstrike')) giftId = 'galaxy';
+      else if (nameLower.includes('khiên') || nameLower.includes('shield')) giftId = 'donut';
+      else if (nameLower.includes('xung') || nameLower.includes('overclock')) giftId = 'heart';
+      else if (nameLower.includes('viện') || nameLower.includes('reinforce')) giftId = 'rose';
+      else if (nameLower.includes('mech')) giftId = 'tiktok_shuttle';
+      else if (nameLower.includes('máu') || nameLower.includes('heal')) giftId = 'ice_cream';
+      else if (nameLower.includes('vinh') || nameLower.includes('honor')) giftId = 'capsule';
+
+      const liveEvent = {
+        type: 'GIFT' as const,
+        provider: 'mock' as const,
+        liveSessionId: engine.matchId,
+        providerEventId: `admin_sock_gift_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        userId: `admin_${socket.data?.actor || 'op'}`,
+        userName: parsed.data.sender || 'Admin_Operator',
+        giftId,
+        quantity: 1,
+        timestamp: Date.now(),
+      };
+
+      const result = await processLiveEvent(liveEvent);
+      socket.emit('admin:giftSkill_result', result);
+      logAdminAction(socket.data?.actor || 'socket_op', socket.data?.role || 'operator', 'SOCKET_GIFT_SKILL', {
+        giftId,
+        sender: parsed.data.sender,
+        result,
+      });
     });
 
     socket.on('admin:damageWall', (data: unknown) => {
       if (!checkRateLimit(socket.id)) return socket.emit('error:rate_limit');
+      if (!authorizeSocketAction(socket, 'admin', 'damageWall')) return;
       const parsed = DamageWallSchema.safeParse(data);
       if (!parsed.success) {
         return socket.emit('error:invalid_payload', parsed.error.format());
@@ -1521,6 +1660,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
       const snap = engine.generateSnapshot();
       gameNamespace.emit('match:snapshot', snap);
       adminNamespace.emit('match:snapshot', snap);
+      logAdminAction(socket.data?.actor || 'socket_admin', socket.data?.role || 'admin', 'SOCKET_DAMAGE_WALL', {
+        side: parsed.data.side,
+        amount: parsed.data.amount,
+      });
     });
 
     socket.on('disconnect', () => {

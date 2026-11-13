@@ -189,6 +189,10 @@ export class AuthoritativeGameEngine {
   public lastAppliedJournalSeq: number = 0;
   private processedSeqs: Set<number> = new Set();
 
+  public getCommandQueueLength(): number {
+    return this.commandQueue.length;
+  }
+
   public recordProcessedSeq(seq?: number): void {
     if (seq === undefined || seq === null) return;
     this.processedSeqs.add(seq);
@@ -1856,6 +1860,7 @@ export class AuthoritativeGameEngine {
       players: Array.from(this.players.values()),
       executedCommandIds: Array.from(this.executedCommandIds),
       processedGiftIds: Array.from(this.processedGiftIds),
+      processedSeqs: Array.from(this.processedSeqs),
       commandQueue: this.commandQueue.map((c) => ({ ...c })),
       deferredSkillCommands: this.deferredSkillCommands.map((c) => ({ ...c })),
       activeAirstrikes: this.activeAirstrikes,
@@ -1890,7 +1895,11 @@ export class AuthoritativeGameEngine {
     this.tick = state.tick ?? this.tick;
     this.sequenceId = state.sequenceId ?? this.sequenceId;
     this.lastAppliedJournalSeq = state.lastAppliedJournalSeq ?? this.lastAppliedJournalSeq;
-    this.processedSeqs.clear();
+    if (Array.isArray(state.processedSeqs)) {
+      this.processedSeqs = new Set(state.processedSeqs);
+    } else {
+      this.processedSeqs.clear();
+    }
     if (state.rngState !== undefined) this.rng.setState(state.rngState);
     this.phase = state.phase ?? this.phase;
     this.result = state.result ?? this.result;

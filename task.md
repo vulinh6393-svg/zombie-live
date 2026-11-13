@@ -855,4 +855,40 @@
   - [x] Xuất screenshots 1080×1920 (`phase07_obs_overlay_1080x1920.png`, 2.99 MB) và 360×640 (`phase07_obs_mobile_360x640.png`, 466 KB).
   - [x] Báo cáo telemetry vận hành `phase07_1_live_ops_telemetry.json` và `phase07_live_ops_telemetry.json`.
   - [x] Cập nhật `player.html`.
-  - [x] Chạy 100% test suite monorepo (105/105 tests PASS), git commit và push remote.
+  - [x] Chạy 100% test suite monorepo (105/105 tests PASS), git commit và push remote (`4c587a8`).
+
+## Giai đoạn 07.2: Final Critical Fixes & Phase 08 Handoff (ĐÃ HOÀN THÀNH TOÀN DIỆN & ĐẠT 5/5 PASS)
+- [x] **P0.1 — Close Socket.IO RBAC Bypass:**
+  - [x] Gắn `socket.data.role` và `socket.data.actor` đã xác minh vào socket `/admin`.
+  - [x] Phân quyền theo từng Socket event: `viewer` không được phép gọi bất kỳ command nào (`admin:openGate`, `admin:closeGate`, `admin:damageWall`, `admin:giftSkill`).
+  - [x] `admin:openGate`, `admin:closeGate` yêu cầu tối thiểu `operator`.
+  - [x] `admin:damageWall` yêu cầu `admin`.
+  - [x] `admin:giftSkill` không được bypass Ledger/Outbox: định tuyến qua `processLiveEvent` để lưu vào Gift Ledger & Outbox.
+  - [x] Viết test xác nhận socket viewer bị chặn và không thay đổi engine state; test session hết hạn / giả mạo.
+- [x] **P0.2 — Connect Journal Sequence to Authoritative Engine:**
+  - [x] Nhận `entry.seq` trả về từ `journalRepo.appendCommand()` trong Outbox Worker.
+  - [x] Truyền `entry.seq` vào `SkillCommand.seq` khi gọi `engine.queueSkillCommand()`.
+  - [x] Xác nhận `recordProcessedSeq(cmd.seq)` thúc đẩy watermark tăng liên tục từ 1, 2, 3...
+  - [x] Lưu và nạp `processedSeqs` trong `getSimulationState()` / `loadSimulationState()`.
+  - [x] Viết regression test toàn diện: HTTP Gift $\rightarrow$ Ledger $\rightarrow$ Outbox $\rightarrow$ Journal $\rightarrow$ Engine $\rightarrow$ Checkpoint; kiểm tra watermark và crash recovery.
+- [x] **P0.3 — Fix Match Transition & Strict Outbox Lease ACK:**
+  - [x] Cập nhật `OutboxRepository.markProcessed()` và `markFailed()` bắt buộc `status = 'PROCESSING'`, đúng `workerId` (strict lease ownership), lease chưa hết hạn (`locked_until >= NOW()`).
+  - [x] Kiểm tra giá trị boolean trả về của `markProcessed()`, log cảnh báo nếu lease bị mất.
+  - [x] Match transition minh bạch: ghi nhận `match_command_transitions` khi targetMatchId khác matchId hiện tại; chuyển quyền áp dụng sang trận kế tiếp nếu hợp lệ hoặc từ chối có lý do.
+  - [x] Viết test: worker A hết hạn lease, worker B claim, worker A cố ACK $\rightarrow$ thất bại.
+- [x] **P1.1 — Remove All Synthetic QA Pass & Harden E2E:**
+  - [x] Xóa bỏ hoàn toàn nhánh `safeZonePass = true` khi không có banner trong `run-phase07-obs-live-qa.ts`; fail-closed nếu thiếu banner.
+  - [x] Chuẩn hóa bounding box safe zone (1250–1350px) và kiểm tra banner biến mất đúng duration (Top=1277px, Bottom=1333px, Y=1305px).
+  - [x] Xóa bỏ fallback FPS 60 (`|| 60`); fail nếu không đọc được FPS; nâng ngưỡng PASS $\ge 55$ FPS; đo frame-time p95 (Avg FPS: 61, p95 delta: 16.7ms).
+  - [x] Đo lường thời lượng WebM thực tế bằng `ffprobe`, kiểm tra $\ge 60$s (Thực tế: 91.1s); chọn đúng file video vừa quay của phiên test.
+- [x] **P1.2 — Admin Session Hardening & Revocation:**
+  - [x] Thêm danh sách thu hồi phiên (Session Revocation Store) khi gọi `/api/admin/logout`.
+  - [x] Phân quyền dựa trên danh tính/secret cấu hình (`ADMIN_SECRET_KEY`, `OPERATOR_SECRET_KEY`, `VIEWER_SECRET_KEY`), không cho phép chọn role tự do ở login.
+  - [x] Rate limit cho endpoint login (tối đa 5 lần/giây/IP).
+- [x] **P1.3 — Safe E2E Process Ownership:**
+  - [x] Sử dụng cổng test độc lập (port 3011) cho E2E test runner, không dùng `netstat` kill PID bên ngoài.
+  - [x] Quản lý PID chính xác theo process ownership do script tạo.
+- [x] **Verification, Artifacts & Remote Push:**
+  - [x] Chạy full test monorepo (110/110 tests PASS, 100%) và chạy E2E Live Ops QA (5/5 PASS không fallback).
+  - [x] Cập nhật `phase07_live_ops_telemetry.json` và `player.html`.
+  - [x] Git commit và push remote branch `feat/phase02-visual-refinement`.

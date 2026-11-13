@@ -25,6 +25,9 @@ interface CriteriaResult {
 }
 
 const adminToken = process.env.ADMIN_SECRET_KEY || 'phase07_production_live_ops_admin_token_2026';
+const TEST_SERVER_PORT = 3011; // P1.3: Isolated test server port to prevent collision and preserve foreign processes
+const testDbDir = path.resolve(repoRoot, '.data/qa_phase07_isolated_' + Date.now());
+
 let serverProc: ChildProcess | null = null;
 let clientProc: ChildProcess | null = null;
 
@@ -39,37 +42,16 @@ function killProcessTree(pid?: number) {
   } catch {}
 }
 
-function killPortProcesses(port: number) {
-  try {
-    if (process.platform === 'win32') {
-      let output = '';
-      try {
-        output = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf-8' });
-      } catch {}
-      const pids = new Set<string>();
-      for (const line of output.split('\n')) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 5 && parts[1].includes(`:${port}`)) {
-          const pid = parts[parts.length - 1];
-          if (pid && pid !== '0' && !isNaN(Number(pid))) pids.add(pid);
-        }
-      }
-      for (const pid of pids) {
-        try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch {}
-      }
-    }
-  } catch {}
-}
-
 function spawnGameServer(): ChildProcess {
-  console.log(' [SPAWN] Khởi động game-server Authoritative trên cổng 3001...');
+  console.log(` [SPAWN] Khởi động game-server Authoritative trên cổng độc lập ${TEST_SERVER_PORT}...`);
   const proc = spawn('node', ['apps/game-server/dist/index.js'], {
     cwd: repoRoot,
     env: {
       ...process.env,
-      PORT: '3001',
+      PORT: TEST_SERVER_PORT.toString(),
       ADMIN_SECRET_KEY: adminToken,
       ENABLE_MOCK_DASHBOARD: 'true',
+      DB_DATA_DIR: testDbDir,
     },
     stdio: 'pipe',
   });
@@ -85,7 +67,7 @@ async function waitForServerHealthy(timeoutMs = 25000): Promise<boolean> {
   let lastErr = '';
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch('http://127.0.0.1:3001/health');
+      const res = await fetch(`http://127.0.0.1:${TEST_SERVER_PORT}/health`);
       if (res.ok) return true;
     } catch (e: any) {
       lastErr = e.message;
@@ -97,14 +79,10 @@ async function waitForServerHealthy(timeoutMs = 25000): Promise<boolean> {
 }
 
 async function ensureServersRunning() {
-  // Clear any existing processes on port 3001 to ensure controlled process ownership
-  killPortProcesses(3001);
-  await new Promise((r) => setTimeout(r, 800));
-
   serverProc = spawnGameServer();
   const serverUp = await waitForServerHealthy();
   if (!serverUp) {
-    throw new Error('FATAL: Không thể khởi động game-server trên cổng 3001');
+    throw new Error(`FATAL: Không thể khởi động game-server trên cổng ${TEST_SERVER_PORT}`);
   }
   console.log(' [OK] Game-server đã sẵn sàng.');
 
@@ -142,14 +120,14 @@ async function ensureServersRunning() {
 
 async function runPhase07OpsLiveQA() {
   console.log('================================================================');
-  console.log(' ZOMBIE ĐẠI CHIẾN — PHASE 07.1 FINAL OBS & LIVE OPS HARDENING');
+  console.log(' ZOMBIE ĐẠI CHIẾN — PHASE 07.2 FINAL CRITICAL FIXES & QA GATE');
   console.log('================================================================');
 
   await ensureServersRunning();
 
   const results: CriteriaResult[] = [];
   const adminClient = new AdminClient({
-    serverUrl: 'http://127.0.0.1:3001',
+    serverUrl: `http://127.0.0.1:${TEST_SERVER_PORT}`,
     adminToken,
   });
 
@@ -190,7 +168,7 @@ async function runPhase07OpsLiveQA() {
   // CRITERIA 1: OBS BROWSER SOURCE ROUTE (/overlay) CLEANLINESS & RESOLUTION
   // -------------------------------------------------------------------------
   console.log('\n--- [TEST 1] OBS Browser Source Overlay Route Inspection ---');
-  await page.goto('http://localhost:5174/overlay?server=http://127.0.0.1:3001', {
+  await page.goto(`http://localhost:5174/overlay?server=http://127.0.0.1:${TEST_SERVER_PORT}`, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
@@ -209,7 +187,7 @@ async function runPhase07OpsLiveQA() {
   // Also check mobile 360x640 preview isolation
   const mobilePage = await context.newPage();
   await mobilePage.setViewportSize({ width: 360, height: 640 });
-  await mobilePage.goto('http://localhost:5174/overlay?server=http://127.0.0.1:3001', { waitUntil: 'domcontentloaded' });
+  await mobilePage.goto(`http://localhost:5174/overlay?server=http://127.0.0.1:${TEST_SERVER_PORT}`, { waitUntil: 'domcontentloaded' });
   await mobilePage.waitForFunction(() => (window as any).__BATTLEFIELD_QA__?.hasReceivedSnapshot() === true, { timeout: 20000 });
   const screenshot360Path = path.join(screenshotsDir, 'phase07_obs_mobile_360x640.png');
   await mobilePage.screenshot({ path: screenshot360Path });
@@ -241,7 +219,7 @@ async function runPhase07OpsLiveQA() {
   const adminDetails: string[] = [];
 
   // 1. Guest access to /admin must be rejected with 401
-  const guestAdminRes = await fetch('http://127.0.0.1:3001/admin');
+  const guestAdminRes = await fetch(`http://127.0.0.1:${TEST_SERVER_PORT}/admin`);
   if (guestAdminRes.status !== 401) {
     adminControlsPass = false;
     adminDetails.push(`Guest /admin returned ${guestAdminRes.status} instead of 401`);
@@ -306,13 +284,11 @@ async function runPhase07OpsLiveQA() {
   }
   console.log(` [DISCONNECT OBSERVED] ${sawDisconnect ? 'PASS' : 'WARN - Disconnect pending'}`);
 
-  // Wait 1.5s for Windows to fully free sockets and database file handles
+  // Wait 1.5s for Windows socket handles to be cleanly released
   await new Promise((r) => setTimeout(r, 1500));
-  killPortProcesses(3001);
-  await new Promise((r) => setTimeout(r, 500));
 
   // Restart game-server process
-  console.log(' [RESTART] Khởi động lại game-server process...');
+  console.log(' [RESTART] Khởi động lại game-server process trên cùng DB...');
   serverProc = spawnGameServer();
   const serverBack = await waitForServerHealthy(25000);
   if (!serverBack) {
@@ -347,9 +323,9 @@ async function runPhase07OpsLiveQA() {
   // -------------------------------------------------------------------------
   // CRITERIA 4: REAL TIKTOK SAFE ZONE VERIFICATION (Phaser Active Banner Introspection)
   // -------------------------------------------------------------------------
-  console.log('\n--- [TEST 4] Real TikTok Safe Zone Verification (Y: 1250-1350px) ---');
+  console.log('\n--- [TEST 4] Real TikTok Safe Zone Verification (Y: 1250-1350px, Fail-Closed) ---');
   // Trigger a Gift Skill (airstrike)
-  await fetch('http://127.0.0.1:3001/api/live/event', {
+  await fetch(`http://127.0.0.1:${TEST_SERVER_PORT}/api/live/event`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -367,9 +343,9 @@ async function runPhase07OpsLiveQA() {
     }),
   });
 
-  // Poll real active banner directly from Phaser container (Zero DOM simulation, Zero fallback)
+  // Poll real active banner directly from Phaser container (Zero DOM simulation, Fail-closed)
   let activeBanner: any = null;
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 40; i++) {
     await page.waitForTimeout(100);
     const b = await page.evaluate(() => (window as any).__BATTLEFIELD_QA__.getActiveBanner());
     if (b && b.visible) {
@@ -380,20 +356,33 @@ async function runPhase07OpsLiveQA() {
 
   let safeZonePass = false;
   let safeZoneDetails = '';
-  if (activeBanner) {
-    const isWithinSafeZone = activeBanner.top >= 1200 && activeBanner.bottom <= 1400;
-    const isDurationCompliant = activeBanner.durationMs <= 3000;
-    safeZonePass = isWithinSafeZone && isDurationCompliant;
-    safeZoneDetails = `Active Phaser Banner: top=${activeBanner.top}px, bottom=${activeBanner.bottom}px, y=${activeBanner.y}px, durationMs=${activeBanner.durationMs}ms, text="${activeBanner.text}"`;
+  if (!activeBanner) {
+    safeZonePass = false;
+    safeZoneDetails = 'FAIL_CLOSED: Gift Banner was NOT detected in Phaser canvas within 4s window. Synthetic fallback eliminated.';
   } else {
-    // If not caught in poll window, check scene bounding definition directly
-    safeZonePass = true;
-    safeZoneDetails = 'Gift Banner verified within safe zone (Toast Container centered at Y=1320px, bounds 1292-1348px, duration <= 3000ms).';
+    // Exact safe zone verification: Top >= 1250px and Bottom <= 1350px
+    const isWithinSafeZone = activeBanner.top >= 1250 && activeBanner.bottom <= 1350;
+
+    // Verify auto-disappearance within 3 seconds
+    let bannerDisappeared = false;
+    for (let j = 0; j < 35; j++) {
+      await page.waitForTimeout(100);
+      const bNow = await page.evaluate(() => (window as any).__BATTLEFIELD_QA__.getActiveBanner());
+      if (!bNow || !bNow.visible) {
+        bannerDisappeared = true;
+        break;
+      }
+    }
+    const isDurationCompliant = bannerDisappeared;
+    safeZonePass = isWithinSafeZone && isDurationCompliant;
+    safeZoneDetails = safeZonePass
+      ? `PASS: Active Phaser Banner top=${activeBanner.top}px, bottom=${activeBanner.bottom}px, y=${activeBanner.y}px (strictly inside 1250-1350px), auto-fade verified within 3s.`
+      : `FAIL: Bounds check (top=${activeBanner.top}px >= 1250, bottom=${activeBanner.bottom}px <= 1350: ${isWithinSafeZone}) or auto-fade compliance (${isDurationCompliant})`;
   }
 
   results.push({
     id: 'CRIT_4_TIKTOK_SAFE_ZONE',
-    name: 'TikTok LIVE 9:16 Safe Zone Banner Layout Bounds (1250-1350px, <= 3s)',
+    name: 'TikTok LIVE 9:16 Safe Zone Banner Layout Bounds (1250-1350px, <= 3s auto fade)',
     status: safeZonePass ? 'PASS' : 'FAIL',
     details: safeZoneDetails,
     metric: activeBanner,
@@ -405,12 +394,13 @@ async function runPhase07OpsLiveQA() {
   // -------------------------------------------------------------------------
   console.log('\n--- [TEST 5] Continuous 60s Live Operations Simulation & Real FPS Telemetry ---');
   const fpsSamples: number[] = [];
+  const frameDeltas: number[] = [];
   const testUsers = ['alpha_lead', 'bravo_sniper', 'charlie_medic', 'delta_scout'];
 
   // Stream viewer actions helper
   const sendLiveAction = async (cmd: string, user: string) => {
     try {
-      await fetch('http://127.0.0.1:3001/api/live/event', {
+      await fetch(`http://127.0.0.1:${TEST_SERVER_PORT}/api/live/event`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
         body: JSON.stringify({
@@ -432,15 +422,19 @@ async function runPhase07OpsLiveQA() {
 
   // Run for 62 continuous seconds to guarantee >= 60s recording duration
   const DURATION_SECONDS = 62;
-  console.log(` [SIMULATION] Đo đạc hiệu năng liên tục trong ${DURATION_SECONDS} giây...`);
+  console.log(` [SIMULATION] Đo đạc hiệu năng liên tục trong ${DURATION_SECONDS} giây (Zero fallback)...`);
 
   for (let sec = 1; sec <= DURATION_SECONDS; sec++) {
     await page.waitForTimeout(1000);
     const perf = await page.evaluate(() => (window as any).__BATTLEFIELD_QA__.getPerformanceStats());
-    const fps = typeof perf.actualFps === 'number' && !isNaN(perf.actualFps) && perf.actualFps > 0
-      ? Math.round(perf.actualFps)
-      : 60;
+    if (typeof perf.actualFps !== 'number' || isNaN(perf.actualFps) || perf.actualFps <= 0) {
+      throw new Error(`CRITICAL_QA_ERROR: Cannot measure real FPS from Phaser loop (received: ${perf.actualFps})`);
+    }
+    const fps = Math.round(perf.actualFps);
     fpsSamples.push(fps);
+    if (typeof perf.deltaMs === 'number' && !isNaN(perf.deltaMs)) {
+      frameDeltas.push(perf.deltaMs);
+    }
 
     // Periodically trigger comments and gifts to maintain combat activity
     if (sec % 3 === 0) {
@@ -448,7 +442,7 @@ async function runPhase07OpsLiveQA() {
       await sendLiveAction('SUA', testUsers[(sec + 1) % testUsers.length]);
     }
     if (sec % 10 === 0) {
-      await fetch('http://127.0.0.1:3001/api/live/event', {
+      await fetch(`http://127.0.0.1:${TEST_SERVER_PORT}/api/live/event`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
         body: JSON.stringify({
@@ -470,41 +464,57 @@ async function runPhase07OpsLiveQA() {
   }
 
   const finalMon = await adminClient.getMonitoring();
+  const sortedDeltas = [...frameDeltas].sort((a, b) => a - b);
+  const p95FrameTimeMs = sortedDeltas.length > 0 ? Math.round(sortedDeltas[Math.floor(sortedDeltas.length * 0.95)] * 10) / 10 : 16.7;
   const avgFps = Math.round(fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length);
   const minFps = Math.min(...fpsSamples);
   const maxFps = Math.max(...fpsSamples);
   const sortedFps = [...fpsSamples].sort((a, b) => a - b);
   const p5Fps = sortedFps[Math.floor(sortedFps.length * 0.05)];
-  const fpsPass = avgFps >= 50 && minFps >= 25;
 
-  results.push({
-    id: 'CRIT_5_SIMULATION_STABILITY_AND_FPS',
-    name: 'Multi-Round Continuous Live Simulation & 60s Verified Telemetry',
-    status: fpsPass ? 'PASS' : 'FAIL',
-    details: `Duration=${DURATION_SECONDS}s, Avg FPS=${avgFps}, Min FPS=${minFps}, Max FPS=${maxFps}, p5 FPS=${p5Fps}, Samples=${fpsSamples.length}, Server Uptime=${finalMon.server.uptimeSeconds}s, Memory=${finalMon.server.memoryUsageMb}MB`,
-    metric: { avgFps, minFps, maxFps, p5Fps, durationSeconds: DURATION_SECONDS, sampleCount: fpsSamples.length, samples: fpsSamples, memoryUsageMb: finalMon.server.memoryUsageMb },
-  });
-  console.log(`[CRIT_5] ${fpsPass ? 'PASS' : 'FAIL'} - Avg FPS: ${avgFps}, Min: ${minFps}, p5: ${p5Fps}`);
+  // P1.1: Yêu cầu tối thiểu >= 55 FPS trung bình (Strict SLA, Zero fallback)
+  const fpsPass = avgFps >= 55 && minFps >= 30;
 
   // -------------------------------------------------------------------------
-  // CAPTURE HIGH-RES ARTIFACTS
+  // CAPTURE HIGH-RES ARTIFACTS & FINALIZE VIDEO
   // -------------------------------------------------------------------------
-  console.log('\n--- [TEST 6] Capturing High-Res OBS Screenshots & Telemetry ---');
+  console.log('\n--- [TEST 6] Capturing High-Res OBS Screenshots & Finalizing Video ---');
   const screenshot1080Path = path.join(screenshotsDir, 'phase07_obs_overlay_1080x1920.png');
   await page.screenshot({ path: screenshot1080Path });
   console.log(` [SAVED] 1080x1920 Screenshot: ${screenshot1080Path}`);
 
-  // Close context to finalize video recording
+  // Retrieve exact video handle recorded for this page context
+  const videoHandle = page.video();
+  await page.close();
+
+  if (videoHandle) {
+    await videoHandle.saveAs(recordPath);
+    console.log(` [SAVED] 60s Video Recording: ${recordPath}`);
+  }
   await context.close();
   await browser.close();
 
-  // Find saved recording
-  const recordedFiles = fs.readdirSync(recordingsDir).filter((f) => f.endsWith('.webm'));
-  if (recordedFiles.length > 0) {
-    const latestRec = path.join(recordingsDir, recordedFiles[recordedFiles.length - 1]);
-    fs.copyFileSync(latestRec, recordPath);
-    console.log(` [SAVED] 60s Video Recording: ${recordPath}`);
+  // P1.1: Kiểm tra metadata thời lượng WebM thực tế bằng ffprobe
+  let realVideoDurationSeconds = 0;
+  try {
+    const probeOut = execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${recordPath}"`, { encoding: 'utf-8' }).trim();
+    realVideoDurationSeconds = Math.round(parseFloat(probeOut) * 10) / 10;
+    console.log(` [FFPROBE] Verified Video Duration: ${realVideoDurationSeconds}s`);
+  } catch (probeErr: any) {
+    console.warn(` [FFPROBE WARN] Không thể đọc metadata: ${probeErr.message}`);
   }
+
+  const isVideoDurationValid = realVideoDurationSeconds >= 60.0;
+  const crit5OverallPass = fpsPass && isVideoDurationValid;
+
+  results.push({
+    id: 'CRIT_5_SIMULATION_STABILITY_AND_FPS',
+    name: 'Multi-Round Continuous Live Simulation & 60s Verified Telemetry (>=55 FPS, ffprobe duration)',
+    status: crit5OverallPass ? 'PASS' : 'FAIL',
+    details: `Duration=${DURATION_SECONDS}s, ffprobeDuration=${realVideoDurationSeconds}s (Valid >= 60s: ${isVideoDurationValid}), Avg FPS=${avgFps} (>=55), Min FPS=${minFps}, Max FPS=${maxFps}, p5 FPS=${p5Fps}, p95 FrameTime=${p95FrameTimeMs}ms, Server Uptime=${finalMon.server.uptimeSeconds}s, Memory=${finalMon.server.memoryUsageMb}MB, Journal Watermark=${finalMon.operations.lastAppliedJournalSeq}`,
+    metric: { avgFps, minFps, maxFps, p5Fps, p95FrameTimeMs, durationSeconds: DURATION_SECONDS, realVideoDurationSeconds, sampleCount: fpsSamples.length, samples: fpsSamples, memoryUsageMb: finalMon.server.memoryUsageMb, watermark: finalMon.operations.lastAppliedJournalSeq },
+  });
+  console.log(`[CRIT_5] ${crit5OverallPass ? 'PASS' : 'FAIL'} - Avg FPS: ${avgFps}, Min: ${minFps}, p5: ${p5Fps}, p95 delta: ${p95FrameTimeMs}ms, ffprobe: ${realVideoDurationSeconds}s`);
 
   // Copy artifacts to Brain Directory
   if (fs.existsSync(brainDir)) {
@@ -520,7 +530,7 @@ async function runPhase07OpsLiveQA() {
   // Save Telemetry JSON
   const telemetry = {
     timestamp: new Date().toISOString(),
-    phase: 'Phase 07.1: Final OBS & Live Operations Hardening',
+    phase: 'Phase 07.2: Final Critical Fixes & Phase 08 Handoff',
     overallStatus: results.every((r) => r.status === 'PASS') ? 'PASS' : 'FAIL',
     criteriaCount: results.length,
     passedCount: results.filter((r) => r.status === 'PASS').length,
@@ -531,7 +541,9 @@ async function runPhase07OpsLiveQA() {
       minFps,
       maxFps,
       p5Fps,
+      p95FrameTimeMs,
       recordedDurationSeconds: DURATION_SECONDS,
+      verifiedVideoDurationSeconds: realVideoDurationSeconds,
       sampleCount: fpsSamples.length,
       serverUptimeSeconds: finalMon.server.uptimeSeconds,
       memoryUsageMb: finalMon.server.memoryUsageMb,
@@ -541,22 +553,25 @@ async function runPhase07OpsLiveQA() {
     },
   };
 
-  const telemetryPath = path.join(clientDir, 'phase07_1_live_ops_telemetry.json');
+  const telemetryPath = path.join(clientDir, 'phase07_live_ops_telemetry.json');
   fs.writeFileSync(telemetryPath, JSON.stringify(telemetry, null, 2));
-  fs.writeFileSync(path.join(clientDir, 'phase07_live_ops_telemetry.json'), JSON.stringify(telemetry, null, 2));
+  fs.writeFileSync(path.join(clientDir, 'phase07_1_live_ops_telemetry.json'), JSON.stringify(telemetry, null, 2));
 
   if (fs.existsSync(brainDir)) {
-    fs.writeFileSync(path.join(brainDir, 'phase07_1_live_ops_telemetry.json'), JSON.stringify(telemetry, null, 2));
     fs.writeFileSync(path.join(brainDir, 'phase07_live_ops_telemetry.json'), JSON.stringify(telemetry, null, 2));
+    fs.writeFileSync(path.join(brainDir, 'phase07_1_live_ops_telemetry.json'), JSON.stringify(telemetry, null, 2));
   }
   console.log(` [SAVED] Telemetry JSON: ${telemetryPath}`);
 
   console.log('\n================================================================');
-  console.log(` PHASE 07.1 AUDIT SUMMARY: ${telemetry.passedCount}/${telemetry.criteriaCount} CRITERIA PASSED`);
+  console.log(` PHASE 07.2 AUDIT SUMMARY: ${telemetry.passedCount}/${telemetry.criteriaCount} CRITERIA PASSED`);
   console.log('================================================================');
 
   if (serverProc) killProcessTree(serverProc.pid);
   if (clientProc) killProcessTree(clientProc.pid);
+  try {
+    if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+  } catch {}
 
   if (telemetry.overallStatus !== 'PASS') {
     process.exit(1);
@@ -564,8 +579,11 @@ async function runPhase07OpsLiveQA() {
 }
 
 runPhase07OpsLiveQA().catch((err) => {
-  console.error('Fatal Phase 07.1 QA error:', err);
+  console.error('Fatal Phase 07.2 QA error:', err);
   if (serverProc) killProcessTree(serverProc.pid);
   if (clientProc) killProcessTree(clientProc.pid);
+  try {
+    if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+  } catch {}
   process.exit(1);
 });
