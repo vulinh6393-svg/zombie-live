@@ -231,11 +231,12 @@ export class PGliteDatabaseAdapter implements DatabaseClient {
   private dataDir?: string;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir;
-    if (dataDir && dataDir !== ':memory:') {
-      fs.mkdirSync(dataDir, { recursive: true });
+    const isMemory = !dataDir || dataDir === ':memory:' || dataDir === 'memory://';
+    this.dataDir = isMemory ? undefined : dataDir;
+    if (this.dataDir) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
     }
-    this.pglite = new PGlite(dataDir);
+    this.pglite = new PGlite(this.dataDir);
   }
 
   public async init(opts?: { runMigrations?: boolean; seed?: boolean }): Promise<void> {
@@ -292,8 +293,19 @@ export class PGliteDatabaseAdapter implements DatabaseClient {
   }
 
   public getBackendType(): 'pglite-filesystem-persistent' | 'pglite-in-memory' {
-    return this.dataDir && this.dataDir !== ':memory:' ? 'pglite-filesystem-persistent' : 'pglite-in-memory';
+    return this.dataDir ? 'pglite-filesystem-persistent' : 'pglite-in-memory';
   }
+}
+
+function findMonorepoRoot(startDir: string): string {
+  let dir = startDir;
+  while (dir && dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  return process.cwd();
 }
 
 // Global Singleton for Database Client
@@ -356,14 +368,21 @@ export async function getDatabaseClient(options?: GetDatabaseOptions | string): 
           `FATAL_DATABASE_ERROR: Cannot connect to PostgreSQL at ${databaseUrl.replace(/:[^:@]+@/, ':***@')} in production environment.`
         );
       }
-    } else if (isProduction) {
+    } else if (isProduction && !opts.dataDir) {
       throw new Error('FATAL_DATABASE_ERROR: DATABASE_URL must be configured with a valid PostgreSQL URL in production mode.');
     }
 
     // 2. Local / Development / Test fallback: Persistent disk-backed PGlite
-    // Lưu ý: dataDir mặc định lưu vào thư mục .data/pglite trên ổ đĩa, đảm bảo dữ liệu sống qua process restart!
-    const defaultDataDir = path.resolve(process.cwd(), '.data/pglite');
-    const targetDataDir = opts.dataDir || defaultDataDir;
+    // Synchronize database directory resolution across execution contexts (monorepo root .data/pglite).
+    const isMemory = opts.dataDir === ':memory:' || opts.dataDir === 'memory://';
+    let targetDataDir: string | undefined;
+    if (isMemory) {
+      targetDataDir = undefined;
+    } else {
+      const rootDir = findMonorepoRoot(path.dirname(fileURLToPath(import.meta.url)));
+      const defaultDataDir = path.resolve(rootDir, '.data/pglite');
+      targetDataDir = opts.dataDir || process.env.DB_DATA_DIR || defaultDataDir;
+    }
 
     let pgliteAdapter: PGliteDatabaseAdapter;
     try {
@@ -381,8 +400,13 @@ export async function getDatabaseClient(options?: GetDatabaseOptions | string): 
     return pgliteAdapter;
   })();
 
-  const instance = await initPromise;
-  return instance;
+  try {
+    const instance = await initPromise;
+    return instance;
+  } catch (err) {
+    resetDatabaseClient();
+    throw err;
+  }
 }
 
 export function resetDatabaseSingleton(): void {

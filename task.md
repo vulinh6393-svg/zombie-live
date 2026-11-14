@@ -958,3 +958,35 @@
   - [x] Chạy kiểm thử toàn bộ monorepo (120/120 tests PASS, 100%).
   - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.
   - [x] Báo cáo đầy đủ commit SHA 40 ký tự và kết quả nghiệm thu cho người dùng.
+
+## Giai đoạn 08.2: Final Data Integrity & Runnable Demo Acceptance (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **P0.1 — Hàng Đợi Bền Vững & Chống Mất Quà (Durable Live Bridge Retry & Queue):**
+  - [x] Triển khai `DurableEventQueue` lưu trữ trên đĩa (`.data/bridge_event_queue.json`) đảm bảo không mất event khi crash hoặc mạng ngắt lâu dài.
+  - [x] Giới hạn `maxQueueSize` thực sự với backpressure và Dead-Letter Queue (DLQ `bridge_dead_letter.json`).
+  - [x] Graceful shutdown drain queue hoặc persist nguyên vẹn cho lần khởi động tiếp theo (`persistSync()`).
+  - [x] Đảm bảo chuỗi combo 1 $\to$ 5 $\to$ 10 không mất khi timeout HTTP xảy ra sau DB commit nhưng trước response của Bridge (reconciliation via Idempotent Duplicate ACK).
+  - [x] Viết test toàn diện: timeout, duplicate idempotency, restart persistence, DLQ exhaust.
+- [x] **P0.2 — Chuyển Trạng Thái Một Chiều & Chống Enqueue Trùng Lệnh Hoãn (Strict Deferred State Machine):**
+  - [x] Sửa `deferCommand()`: ON CONFLICT cấm chuyển trạng thái của command đã `APPLIED`, `REJECTED` hoặc `FAILED` quay về `DEFERRED` (`WHERE deferred_match_commands.status = 'DEFERRED'`).
+  - [x] Đảm bảo tính idempotent khi DB transfer, append journal và enqueue engine, tránh duplicate giữa RAM và DB (`enqueuedDeferredIds` Set deduplication).
+  - [x] Thêm unit test kiểm tra one-way state machine và đảm bảo khôi phục an toàn.
+- [x] **P0.3 — Sao Lưu & Khôi Phục PGlite An Toàn Với Kiểm Chứng Dữ Liệu Thật (Safe Backup & Restore):**
+  - [x] Đồng bộ thư mục cơ sở dữ liệu (`findMonorepoRoot` và `.data/pglite`) bất kể ngữ cảnh chạy (`pnpm --filter` vs root).
+  - [x] Tạo `manifest.json` (file count, sha256 checksums, total bytes, timestamp) cho mỗi bản sao lưu trong `scripts/backup-db.ps1`.
+  - [x] Khôi phục sang thư mục kiểm chứng độc lập và truy vấn trực tiếp SQL: đếm players, tính tổng XP, gift ledger, matches để xác minh tính toàn vẹn 100% qua `verify-backup.ts` trong `scripts/restore-db.ps1`.
+  - [x] Chạy kiểm chứng thực tế: 1092/1092 files khớp 100% SHA256, SQL query VERIFIED_PASS (15 players, 3250 XP, 68 gift events, 67 outbox events, 16 matches).
+- [x] **P1.1 — Chuẩn Hóa Khởi Chạy Demo Thực Tế (start-demo.ps1 Hardening):**
+  - [x] Kiểm tra build artifacts trước khi start; tự động build nếu thiếu.
+  - [x] Xác minh `/ready` (Database + Authoritative Engine), không chỉ `/health`.
+  - [x] Kiểm tra tiến trình Bridge còn sống và hoạt động liên tục.
+  - [x] Kiểm tra Client trả về HTTP 200 HTML hợp lệ; tự động cleanup sạch tiến trình nếu bất kỳ bước nào thất bại.
+- [x] **P1.2 — Chuẩn Hóa Production Runbook (start-production.ps1 Hardening):**
+  - [x] Bắt buộc `NODE_ENV=production` và `DATABASE_URL` hợp lệ (PostgreSQL), nghiêm cấm fallback PGlite ở production.
+  - [x] Ràng buộc host bind `127.0.0.1` nội bộ mặc định; fail-closed nếu DB `/ready` trả về 503.
+  - [x] Cảnh báo rõ ràng không có auto-restart supervisor ngầm, yêu cầu quản lý qua Docker/PM2 nếu muốn 24/7.
+- [x] **P1.3 — Kiểm Thử Lỗi Thật & Integration Test Toàn Diện (True Failure & Pipeline Tests):**
+  - [x] Tạo bài test PGlite lỗi thực sự (file conflict chặn tạo directory), xác nhận `FATAL_DATABASE_INIT_ERROR` và data preserved mà không bị xóa.
+  - [x] Tạo test tích hợp End-to-End: Mock Viewer $\to$ Bridge $\to$ Ingress Token $\to$ Gift Ledger $\to$ Outbox Worker $\to$ Authoritative Engine $\to$ DB state (`players`, `gift_events`, `match_command_journal`, `outbox_events` PROCESSED).
+- [x] **Nghiệm Thu, Cập Nhật Artifacts & Đẩy Lên GitHub:**
+  - [x] Chạy full test suite monorepo (102/102 tests PASS, 100%).
+  - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.

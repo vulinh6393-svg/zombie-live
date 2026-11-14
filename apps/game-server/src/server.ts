@@ -233,7 +233,14 @@ export function buildServer(opts: BuildServerOptions = {}): {
   const initDb = async () => {
     if (!dbClient) {
       try {
-        const db = await getDatabaseClient(opts.dbDataDir ? { dataDir: opts.dbDataDir } : undefined);
+        const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+        const db = await getDatabaseClient(
+          opts.dbDataDir
+            ? { dataDir: opts.dbDataDir, forceNew: true }
+            : isTestEnv
+              ? { dataDir: ':memory:', forceNew: true }
+              : undefined
+        );
         dbClient = db;
         playerRepo = new PlayerRepository(db);
         giftLedgerRepo = new GiftLedgerRepository(db);
@@ -359,12 +366,18 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   };
 
+  // P0.2 (Phase 08.2): Bộ đệm chống enqueue trùng lặp giữa RAM, Database và Recovery
+  const enqueuedDeferredIds = new Set<string>();
+
   // P0.6 (Phase 08.1): Chuyển giao các lệnh hoãn bền vững (Durable Deferred Commands) sang trận mới
   const transferAndQueueDeferredCommands = async (targetMatchId: string) => {
     if (!deferredRepo) return;
     try {
       const transferred = await deferredRepo.transferDeferredCommandsToMatch(targetMatchId);
       for (const cmd of transferred) {
+        if (enqueuedDeferredIds.has(cmd.id)) continue;
+        enqueuedDeferredIds.add(cmd.id);
+
         let jSeq: number | undefined;
         if (journalRepo) {
           const jRes = await journalRepo.appendCommand({
@@ -402,6 +415,9 @@ export function buildServer(opts: BuildServerOptions = {}): {
     try {
       const unapplied = await deferredRepo.getUnappliedTransferredCommands(targetMatchId);
       for (const cmd of unapplied) {
+        if (enqueuedDeferredIds.has(cmd.id)) continue;
+        enqueuedDeferredIds.add(cmd.id);
+
         let jSeq: number | undefined;
         if (journalRepo) {
           const jRes = await journalRepo.appendCommand({

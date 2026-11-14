@@ -1,14 +1,16 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getDatabaseClient } from '@zombie-live/database';
+import { LiveEventDispatcher } from '@zombie-live/live-bridge';
 import { buildServer } from './server.js';
 
 describe('Game Server Security & Event Ingestion', () => {
-  let stopFn: (() => void) | null = null;
+  let stopFn: (() => void | Promise<void>) | null = null;
 
-  afterEach(() => {
+  afterEach(async () => {
     if (stopFn) {
-      stopFn();
+      await stopFn();
       stopFn = null;
     }
   });
@@ -962,6 +964,103 @@ describe('Game Server Security & Event Ingestion', () => {
 
         // Phải bị chặn 401 vì session revocation đã được lưu bền vững vào database!
         expect(reusedRes.statusCode).toBe(401);
+      });
+
+      it('P1.3 End-to-End Pipeline Integration: Mock Viewer -> Bridge -> Ingress -> Gift Ledger -> Outbox -> Engine -> DB state', async () => {
+        const testDbDir = path.resolve(process.cwd(), '.data/test_db_e2e_pipe_' + Date.now());
+        const testBridgeToken = 'bridge_ingress_secret_token_e2e_test_999';
+        const serverInstance = buildServer({
+          liveBridgeToken: testBridgeToken,
+          adminSecret: 'admin_secret_e2e_test_123',
+          dbDataDir: testDbDir,
+          disableAutoTick: true,
+        });
+
+        // Khởi động server HTTP lắng nghe trên port động
+        const address = await serverInstance.app.listen({ port: 0, host: '127.0.0.1' });
+
+        stopFn = async () => {
+          serverInstance.stopEngine();
+          await serverInstance.app.close();
+          try {
+            if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
+          } catch {}
+        };
+
+        const dispatcher = new LiveEventDispatcher({
+          serverUrl: address,
+          ingressToken: testBridgeToken,
+          queueStorageFile: path.join(testDbDir, 'queue.json'),
+          deadLetterFile: path.join(testDbDir, 'dead_letter.json'),
+          autoProcessQueue: false,
+        });
+
+        const viewerId = 'viewer_e2e_1001';
+        const viewerName = 'HeroCommander';
+        const providerEventId = `e2e_gift_${Date.now()}_001`;
+
+        // 1. Mock Viewer gửi GIFT qua Live Bridge
+        const dispatchResult = await dispatcher.handleIncomingEvent({
+          eventKey: providerEventId,
+          provider: 'mock',
+          liveSessionId: serverInstance.engine.matchId,
+          userId: viewerId,
+          username: viewerName,
+          at: new Date().toISOString(),
+          type: 'gift',
+          gift: {
+            giftId: 'rose',
+            quantity: 1,
+            isFinal: true,
+          },
+        });
+
+        expect(dispatchResult.accepted).toBe(true);
+
+        // 2. Chờ Outbox Worker nhận và chuyển vào hàng đợi engine
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          if (serverInstance.engine.getCommandQueueLength() > 0) break;
+        }
+
+        // 3. Kết nối DB để theo dõi
+        const db = await getDatabaseClient({ dataDir: testDbDir });
+
+        // 4. Bước qua các tick engine và chờ outbox transition sang PROCESSED sau khi engine.onCommandApplied hoàn tất
+        let isOutboxProcessed = false;
+        for (let i = 0; i < 30; i++) {
+          serverInstance.engine.step();
+          await new Promise((r) => setTimeout(r, 100));
+          const outboxRes = await db.query<{ status: string }>(
+            `SELECT status FROM outbox_events WHERE aggregate = 'GIFT' ORDER BY created_at DESC LIMIT 1`
+          );
+          if (outboxRes.rows[0]?.status === 'PROCESSED') {
+            isOutboxProcessed = true;
+            break;
+          }
+        }
+        expect(isOutboxProcessed).toBe(true);
+
+        // 5. Xác nhận sequence watermark của Engine đã tăng
+        expect(serverInstance.engine.getLastAppliedJournalSeq()).toBeGreaterThanOrEqual(1);
+
+        // 5a. Gift Ledger ghi nhận chính xác bản ghi gift
+        const giftRes = await db.query<{ provider_event_id: string; sender_id: string; gift_id: string }>(
+          `SELECT provider_event_id, sender_id, gift_id FROM gift_events WHERE provider_event_id = $1`,
+          [providerEventId]
+        );
+        expect(giftRes.rows.length).toBe(1);
+        expect(giftRes.rows[0].sender_id).toBe(viewerId);
+        expect(giftRes.rows[0].gift_id).toBe('rose');
+
+        // 5c. Command Journal ghi nhận lệnh với số thứ tự seq
+        const journalRes = await db.query<{ seq: number; command_type: string }>(
+          `SELECT seq, command_type FROM match_command_journal WHERE command_type = 'GIFT_SKILL' ORDER BY seq DESC LIMIT 1`
+        );
+        expect(journalRes.rows.length).toBe(1);
+        expect(journalRes.rows[0].seq).toBeGreaterThanOrEqual(1);
+
+        await dispatcher.stop();
       });
     });
   });

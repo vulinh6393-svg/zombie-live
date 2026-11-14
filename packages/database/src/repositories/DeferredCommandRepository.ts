@@ -18,22 +18,25 @@ export class DeferredCommandRepository {
   /**
    * Lưu lệnh vào hàng đợi hoãn (deferred queue) một cách bền vững vào database.
    * Chống mất lệnh khi server bị crash trong giai đoạn RESULTS / chuẩn bị đổi trận.
+   * P0.2 (Phase 08.2): ON CONFLICT tuyệt đối không chuyển command đã APPLIED, REJECTED,
+   * FAILED hoặc TRANSFERRED quay trở lại DEFERRED (Bảo đảm chuyển trạng thái 1 chiều).
    */
   public async deferCommand(
     id: string,
     matchId: string,
     commandPayload: any,
     reason: string = 'MATCH_IN_RESULTS_PHASE'
-  ): Promise<void> {
-    await this.db.query(
+  ): Promise<boolean> {
+    const res = await this.db.query(
       `INSERT INTO deferred_match_commands (id, match_id, command_payload, status, transition_reason, created_at)
        VALUES ($1, $2, $3, 'DEFERRED', $4, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE SET
          command_payload = EXCLUDED.command_payload,
-         status = 'DEFERRED',
-         transition_reason = EXCLUDED.transition_reason`,
+         transition_reason = EXCLUDED.transition_reason
+       WHERE deferred_match_commands.status = 'DEFERRED'`,
       [id, matchId, JSON.stringify(commandPayload), reason]
     );
+    return (res.rowCount ?? 0) > 0;
   }
 
   /**
@@ -153,37 +156,39 @@ export class DeferredCommandRepository {
       `UPDATE deferred_match_commands
        SET status = 'APPLIED',
            applied_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND status = 'TRANSFERRED'`,
+       WHERE id = $1 AND status IN ('DEFERRED', 'TRANSFERRED')`,
       [id]
     );
     return (res.rowCount ?? 0) > 0;
   }
 
   /**
-   * Đánh dấu lệnh hoãn thất bại (status FAILED).
+   * Đánh dấu lệnh hoãn thất bại (status FAILED). Terminal states không bị ghi đè.
    */
-  public async markCommandFailed(id: string, reason: string): Promise<void> {
-    await this.db.query(
+  public async markCommandFailed(id: string, reason: string): Promise<boolean> {
+    const res = await this.db.query(
       `UPDATE deferred_match_commands
        SET status = 'FAILED',
            transition_reason = $1,
            applied_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
+       WHERE id = $2 AND status NOT IN ('APPLIED')`,
       [reason, id]
     );
+    return (res.rowCount ?? 0) > 0;
   }
 
   /**
    * Từ chối lệnh hoãn có lý do cụ thể (terminal status REJECTED).
    */
-  public async rejectDeferredCommand(id: string, reason: string): Promise<void> {
-    await this.db.query(
+  public async rejectDeferredCommand(id: string, reason: string): Promise<boolean> {
+    const res = await this.db.query(
       `UPDATE deferred_match_commands
        SET status = 'REJECTED',
            transition_reason = $1,
            applied_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
+       WHERE id = $2 AND status NOT IN ('APPLIED', 'REJECTED')`,
       [reason, id]
     );
+    return (res.rowCount ?? 0) > 0;
   }
 }

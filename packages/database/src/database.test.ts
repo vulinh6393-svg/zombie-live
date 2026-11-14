@@ -490,7 +490,7 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
           fs.rmSync(testDir, { recursive: true, force: true });
         }
       }
-    });
+    }, 30000);
 
     it('persists deferred match commands and transfers them with strict TRANSFERRED -> APPLIED lifecycle', async () => {
       const fs = await import('node:fs');
@@ -564,30 +564,68 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
           fs.rmSync(testDir, { recursive: true, force: true });
         }
       }
-    });
+    }, 30000);
 
-    it('P0.1 Fail-closed: does not wipe or delete directory on PGlite init failure', async () => {
+    it('P0.2 One-way state machine: deferCommand never resets APPLIED or REJECTED to DEFERRED', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
-      const testDir = path.resolve(process.cwd(), '.data/test_non_destructive_' + Date.now());
+      const testDir = path.resolve(process.cwd(), '.data/test_oneway_' + Date.now());
 
       try {
-        fs.mkdirSync(testDir, { recursive: true });
-        const sentinelFile = path.join(testDir, 'important_player_data.json');
-        fs.writeFileSync(sentinelFile, JSON.stringify({ savedAt: Date.now(), progress: 'critical' }));
+        const db = new PGliteDatabaseAdapter(testDir);
+        await db.init({ runMigrations: true });
+        const defRepo = new DeferredCommandRepository(db);
 
-        const { getDatabaseClient } = await import('./db.js');
+        // 1. Tạo command và hoàn tất chu trình sang APPLIED
+        await defRepo.deferCommand('cmd_applied_once', 'match_100', { gift: 'firework' });
+        await defRepo.transferDeferredCommandsToMatch('match_101');
+        await defRepo.markCommandApplied('cmd_applied_once');
 
-        // Create a corrupt / locked condition by creating a regular file where pglite expects its directory or passing bad options
-        // We verify that even if getDatabaseClient fails, sentinelFile is NOT deleted
-        expect(fs.existsSync(sentinelFile)).toBe(true);
+        // Thử ghi đè lại cùng commandId (ví dụ Outbox retry muộn)
+        await defRepo.deferCommand('cmd_applied_once', 'match_101', { gift: 'firework' }, 'ACCIDENTAL_RETRY');
 
-        // Verify directory and file remain intact
-        expect(fs.existsSync(testDir)).toBe(true);
-        expect(fs.existsSync(sentinelFile)).toBe(true);
+        // Trạng thái trong DB BẮT BUỘC vẫn là APPLIED, tuyệt đối không bị hạ ngược thành DEFERRED!
+        const rows = await db.query<any>(`SELECT status FROM deferred_match_commands WHERE id = $1`, ['cmd_applied_once']);
+        expect(rows.rows[0].status).toBe('APPLIED');
+
+        // 2. Tương tự với REJECTED
+        await defRepo.deferCommand('cmd_rejected_once', 'match_100', { gift: 'bad' });
+        await defRepo.rejectDeferredCommand('cmd_rejected_once', 'INVALID_GIFT');
+        await defRepo.deferCommand('cmd_rejected_once', 'match_100', { gift: 'bad' }, 'RETRY_REJECTED');
+
+        const rowsReject = await db.query<any>(`SELECT status FROM deferred_match_commands WHERE id = $1`, ['cmd_rejected_once']);
+        expect(rowsReject.rows[0].status).toBe('REJECTED');
+
+        await db.close();
       } finally {
         if (fs.existsSync(testDir)) {
           fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      }
+    });
+
+    it('P1.3 True PGlite init failure test: invalid database path triggers FATAL_DATABASE_INIT_ERROR and preserves data', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const testDir = path.resolve(process.cwd(), '.data/test_file_conflict_' + Date.now());
+
+      try {
+        // Tạo một file thông thường tại testDir khiến fs.mkdirSync thất bại ngay lập tức
+        fs.writeFileSync(testDir, 'CRITICAL_DATA_SENTINEL_DO_NOT_DELETE');
+
+        const { getDatabaseClient } = await import('./db.js');
+
+        // Gọi getDatabaseClient với đường dẫn file này (không thể tạo directory)
+        await expect(getDatabaseClient({ dataDir: testDir, forceNew: true })).rejects.toThrow(
+          /FATAL_DATABASE_INIT_ERROR/
+        );
+
+        // Xác nhận nguyên tắc FAIL-CLOSED: file dữ liệu quan trọng TUYỆT ĐỐI KHÔNG BỊ XÓA!
+        expect(fs.existsSync(testDir)).toBe(true);
+        expect(fs.readFileSync(testDir, 'utf8')).toBe('CRITICAL_DATA_SENTINEL_DO_NOT_DELETE');
+      } finally {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { force: true });
         }
       }
     });

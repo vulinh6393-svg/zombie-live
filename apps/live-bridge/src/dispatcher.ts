@@ -1,6 +1,7 @@
 import { NormalizedLiveEvent, normalizeCommand } from '@zombie-live/shared';
 import { LiveEventAdapter } from './adapter.js';
 import { GiftStreakTracker } from './streak.js';
+import { DurableEventQueue, QueuedEventRecord } from './queue.js';
 
 export interface DispatcherOptions {
   serverUrl?: string;
@@ -8,6 +9,10 @@ export interface DispatcherOptions {
   adminSecret?: string; // Legacy fallback in test mode only
   maxQueueSize?: number;
   streakTimeoutSeconds?: number;
+  queueStorageFile?: string;
+  deadLetterFile?: string;
+  maxRetries?: number;
+  autoProcessQueue?: boolean;
 }
 
 export interface DispatcherStats {
@@ -19,6 +24,8 @@ export interface DispatcherStats {
   eventsPerSecond: number;
   p95LatencyMs: number;
   duplicateStreakCount: number;
+  queueLength: number;
+  deadLetterCount: number;
 }
 
 export class LiveEventDispatcher {
@@ -27,6 +34,9 @@ export class LiveEventDispatcher {
   private adapter: LiveEventAdapter | null = null;
   private isRunning: boolean = false;
   private streakTracker: GiftStreakTracker;
+  private eventQueue: DurableEventQueue;
+  private queueWorkerTimer: NodeJS.Timeout | null = null;
+  private isDrainingQueue: boolean = false;
 
   private stats: DispatcherStats = {
     receivedCount: 0,
@@ -37,6 +47,8 @@ export class LiveEventDispatcher {
     eventsPerSecond: 0,
     p95LatencyMs: 0,
     duplicateStreakCount: 0,
+    queueLength: 0,
+    deadLetterCount: 0,
   };
 
   private latencies: number[] = [];
@@ -53,6 +65,14 @@ export class LiveEventDispatcher {
     }
     this.ingressToken = token || 'live_bridge_ingress_secret_2026_token';
     this.streakTracker = new GiftStreakTracker(opts.streakTimeoutSeconds || 300);
+
+    // P0.1 (Phase 08.2): Bền vững hóa hàng đợi trên đĩa
+    this.eventQueue = new DurableEventQueue({
+      storageFile: opts.queueStorageFile,
+      deadLetterFile: opts.deadLetterFile,
+      maxQueueSize: opts.maxQueueSize || 1000,
+      maxRetries: opts.maxRetries || 5,
+    });
   }
 
   public bindAdapter(adapter: LiveEventAdapter): void {
@@ -63,6 +83,10 @@ export class LiveEventDispatcher {
   public async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
+
+    // Khởi chạy queue worker định kỳ xử lý các event đang chờ (bao gồm cả event phục hồi sau restart)
+    this.startQueueWorker();
+
     if (this.adapter && !this.adapter.isConnected()) {
       await this.adapter.connect();
     }
@@ -70,14 +94,39 @@ export class LiveEventDispatcher {
 
   public async stop(): Promise<void> {
     this.isRunning = false;
+
+    if (this.queueWorkerTimer) {
+      clearInterval(this.queueWorkerTimer);
+      this.queueWorkerTimer = null;
+    }
+
     if (this.adapter && this.adapter.isConnected()) {
       await this.adapter.disconnect();
     }
+
+    // Flush trạng thái queue hiện tại xuống đĩa để bảo toàn cho lần khởi động sau
+    this.eventQueue.persistSync();
+  }
+
+  public getQueue(): DurableEventQueue {
+    return this.eventQueue;
+  }
+
+  public getStreakTracker(): GiftStreakTracker {
+    return this.streakTracker;
+  }
+
+  private startQueueWorker(): void {
+    if (this.queueWorkerTimer) return;
+    this.queueWorkerTimer = setInterval(() => {
+      if (this.isRunning) {
+        this.drainQueue().catch(() => {});
+      }
+    }, 200);
   }
 
   public getStats(): DispatcherStats {
     const now = Date.now();
-    // Lọc các sự kiện trong 1s gần nhất để tính events/s
     this.eventTimes = this.eventTimes.filter((t) => now - t <= 1000);
     this.stats.eventsPerSecond = this.eventTimes.length;
 
@@ -87,26 +136,32 @@ export class LiveEventDispatcher {
       this.stats.p95LatencyMs = Math.round((sorted[p95Idx] || 0) * 10) / 10;
     }
 
+    this.stats.queueLength = this.eventQueue.getQueueLength();
+    this.stats.deadLetterCount = this.eventQueue.getDeadLetterCount();
+
     return { ...this.stats };
   }
 
-  public async handleIncomingEvent(event: NormalizedLiveEvent): Promise<{ accepted: boolean; reason?: string }> {
+  /**
+   * Tiếp nhận sự kiện từ adapter, chuẩn hóa, ghi vào Durable Queue trước khi dispatch.
+   */
+  public async handleIncomingEvent(event: NormalizedLiveEvent): Promise<{ accepted: boolean; queued?: boolean; reason?: string }> {
     this.stats.receivedCount++;
     const now = Date.now();
     this.eventTimes.push(now);
-    const startMs = performance.now();
 
     try {
       let payload: any = null;
+      let eventType: 'COMMENT' | 'GIFT' = 'COMMENT';
       let streakInfo: { userId: string; giftId: string; liveSessionId: string; quantity: number; streakId?: string } | null = null;
 
       if (event.type === 'comment' && event.comment) {
         let norm = normalizeCommand(event.comment);
-        // Hỗ trợ gõ tắt '1', '2', '3' thành 'JOIN 1', 'JOIN 2', 'JOIN 3'
         if (norm === '1' || norm === 'ALPHA') norm = 'JOIN 1';
         else if (norm === '2' || norm === 'BRAVO') norm = 'JOIN 2';
         else if (norm === '3' || norm === 'CHARLIE') norm = 'JOIN 3';
 
+        eventType = 'COMMENT';
         payload = {
           type: 'COMMENT',
           userId: event.userId,
@@ -120,7 +175,7 @@ export class LiveEventDispatcher {
         const liveSessionId = event.liveSessionId || 'default_session';
         const streakId = event.gift.streakGroupId;
 
-        // P0.5 (Phase 08.1): Prepare streak mà KHÔNG commit RAM sớm
+        // P0.5: Prepare streak mà KHÔNG commit RAM sớm
         const streakRes = this.streakTracker.prepareStreak(
           event.userId,
           giftId,
@@ -142,13 +197,12 @@ export class LiveEventDispatcher {
           streakId,
         };
 
-        const providerEvId = event.eventKey;
-
+        eventType = 'GIFT';
         payload = {
           type: 'GIFT',
           provider: event.provider,
           liveSessionId,
-          providerEventId: providerEvId,
+          providerEventId: event.eventKey,
           userId: event.userId,
           userName: event.username,
           giftId,
@@ -157,6 +211,8 @@ export class LiveEventDispatcher {
           streakId,
           streakStatus: event.gift.isFinal ? 'FINISHED' : 'IN_PROGRESS',
           timestamp: now,
+          // Lưu lại thông tin streak metadata trong payload để phục vụ retry nhất quán
+          _streakMeta: streakInfo,
         };
       }
 
@@ -165,87 +221,126 @@ export class LiveEventDispatcher {
         return { accepted: false, reason: 'IGNORED_EVENT_TYPE' };
       }
 
-      this.stats.dispatchedCount++;
+      // 1. Ghi vào Durable Queue trước khi gửi (WAL / Persistent Queue)
+      const eventId = event.eventKey;
+      const enqueued = this.eventQueue.enqueue({
+        id: eventId,
+        eventType,
+        payload,
+      });
 
-      // Dispatch tới Authoritative Game Server kèm chính sách retry và idempotency (P0.5)
-      let res: Response | null = null;
-      let data: any = null;
-      let lastErr: Error | null = null;
-      const maxRetries = 3;
-
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          res = await fetch(`${this.serverUrl}/api/live/event`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-live-bridge-token': this.ingressToken,
-              'Authorization': `Bearer ${this.ingressToken}`,
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(5000),
-          });
-
-          if (res.ok) {
-            data = await res.json().catch(() => ({}));
-            break;
-          } else if (res.status >= 500 && attempt < maxRetries) {
-            await new Promise((r) => setTimeout(r, attempt * 100));
-            continue;
-          } else {
-            data = await res.json().catch(() => ({}));
-            break;
-          }
-        } catch (fetchErr: any) {
-          lastErr = fetchErr;
-          if (attempt < maxRetries) {
-            await new Promise((r) => setTimeout(r, attempt * 100));
-          }
-        }
+      if (!enqueued) {
+        // Backpressure khi hàng đợi vượt quá maxQueueSize
+        this.stats.errorCount++;
+        return { accepted: false, reason: 'QUEUE_FULL_BACKPRESSURE' };
       }
+
+      // 2. Thử dispatch ngay lập tức
+      const dispatchRes = await this.dispatchSingleItem(eventId, payload);
+      return dispatchRes;
+    } catch (err: any) {
+      this.stats.errorCount++;
+      return { accepted: false, reason: err.message };
+    }
+  }
+
+  /**
+   * Dispatch một event cụ thể qua HTTP Ingress với retry và idempotency
+   */
+  public async dispatchSingleItem(id: string, payload: any): Promise<{ accepted: boolean; queued?: boolean; reason?: string }> {
+    this.stats.dispatchedCount++;
+    const startMs = performance.now();
+    this.eventQueue.markInFlight(id);
+
+    try {
+      const res = await fetch(`${this.serverUrl}/api/live/event`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-live-bridge-token': this.ingressToken,
+          'Authorization': `Bearer ${this.ingressToken}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
 
       const elapsed = performance.now() - startMs;
       this.latencies.push(elapsed);
       if (this.latencies.length > 200) this.latencies.shift();
 
-      if (!res && lastErr) {
+      if (!res.ok) {
+        const status = res.status;
+        this.eventQueue.markFailed(id, `HTTP_${status}`);
         this.stats.errorCount++;
-        // Không ACK streak khi mạng lỗi / timeout để retry sau tính đúng delta
-        return { accepted: false, reason: `NETWORK_ERROR: ${lastErr.message}` };
+        return { accepted: false, queued: true, reason: `HTTP_${status}` };
       }
 
-      if (!res || !res.ok) {
-        this.stats.errorCount++;
-        return { accepted: false, reason: `HTTP_${res?.status || 500}` };
-      }
-
+      const data = await res.json().catch(() => ({}));
       const isAccepted = Boolean(
         data?.accepted || 
         data?.idempotentDuplicate || 
+        data?.reason === 'DUPLICATE_EVENT' ||
         data?.reason === 'DUPLICATE_EVENT_ALREADY_SETTLED'
       );
 
-      // P0.5 (Phase 08.1): Chỉ xác nhận (ACK) streak trong RAM sau khi Game Server xác nhận thành công
-      if (isAccepted && streakInfo) {
-        this.streakTracker.acknowledgeStreak(
-          streakInfo.userId,
-          streakInfo.giftId,
-          streakInfo.liveSessionId,
-          streakInfo.quantity,
-          streakInfo.streakId
-        );
-      }
-
+      // Nếu Server đã ghi nhận thành công hoặc Idempotent duplicate:
       if (isAccepted) {
-        this.stats.acceptedCount++;
-      } else {
-        this.stats.rejectedCount++;
-      }
+        // Acknowledge streak trong RAM
+        const sMeta = payload._streakMeta;
+        if (sMeta) {
+          this.streakTracker.acknowledgeStreak(
+            sMeta.userId,
+            sMeta.giftId,
+            sMeta.liveSessionId,
+            sMeta.quantity,
+            sMeta.streakId
+          );
+        }
 
-      return { accepted: isAccepted, reason: data?.reason || data?.skillName };
-    } catch (err) {
+        // Đánh dấu hoàn tất và xóa khỏi durable queue
+        this.eventQueue.markAcked(id);
+        this.stats.acceptedCount++;
+        return { accepted: true, reason: data?.reason || data?.skillName };
+      } else {
+        // Nghiệp vụ server từ chối dứt điểm (ví dụ: gift không hợp lệ)
+        this.eventQueue.markAcked(id);
+        this.stats.rejectedCount++;
+        return { accepted: false, reason: data?.reason || 'REJECTED_BY_SERVER' };
+      }
+    } catch (err: any) {
+      // Mất mạng / timeout HTTP -> Giữ trong durable queue để retry lần sau
+      this.eventQueue.markFailed(id, err.message);
       this.stats.errorCount++;
-      return { accepted: false, reason: (err as Error).message };
+      return { accepted: false, queued: true, reason: `NETWORK_ERROR: ${err.message}` };
     }
+  }
+
+  /**
+   * Background Queue Drainer: Quét các event PENDING và retry phát lại
+   */
+  public async drainQueue(force: boolean = false): Promise<number> {
+    if (this.isDrainingQueue) return 0;
+    this.isDrainingQueue = true;
+    let processed = 0;
+
+    try {
+      const pendingItems = this.eventQueue.getAllPending();
+      for (const item of pendingItems) {
+        // Exponential backoff guard: tránh spam server khi đang lỗi (có thể bỏ qua bằng cờ force)
+        const backoffDelay = Math.min(5000, 200 * Math.pow(2, item.retryCount));
+        if (!force && item.lastAttemptAt && Date.now() - item.lastAttemptAt < backoffDelay) {
+          continue;
+        }
+
+        const res = await this.dispatchSingleItem(item.id, item.payload);
+        if (res.accepted || !res.queued) {
+          processed++;
+        }
+      }
+    } finally {
+      this.isDrainingQueue = false;
+    }
+
+    return processed;
   }
 }

@@ -1,12 +1,13 @@
 ﻿<#
 .SYNOPSIS
-  Kịch bản 1 lệnh chạy TRỌN GÓI Demo LIVE cục bộ: Game Server + Mock Live Bridge (100 Viewers) + Client OBS Overlay.
+  Kịch bản 1 lệnh chạy TRỌN GÓI Demo LIVE cục bộ với kiểm tra sẵn sàng nghiêm ngặt (P1.1):
+  Game Server + Mock Live Bridge (100 Viewers) + Client OBS Overlay.
 .DESCRIPTION
-  - Khởi động Game Server (Authoritative 20Hz Simulation Loop + PGlite DB).
-  - Chờ Game Server sẵn sàng (/health OK).
-  - Khởi động Live Bridge Runner tiếp nhận và gửi tương tác từ 100 người xem giả lập.
-  - Khởi động Game Client (Phaser 3.90 9:16 Renderer & OBS Overlay).
-  - Xuất đường dẫn trực quan cho OBS và Admin Dashboard.
+  - Kiểm tra trước artifact build (server, bridge, client). Tự động biên dịch nếu thiếu.
+  - Khởi động Game Server và xác minh endpoint /ready (DB + 20Hz Engine).
+  - Khởi động Live Bridge Runner và xác nhận tiến trình duy trì hoạt động.
+  - Khởi động Game Client (Vite static server) và xác nhận HTTP 200 trả về HTML.
+  - Tự động dọn dẹp và thoát với mã lỗi 1 nếu bất kỳ thành phần nào thất bại.
 #>
 
 param(
@@ -17,13 +18,43 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$RootPath = Resolve-Path "$PSScriptRoot\.."
+$RootPath = (Resolve-Path "$PSScriptRoot\..").Path
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "    ZOMBIE ĐẠI CHIẾN: THÀNH TRÌ CUỐI CÙNG — RUNNABLE LIVE DEMO (PHASE 08.1)     " -ForegroundColor Cyan
+Write-Host "    ZOMBIE ĐẠI CHIẾN: THÀNH TRÌ CUỐI CÙNG — RUNNABLE DEMO ACCEPTANCE (P1.1)    " -ForegroundColor Cyan
 Write-Host "================================================================================" -ForegroundColor Cyan
 
-# 1. Thiết lập biến môi trường demo cục bộ
+# Hàm dọn dẹp khẩn cấp khi gặp lỗi
+function Cleanup-Processes {
+  param($pids)
+  Write-Host "[CLEANUP] Đang dừng các tiến trình đã khởi tạo..." -ForegroundColor Yellow
+  foreach ($p in $pids) {
+    if ($p -and $p.Id) {
+      Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+$spawnedProcesses = @()
+
+# 1. Kiểm tra build artifacts trước khi khởi động
+Write-Host "[PRE-FLIGHT] Kiểm tra artifacts bản dựng sản phẩm..." -ForegroundColor Yellow
+$serverDist = Join-Path $RootPath "apps/game-server/dist/index.js"
+$bridgeDist = Join-Path $RootPath "apps/live-bridge/dist/cli.js"
+$clientDist = Join-Path $RootPath "apps/game-client/dist/index.html"
+
+$needBuild = (-not (Test-Path $serverDist)) -or (-not (Test-Path $bridgeDist)) -or (-not (Test-Path $clientDist))
+if ($needBuild) {
+  Write-Host "[BUILD] Thiếu artifacts bản dựng. Đang tiến hành pnpm run build..." -ForegroundColor Yellow
+  & pnpm run build
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] Biên dịch dự án thất bại!" -ForegroundColor Red
+    exit 1
+  }
+}
+Write-Host "[PRE-FLIGHT PASS] Tất cả build artifacts đã sẵn sàng." -ForegroundColor Green
+
+# 2. Thiết lập biến môi trường demo cục bộ
 $env:NODE_ENV = "development"
 $env:PORT = "$ServerPort"
 $env:GAME_SERVER_URL = "http://127.0.0.1:$ServerPort"
@@ -32,18 +63,19 @@ $env:LIVE_BRIDGE_INGRESS_TOKEN = "live_bridge_ingress_secret_2026_token"
 $env:PROVIDER_MODE = "mock"
 $env:MOCK_VIEWERS = "$MockViewers"
 
-# 2. Khởi chạy Game Server Authoritative
-Write-Host "[1/3] Khởi động Game Server (20Hz Engine + PGlite DB) trên cổng $ServerPort..." -ForegroundColor Yellow
+# 3. Khởi chạy Game Server Authoritative
+Write-Host "[1/3] Khởi động Game Server trên cổng $ServerPort..." -ForegroundColor Yellow
 $serverProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/game-server start" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
+$spawnedProcesses += $serverProcess
 
-# Chờ Game Server phản hồi /health
-Write-Host "[1/3] Đang chờ Game Server sẵn sàng..." -NoNewline
+# Chờ Game Server sẵn sàng bằng endpoint /ready (xác minh cả DB và Engine)
+Write-Host "[1/3] Đang chờ Game Server /ready..." -NoNewline
 $serverReady = $false
-for ($i = 0; $i -lt 25; $i++) {
+for ($i = 0; $i -lt 30; $i++) {
   Start-Sleep -Milliseconds 800
   try {
-    $res = Invoke-RestMethod -Uri "http://127.0.0.1:$ServerPort/health" -Method Get -TimeoutSec 2 -ErrorAction SilentlyContinue
-    if ($res -and $res.status -eq "ok") {
+    $res = Invoke-RestMethod -Uri "http://127.0.0.1:$ServerPort/ready" -Method Get -TimeoutSec 2 -ErrorAction SilentlyContinue
+    if ($res -and $res.status -eq "ready" -and $res.engine -and $res.engine.phase) {
       $serverReady = $true
       break
     }
@@ -52,21 +84,56 @@ for ($i = 0; $i -lt 25; $i++) {
 }
 
 if (-not $serverReady) {
-  Write-Host "`n[FATAL] Game Server không phản hồi sau 20 giây. Kiểm tra log lỗi." -ForegroundColor Red
-  Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+  Write-Host "`n[FAIL] Game Server không phản hồi /ready sau 24 giây. Dừng kịch bản." -ForegroundColor Red
+  Cleanup-Processes $spawnedProcesses
   exit 1
 }
-Write-Host " [SẴN SÀNG!]" -ForegroundColor Green
+Write-Host " [PASS: Engine Phase $($res.engine.phase), Base HP $($res.engine.baseHp)]" -ForegroundColor Green
 
-# 3. Khởi chạy Live Bridge Runner (100 Viewers tương tác liên tục)
-Write-Host "[2/3] Khởi động Live Bridge Runner ($MockViewers viewers JOIN, BAN, SUA, CUU, BOSS, GIFT)..." -ForegroundColor Yellow
+# 4. Khởi chạy Live Bridge Runner (Mock 100 Viewers)
+Write-Host "[2/3] Khởi động Live Bridge Runner ($MockViewers viewers tương tác)..." -ForegroundColor Yellow
 $bridgeProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/live-bridge start" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
+$spawnedProcesses += $bridgeProcess
 
-# 4. Khởi chạy Game Client Preview (Vite static server)
-Write-Host "[3/3] Khởi động Game Client (OBS Overlay & Phaser Renderer) trên cổng $ClientPort..." -ForegroundColor Yellow
+Start-Sleep -Seconds 3
+
+# Kiểm tra Bridge tiến trình có sống không
+$bridgeAlive = Get-Process -Id $bridgeProcess.Id -ErrorAction SilentlyContinue
+if (-not $bridgeAlive -or $bridgeAlive.HasExited) {
+  Write-Host "[FAIL] Live Bridge tiến trình đã thoát bất ngờ sau khi khởi động!" -ForegroundColor Red
+  Cleanup-Processes $spawnedProcesses
+  exit 1
+}
+Write-Host "[PASS] Live Bridge đang hoạt động liên tục (PID $($bridgeProcess.Id))." -ForegroundColor Green
+
+# 5. Khởi chạy Game Client Preview (Vite Static Server)
+Write-Host "[3/3] Khởi động Game Client Preview trên cổng $ClientPort..." -ForegroundColor Yellow
 $clientProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/game-client preview -- --port $ClientPort --host" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
+$spawnedProcesses += $clientProcess
 
-# Lưu thông tin PID để tắt sạch sẽ khi cần
+# Xác minh Game Client trả lời HTTP 200 và chứa thẻ HTML
+Write-Host "[3/3] Đang kiểm tra HTTP 200 Game Client..." -NoNewline
+$clientReady = $false
+for ($i = 0; $i -lt 20; $i++) {
+  Start-Sleep -Milliseconds 600
+  try {
+    $clientRes = Invoke-WebRequest -Uri "http://127.0.0.1:$ClientPort/" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+    if ($clientRes -and $clientRes.StatusCode -eq 200 -and ($clientRes.Content -match "<!doctype html>" -or $clientRes.Content -match "<html")) {
+      $clientReady = $true
+      break
+    }
+  } catch {}
+  Write-Host "." -NoNewline
+}
+
+if (-not $clientReady) {
+  Write-Host "`n[FAIL] Game Client không trả về HTTP 200 HTML sau 12 giây!" -ForegroundColor Red
+  Cleanup-Processes $spawnedProcesses
+  exit 1
+}
+Write-Host " [PASS: HTTP 200 OK]" -ForegroundColor Green
+
+# Lưu thông tin PID để script stop-demo.ps1 dừng sạch sẽ
 $demoPidFile = Join-Path $RootPath ".demo_pids.json"
 @{
   serverPid = $serverProcess.Id
@@ -77,18 +144,16 @@ $demoPidFile = Join-Path $RootPath ".demo_pids.json"
   clientPort = $ClientPort
 } | ConvertTo-Json | Set-Content -Path $demoPidFile
 
-Start-Sleep -Seconds 2
-
 Write-Host "`n================================================================================" -ForegroundColor Green
-Write-Host " BẢN DEMO LIVE 100 VIEWERS ĐANG CHẠY THÀNH CÔNG!" -ForegroundColor Green
+Write-Host " [DEMO READY] TẤT CẢ THÀNH PHẦN DEMO LIVE ĐÃ KHỞI CHẠY VÀ SẴN SÀNG!" -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Green
 Write-Host " [OBS Overlay]      http://localhost:$ClientPort/overlay" -ForegroundColor White
 Write-Host " [Game Canvas]       http://localhost:$ClientPort/" -ForegroundColor White
 Write-Host " [Admin Dashboard]  http://localhost:$ServerPort/admin" -ForegroundColor White
-Write-Host " [Health Status]    http://localhost:$ServerPort/health" -ForegroundColor White
+Write-Host " [Server Ready]     http://localhost:$ServerPort/ready" -ForegroundColor White
 Write-Host " [Live Telemetry]   http://localhost:$ServerPort/api/admin/monitoring" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Green
-Write-Host " * Luồng dữ liệu: Mock 100 Viewers -> Live Bridge -> Ingress Token -> Gift Ledger -> Outbox -> Authoritative Engine (20Hz) -> Phaser Canvas/OBS" -ForegroundColor Cyan
+Write-Host " * Luồng dữ liệu hoàn chỉnh: Mock 100 Viewers -> Live Bridge CLI -> Ingress Token -> Gift Ledger -> Outbox -> Authoritative Engine (20Hz) -> Phaser Canvas/OBS" -ForegroundColor Cyan
 Write-Host " * Để dừng toàn bộ hệ thống demo: Chạy .\scripts\stop-demo.ps1`n" -ForegroundColor DarkGray
 
 if ($OpenBrowser) {
