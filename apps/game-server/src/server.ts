@@ -52,6 +52,7 @@ const GiftSkillSchema = z.object({
 
 const LiveCommentSchema = z.object({
   type: z.literal('COMMENT'),
+  providerEventId: z.string().optional(),
   userId: z.string().min(1).max(100),
   userName: z.string().min(1).max(100),
   command: z.string().min(1).max(100),
@@ -568,7 +569,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
   }, 500);
 
   // Background Outbox Worker: Sole authoritative path for executing gift skills into engine
+  let isOutboxWorkerPaused = false;
+  const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
+  const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
+
   const outboxWorkerTimer = setInterval(async () => {
+    if (isOutboxWorkerPaused) return;
     if (!outboxRepo) {
       await initDb();
       if (!outboxRepo) return;
@@ -693,11 +699,29 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   }, 100);
 
+  // P1.1: Cache deduplication cho COMMENT events
+  const processedCommentKeys = new Map<string, number>();
+  const MAX_COMMENT_CACHE_SIZE = 10000;
+  const COMMENT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 phút
+
   // Core Event Processing Logic (Shared across HTTP Ingress and Dashboard)
   const processLiveEvent = async (ev: any) => {
     if (!dbClient) await initDb();
 
     if (ev.type === 'COMMENT') {
+      // P1.1: Kiểm tra Deduplication theo commentKey / providerEventId
+      const commentKey = ev.providerEventId || ev.eventKey || ev.id;
+      if (commentKey) {
+        const existingTs = processedCommentKeys.get(commentKey);
+        if (existingTs && Date.now() - existingTs < COMMENT_CACHE_TTL_MS) {
+          return {
+            accepted: true,
+            idempotentDuplicate: true,
+            reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+          };
+        }
+      }
+
       const rawCmd = (ev.command || '').toUpperCase().trim();
       let res: { success: boolean; reason?: string } = { success: false, reason: 'UNKNOWN_COMMAND' };
       let squad: 'alpha' | 'bravo' | 'charlie' | undefined;
@@ -740,6 +764,14 @@ export function buildServer(opts: BuildServerOptions = {}): {
           .findOrCreate('mock', ev.userId, ev.userName, squad || 'bravo')
           .then((p) => missionRepo!.recordAction(p.id, missionAction!))
           .catch((err) => app.log.warn(`[PERSISTENCE] Error saving mission action: ${err.message}`));
+      }
+
+      if (commentKey) {
+        if (processedCommentKeys.size >= MAX_COMMENT_CACHE_SIZE) {
+          const oldestKey = processedCommentKeys.keys().next().value;
+          if (oldestKey) processedCommentKeys.delete(oldestKey);
+        }
+        processedCommentKeys.set(commentKey, Date.now());
       }
 
       return { accepted: res.success, reason: res.reason, squad };
@@ -1315,6 +1347,64 @@ export function buildServer(opts: BuildServerOptions = {}): {
         currentRole: auth.role,
       },
     });
+  });
+
+  // P0.2 (Final Reliability Gate): Operational Quiesce Endpoint for Safe Database Backup
+  app.post('/api/admin/db/quiesce', async (request, reply) => {
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
+    engine.pauseSimulation();
+    stopOutboxWorker();
+    app.log.info('[DB_QUIESCE] Engine simulation and outbox worker paused for consistent database snapshot.');
+    await logAdminAction(auth.actor, auth.role, 'DB_QUIESCE', { tick: engine.tick });
+    return reply.send({ success: true, status: 'quiesced', timestamp: Date.now() });
+  });
+
+  // P0.2 (Final Reliability Gate): Operational Resume Endpoint after Database Backup
+  app.post('/api/admin/db/resume', async (request, reply) => {
+    const auth = verifyAdminAuth(request, reply, 'operator');
+    if (!auth) return;
+    engine.resumeSimulation();
+    startOutboxWorker();
+    app.log.info('[DB_RESUME] Engine simulation and outbox worker resumed after consistent database snapshot.');
+    await logAdminAction(auth.actor, auth.role, 'DB_RESUME', { tick: engine.tick });
+    return reply.send({ success: true, status: 'resumed', timestamp: Date.now() });
+  });
+
+  // P0.2 (Final Reliability Gate): Operational Database Pre-Backup Statistics Endpoint
+  app.get('/api/admin/db/stats', async (request, reply) => {
+    const auth = verifyAdminAuth(request, reply, 'viewer');
+    if (!auth) return;
+    if (!dbClient) await initDb();
+
+    if (!dbClient) {
+      return reply.status(503).send({ error: 'DATABASE_UNAVAILABLE' });
+    }
+
+    try {
+      const pRes = await dbClient.query(`SELECT count(*) as count, coalesce(sum(xp), 0) as total_xp FROM players`);
+      const gRes = await dbClient.query(`SELECT count(*) as count FROM gift_events`);
+      const oRes = await dbClient.query(`SELECT count(*) as count FROM outbox_events`);
+      const jRes = await dbClient.query(`SELECT count(*) as count FROM match_command_journal`);
+      const mRes = await dbClient.query(`SELECT count(*) as count FROM matches`);
+      const dRes = await dbClient.query(`SELECT count(*) as count FROM deferred_match_commands`);
+
+      return reply.send({
+        success: true,
+        stats: {
+          players: Number(pRes.rows[0]?.count || 0),
+          totalXp: Number(pRes.rows[0]?.total_xp || 0),
+          giftEvents: Number(gRes.rows[0]?.count || 0),
+          outboxEvents: Number(oRes.rows[0]?.count || 0),
+          commandJournal: Number(jRes.rows[0]?.count || 0),
+          matches: Number(mRes.rows[0]?.count || 0),
+          deferredCommands: Number(dRes.rows[0]?.count || 0),
+        },
+        timestamp: Date.now(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ error: 'DB_STATS_ERROR', message: err.message });
+    }
   });
 
   // Admin Read-Only Database Inspection Endpoint (Disabled in Production, Requires 'admin' in Dev/Test)

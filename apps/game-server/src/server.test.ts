@@ -1062,6 +1062,112 @@ describe('Game Server Security & Event Ingestion', () => {
 
         await dispatcher.stop();
       });
+
+      it('P1.1 Comment Deduplication: rejects duplicate comment execution on same providerEventId with idempotentDuplicate', async () => {
+        const testBridgeToken = 'bridge_token_comment_dedup_test';
+        const serverInstance = buildServer({
+          liveBridgeToken: testBridgeToken,
+          adminSecret: 'admin_secret_test_123',
+          disableAutoTick: true,
+        });
+
+        // 1. Gửi comment lần đầu
+        const res1 = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': testBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: 'comment_dedup_unique_001',
+            userId: 'user_commenter_1',
+            userName: 'Commenter 1',
+            command: 'JOIN 1',
+            timestamp: Date.now(),
+          },
+        });
+        expect(res1.statusCode).toBe(200);
+        const data1 = JSON.parse(res1.payload);
+        expect(data1.accepted).toBe(true);
+
+        // 2. Gửi lại cùng comment providerEventId (mô phỏng network retry từ bridge)
+        const res2 = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': testBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: 'comment_dedup_unique_001',
+            userId: 'user_commenter_1',
+            userName: 'Commenter 1',
+            command: 'JOIN 1',
+            timestamp: Date.now(),
+          },
+        });
+        expect(res2.statusCode).toBe(200);
+        const data2 = JSON.parse(res2.payload);
+        expect(data2.accepted).toBe(true);
+        expect(data2.idempotentDuplicate).toBe(true);
+        expect(data2.reason).toBe('DUPLICATE_COMMENT_ALREADY_PROCESSED');
+      });
+
+      it('P0.2 Operational DB endpoints: /api/admin/db/quiesce, /api/admin/db/stats, and /api/admin/db/resume', async () => {
+        const adminSecret = 'admin_secret_quiesce_test';
+        const serverInstance = buildServer({
+          adminSecret,
+          disableAutoTick: true,
+        });
+
+        // 1. Stats endpoint
+        const statsRes = await serverInstance.app.inject({
+          method: 'GET',
+          url: '/api/admin/db/stats',
+          headers: {
+            'x-admin-token': adminSecret,
+          },
+        });
+        expect(statsRes.statusCode).toBe(200);
+        const statsData = JSON.parse(statsRes.payload);
+        expect(statsData.success).toBe(true);
+        expect(statsData.stats).toHaveProperty('players');
+        expect(statsData.stats).toHaveProperty('giftEvents');
+        expect(statsData.stats).toHaveProperty('outboxEvents');
+        expect(statsData.stats).toHaveProperty('commandJournal');
+        expect(statsData.stats).toHaveProperty('matches');
+
+        // 2. Quiesce endpoint
+        const quiesceRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/quiesce',
+          headers: {
+            'x-admin-token': adminSecret,
+          },
+        });
+        expect(quiesceRes.statusCode).toBe(200);
+        const quiesceData = JSON.parse(quiesceRes.payload);
+        expect(quiesceData.success).toBe(true);
+        expect(quiesceData.status).toBe('quiesced');
+        expect(serverInstance.engine.isPaused()).toBe(true);
+
+        // 3. Resume endpoint
+        const resumeRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/resume',
+          headers: {
+            'x-admin-token': adminSecret,
+          },
+        });
+        expect(resumeRes.statusCode).toBe(200);
+        const resumeData = JSON.parse(resumeRes.payload);
+        expect(resumeData.success).toBe(true);
+        expect(resumeData.status).toBe('resumed');
+        expect(serverInstance.engine.isPaused()).toBe(false);
+      });
     });
   });
 });

@@ -57,45 +57,56 @@ export const phaserGameConfig: Phaser.Types.Core.GameConfig = {
 
 let gameInstance: Phaser.Game | null = null;
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', async () => {
-    // Ensure all custom Vietnamese web fonts are loaded into browser cache before Phaser canvas renders
-    if (document.fonts) {
+const initPhaser = async () => {
+  if (gameInstance) return; // Prevent double init
+
+  // Ensure all custom Vietnamese web fonts are loaded into browser cache before Phaser canvas renders
+  if (document.fonts) {
+    try {
       await document.fonts.ready;
+    } catch {}
+  }
+
+  gameInstance = new Phaser.Game(phaserGameConfig);
+  (window as any).__PHASER_GAME__ = gameInstance;
+
+  // Register all scenes with autoStart = false to prevent duplicate preloads & texture collision
+  gameInstance.scene.add('BattlefieldScene', BattlefieldScene, false);
+  gameInstance.scene.add('QualityLabScene', QualityLabScene, false);
+  gameInstance.scene.add('FortressArtScene', FortressArtScene, false);
+  gameInstance.scene.add('ArtIntegrationLabScene', ArtIntegrationLabScene, false);
+  gameInstance.scene.add('ContactSheetScene', ContactSheetScene, false);
+
+  if (isArtLab) {
+    gameInstance.scene.start('ArtIntegrationLabScene');
+  } else if (isFortressLab) {
+    gameInstance.scene.start('FortressArtScene');
+  } else if (isQualityLab) {
+    gameInstance.scene.start('QualityLabScene');
+    const showControls = urlParams.get('debug') === '1' || window.location.pathname.startsWith('/quality-lab/controls');
+    if (showControls) {
+      createQualityLabControlPanel();
     }
+  } else if (isContactSheet) {
+    gameInstance.scene.start('ContactSheetScene');
+  } else {
+    gameInstance.scene.start('BattlefieldScene', {
+      snapshotSource,
+      isOverlayMode: isOverlay,
+    });
 
-    gameInstance = new Phaser.Game(phaserGameConfig);
-
-    // Register all scenes with autoStart = false to prevent duplicate preloads & texture collision
-    gameInstance.scene.add('BattlefieldScene', BattlefieldScene, false);
-    gameInstance.scene.add('QualityLabScene', QualityLabScene, false);
-    gameInstance.scene.add('FortressArtScene', FortressArtScene, false);
-    gameInstance.scene.add('ArtIntegrationLabScene', ArtIntegrationLabScene, false);
-    gameInstance.scene.add('ContactSheetScene', ContactSheetScene, false);
-
-    if (isArtLab) {
-      gameInstance.scene.start('ArtIntegrationLabScene');
-    } else if (isFortressLab) {
-      gameInstance.scene.start('FortressArtScene');
-    } else if (isQualityLab) {
-      gameInstance.scene.start('QualityLabScene');
-      const showControls = urlParams.get('debug') === '1' || window.location.pathname.startsWith('/quality-lab/controls');
-      if (showControls) {
-        createQualityLabControlPanel();
-      }
-    } else if (isContactSheet) {
-      gameInstance.scene.start('ContactSheetScene');
-    } else {
-      gameInstance.scene.start('BattlefieldScene', {
-        snapshotSource,
-        isOverlayMode: isOverlay,
-      });
-
-      if (!isOverlay && mockSource && (urlParams.get('debug') === '1' || window.location.pathname.startsWith('/dev'))) {
-        createDevControlPanel(mockSource);
-      }
+    if (!isOverlay && mockSource && (urlParams.get('debug') === '1' || window.location.pathname.startsWith('/dev'))) {
+      createDevControlPanel(mockSource);
     }
-  });
+  }
+};
+
+if (typeof window !== 'undefined') {
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initPhaser();
+  } else {
+    window.addEventListener('DOMContentLoaded', initPhaser);
+  }
 }
 
 function createQualityLabControlPanel(): void {

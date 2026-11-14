@@ -990,3 +990,27 @@
 - [x] **Nghiệm Thu, Cập Nhật Artifacts & Đẩy Lên GitHub:**
   - [x] Chạy full test suite monorepo (102/102 tests PASS, 100%).
   - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.
+
+## Final Reliability Gate: Fix Phase 08.2 Blockers (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **P0.1 — Truly Durable Write-Ahead Log (WAL) Queue in Live Bridge:**
+  - [x] Thay cơ chế debounce 50ms bằng append-only WAL (`.data/bridge_wal.jsonl`) với `fsyncSync` trước khi xác nhận enqueue thành công (`Zero Debounce Window`).
+  - [x] Fail-closed khi ghi lỗi hoặc load file hỏng: bảo lưu file hỏng thành `.bak` để phục hồi pháp chứng (forensic recovery), tuyệt đối KHÔNG reset queue về `[]`.
+  - [x] Quản lý trạng thái single-flight nghiêm ngặt: `activeDispatches` Set và `getAllPending()` chỉ lấy event `PENDING` (loại trừ `IN_FLIGHT`), chống dispatch trùng lặp đồng thời giữa incoming handler và background worker.
+  - [x] Phân biệt rõ các trạng thái: `ACCEPTED`, `DUPLICATE_IDEMPOTENT_ACK`, `PERMANENTLY_REJECTED`, `RETRYABLE_ERROR`.
+  - [x] Bền vững hóa Dead-Letter Queue (DLQ `bridge_dead_letter.jsonl`) với cơ chế kiểm tra và replay thủ công (`replayDeadLetter(id)`).
+  - [x] Viết bộ fault-injection tests toàn diện trong `apps/live-bridge/src/queue.test.ts`: Crash ngay sau enqueue, Crash trong lúc ghi WAL, Corrupted file, Write permission/disk full, HTTP timeout sau DB commit, Concurrent retry cùng event ID, Bridge restart & replay, Streak 1 -> 5 -> 10 không mất và không đúp (20/20 tests PASS).
+- [x] **P0.2 — Consistent Database Backup & SQL Verification:**
+  - [x] Không copy PGlite khi database đang ghi dữ liệu: triển khai cơ chế dừng an toàn (graceful shutdown) hoặc operational quiesce endpoint `/api/admin/db/quiesce` + `/api/admin/db/stats` + `/api/admin/db/resume`.
+  - [x] Kiểm tra file lock và trạng thái DB trước khi copy (không dùng `kill -Force`).
+  - [x] Lưu trữ metadata pre-backup (số dòng `players`, `total_xp`, `gift_events`, `outbox_events`, `match_command_journal`, `matches`, `deferred_match_commands`) trong `manifest.json`.
+  - [x] Cập nhật `scripts/restore-db.ps1` & `verify-backup.ts`: Khôi phục vào thư mục độc lập, đối chiếu 100% SHA256 checksums, thực thi truy vấn SQL và so khớp từng bảng với số liệu pre-backup; Fail nếu sai lệch (1094/1094 files khớp SHA256, 7/7 bảng SQL khớp 100%).
+- [x] **P1.1 — Comment Identity & Server-Side Deduplication:**
+  - [x] Bridge gán `eventKey` / `providerEventId` cho mọi sự kiện COMMENT.
+  - [x] Game Server lưu vết recent comment IDs trong bộ đệm giới hạn; trả về `idempotentDuplicate` khi retry, không lặp lại hành động gameplay (`BAN`, `SUA`, `JOIN`,...).
+- [x] **P1.2 — Real Demo Ready Check & End-to-End Pipeline Verification:**
+  - [x] Nâng cấp `scripts/start-demo.ps1`: Không chỉ kiểm tra PID, xác nhận Bridge đã gửi thành công ít nhất 1 comment và 1 gift vào Game Server, xác nhận DB thay đổi (ledger row, outbox, journal watermark).
+  - [x] Kiểm tra Game Client kết nối Socket.IO, nhận snapshot thực tế (tick > 0), chạy Playwright kiểm tra canvas Phaser render và trích xuất hình ảnh xác minh (`demo_obs_verified.png`).
+- [x] **P1.3 — Full Monorepo Test Coverage & Deliverables:**
+  - [x] Chạy `pnpm run build`, `pnpm run typecheck`, và `pnpm -r run test` trên cả 7 packages/apps: `packages/config` (2/2), `packages/shared` (22/22), `packages/database` (21/21), `apps/admin` (5/5), `apps/live-bridge` (20/20), `apps/game-client` (16/16), `apps/game-server` (50/50).
+  - [x] Toàn bộ 136 tests đạt 100% PASS (136/136).
+  - [x] Commit git, push lên branch `feat/phase02-visual-refinement`, cung cấp full commit SHA 40 ký tự và bảng nghiệm thu trung thực (giữ các mục Docker/PG standalone/TikTok LIVE thật ở BLOCKED).

@@ -14,31 +14,58 @@ export interface QueuedEventRecord {
 
 export interface DurableQueueOptions {
   storageFile?: string;
+  walFile?: string;
   deadLetterFile?: string;
   maxQueueSize?: number;
   maxRetries?: number;
+  compactionThreshold?: number;
 }
 
+export type WalOperation =
+  | { op: 'ENQUEUE'; id: string; eventType: 'COMMENT' | 'GIFT'; payload: any; createdAt: number; retryCount?: number }
+  | { op: 'ACK'; id: string; timestamp: number }
+  | { op: 'FAILED'; id: string; retryCount: number; lastError: string; timestamp: number }
+  | { op: 'DLQ'; id: string; reason: string; timestamp: number };
+
 /**
- * P0.1 (Phase 08.2): Durable Event Queue cho Live Bridge
- * Bảo đảm mọi event nhận được từ adapter đều được ghi nhận bền vững trên đĩa.
- * Chống mất event khi server tạm ngắt kết nối, gặp HTTP timeout hoặc tiến trình Bridge bị crash.
+ * P0.1 (Final Reliability Gate): Truly Durable Write-Ahead Log (WAL) Queue cho Live Bridge
+ * - Ghi đĩa tức thời (zero debounce window) với fsyncSync trước khi xác nhận enqueue thành công.
+ * - Append-only WAL log line-by-line; phục hồi 100% sau crash hoặc restart bất ngờ.
+ * - Fail-closed: Giữ nguyên file hỏng làm tài liệu điều tra (.bak), tuyệt đối không reset queue về [].
+ * - Single-flight isolation: getAllPending() chỉ trả về PENDING (loại trừ IN_FLIGHT), ngăn chặn dispatch trùng lặp đồng thời.
+ * - Dead-Letter Queue bền vững với quy trình replay thủ công.
  */
 export class DurableEventQueue {
-  private queue: QueuedEventRecord[] = [];
-  private deadLetters: QueuedEventRecord[] = [];
-  private storageFile: string;
+  private queue: Map<string, QueuedEventRecord> = new Map();
+  private deadLetters: Map<string, QueuedEventRecord> = new Map();
+  private inFlightIds: Set<string> = new Set();
+  private walFile: string;
   private deadLetterFile: string;
   private maxQueueSize: number;
   private maxRetries: number;
-  private saveDebounceTimer: NodeJS.Timeout | null = null;
+  private walLineCount: number = 0;
+  private compactionThreshold: number;
 
   constructor(opts: DurableQueueOptions = {}) {
     const defaultDataDir = path.resolve(process.cwd(), '.data');
-    this.storageFile = opts.storageFile || path.join(defaultDataDir, 'bridge_event_queue.json');
-    this.deadLetterFile = opts.deadLetterFile || path.join(defaultDataDir, 'bridge_dead_letter.json');
+    if (opts.walFile) {
+      this.walFile = opts.walFile;
+    } else if (opts.storageFile) {
+      if (opts.storageFile.endsWith('.jsonl') || opts.storageFile.endsWith('.wal')) {
+        this.walFile = opts.storageFile;
+      } else if (opts.storageFile.endsWith('.json')) {
+        this.walFile = opts.storageFile.replace(/\.json$/, '.wal.jsonl');
+      } else {
+        this.walFile = `${opts.storageFile}.wal.jsonl`;
+      }
+    } else {
+      this.walFile = path.join(defaultDataDir, 'bridge_wal.jsonl');
+    }
+
+    this.deadLetterFile = opts.deadLetterFile || path.join(defaultDataDir, 'bridge_dead_letter.jsonl');
     this.maxQueueSize = opts.maxQueueSize || 1000;
     this.maxRetries = opts.maxRetries || 5;
+    this.compactionThreshold = opts.compactionThreshold || 500;
 
     this.ensureDirs();
     this.loadFromDisk();
@@ -46,9 +73,9 @@ export class DurableEventQueue {
 
   private ensureDirs(): void {
     try {
-      const storageDir = path.dirname(this.storageFile);
-      if (!fs.existsSync(storageDir)) {
-        fs.mkdirSync(storageDir, { recursive: true });
+      const walDir = path.dirname(this.walFile);
+      if (!fs.existsSync(walDir)) {
+        fs.mkdirSync(walDir, { recursive: true });
       }
       const dlDir = path.dirname(this.deadLetterFile);
       if (!fs.existsSync(dlDir)) {
@@ -57,68 +84,169 @@ export class DurableEventQueue {
     } catch {}
   }
 
-  private loadFromDisk(): void {
+  public getWalFilePath(): string {
+    return this.walFile;
+  }
+
+  public getDeadLetterFilePath(): string {
+    return this.deadLetterFile;
+  }
+
+  private appendWalSync(op: WalOperation): void {
+    this.ensureDirs();
+    const line = JSON.stringify(op) + '\n';
+    const fd = fs.openSync(this.walFile, 'a');
     try {
-      if (fs.existsSync(this.storageFile)) {
-        const raw = fs.readFileSync(this.storageFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          // Bất kỳ event nào còn ở trạng thái IN_FLIGHT khi khởi động lại đều reset về PENDING
-          this.queue = parsed.map((item: QueuedEventRecord) => ({
-            ...item,
-            status: item.status === 'IN_FLIGHT' ? 'PENDING' : item.status,
-          })).filter((item: QueuedEventRecord) => item.status === 'PENDING');
-        }
+      fs.writeSync(fd, line, null, 'utf-8');
+      fs.fsyncSync(fd);
+      this.walLineCount++;
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  private appendDeadLetterSync(item: QueuedEventRecord): void {
+    try {
+      this.ensureDirs();
+      const line = JSON.stringify(item) + '\n';
+      const fd = fs.openSync(this.deadLetterFile, 'a');
+      try {
+        fs.writeSync(fd, line, null, 'utf-8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
       }
     } catch (err: any) {
-      console.warn(`[QUEUE] Error loading persistent queue from ${this.storageFile}: ${err.message}`);
-      this.queue = [];
+      console.error(`[QUEUE DLQ WRITE ERROR] Failed to append to DLQ file: ${err.message}`);
+    }
+  }
+
+  private loadFromDisk(): void {
+    if (!fs.existsSync(this.walFile)) {
+      return;
     }
 
+    let raw = '';
     try {
-      if (fs.existsSync(this.deadLetterFile)) {
-        const raw = fs.readFileSync(this.deadLetterFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          this.deadLetters = parsed;
+      raw = fs.readFileSync(this.walFile, 'utf-8');
+    } catch (err: any) {
+      console.error(`[QUEUE FATAL] Cannot read WAL file ${this.walFile}: ${err.message}`);
+      throw new Error(`QUEUE_READ_ERROR: ${err.message}`);
+    }
+
+    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+    this.walLineCount = lines.length;
+
+    let hasCorruptedLine = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      try {
+        const op = JSON.parse(line) as WalOperation;
+        if (op.op === 'ENQUEUE') {
+          this.queue.set(op.id, {
+            id: op.id,
+            eventType: op.eventType,
+            payload: op.payload,
+            createdAt: op.createdAt,
+            retryCount: op.retryCount || 0,
+            status: 'PENDING',
+          });
+        } else if (op.op === 'ACK') {
+          this.queue.delete(op.id);
+        } else if (op.op === 'DLQ') {
+          this.queue.delete(op.id);
+        } else if (op.op === 'FAILED') {
+          const item = this.queue.get(op.id);
+          if (item) {
+            item.retryCount = op.retryCount;
+            item.lastError = op.lastError;
+            item.status = 'PENDING';
+          }
         }
+      } catch (parseErr: any) {
+        hasCorruptedLine = true;
+        console.warn(`[QUEUE CORRUPTION DETECTED] Line ${i + 1} in WAL is corrupted: ${parseErr.message}`);
       }
-    } catch {
-      this.deadLetters = [];
+    }
+
+    // Fail-Closed: Nếu có dòng lỗi, sao lưu sang .bak để điều tra pháp chứng, KHÔNG xóa bộ nhớ
+    if (hasCorruptedLine) {
+      const corruptBak = `${this.walFile}.corrupt_${Date.now()}.bak`;
+      try {
+        fs.copyFileSync(this.walFile, corruptBak);
+        console.warn(`[FORENSIC ARCHIVE] Corrupted WAL preserved at ${corruptBak}. Loaded ${this.queue.size} valid unacked events.`);
+      } catch {}
+    }
+
+    // Tải DLQ entries
+    if (fs.existsSync(this.deadLetterFile)) {
+      try {
+        const dlqRaw = fs.readFileSync(this.deadLetterFile, 'utf-8');
+        const dlqLines = dlqRaw.split('\n').filter((l) => l.trim().length > 0);
+        for (const l of dlqLines) {
+          try {
+            const item = JSON.parse(l);
+            if (item && item.id) {
+              this.deadLetters.set(item.id, item);
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
+    // Crash recovery: Bất kỳ item nào đang dở dang đều đặt lại PENDING để drain
+    for (const item of this.queue.values()) {
+      item.status = 'PENDING';
+    }
+    this.inFlightIds.clear();
+  }
+
+  public compactWALSync(): void {
+    try {
+      this.ensureDirs();
+      const tempFile = `${this.walFile}.tmp_${Date.now()}`;
+      const fd = fs.openSync(tempFile, 'w');
+      try {
+        for (const item of this.queue.values()) {
+          const rec: WalOperation = {
+            op: 'ENQUEUE',
+            id: item.id,
+            eventType: item.eventType,
+            payload: item.payload,
+            createdAt: item.createdAt,
+            retryCount: item.retryCount,
+          };
+          fs.writeSync(fd, JSON.stringify(rec) + '\n', null, 'utf-8');
+        }
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+
+      fs.renameSync(tempFile, this.walFile);
+      this.walLineCount = this.queue.size;
+    } catch (err: any) {
+      console.error(`[QUEUE COMPACT ERROR] Failed to compact WAL: ${err.message}`);
     }
   }
 
   public persistSync(): void {
-    try {
-      this.ensureDirs();
-      const pendingItems = this.queue.filter((q) => q.status === 'PENDING' || q.status === 'IN_FLIGHT');
-      fs.writeFileSync(this.storageFile, JSON.stringify(pendingItems, null, 2), 'utf-8');
-      if (this.deadLetters.length > 0) {
-        fs.writeFileSync(this.deadLetterFile, JSON.stringify(this.deadLetters, null, 2), 'utf-8');
-      }
-    } catch (err: any) {
-      console.error(`[QUEUE] Failed to persist queue to disk: ${err.message}`);
-    }
+    this.compactWALSync();
   }
 
-  private schedulePersist(): void {
-    if (this.saveDebounceTimer) return;
-    this.saveDebounceTimer = setTimeout(() => {
-      this.saveDebounceTimer = null;
-      this.persistSync();
-    }, 50);
-  }
-
+  /**
+   * Enqueue một event: Bắt buộc ghi WAL đĩa + fsync trước khi xác nhận thành công.
+   * Nếu có lỗi ghi đĩa, ném lỗi hoặc trả về false thay vì nuốt lỗi.
+   */
   public enqueue(record: Omit<QueuedEventRecord, 'createdAt' | 'retryCount' | 'status'>): boolean {
-    // 1. Kiểm tra giới hạn queue (Backpressure)
-    if (this.queue.length >= this.maxQueueSize) {
+    // 1. Backpressure: Kiểm tra giới hạn queue
+    if (this.queue.size >= this.maxQueueSize) {
       return false;
     }
 
-    // 2. Chống enqueue trùng cùng event ID đã tồn tại trong queue
-    const existing = this.queue.find((q) => q.id === record.id);
-    if (existing) {
-      return true; // Idempotent duplicate
+    // 2. Chống duplicate: Nếu ID đã tồn tại trong queue, return true (idempotent)
+    if (this.queue.has(record.id)) {
+      return true;
     }
 
     const item: QueuedEventRecord = {
@@ -128,73 +256,154 @@ export class DurableEventQueue {
       status: 'PENDING',
     };
 
-    this.queue.push(item);
-    this.schedulePersist();
+    // 3. Write-Ahead Log: Bắt buộc ghi và fsync xuống đĩa TRƯỚC KHI xác nhận enqueue
+    this.appendWalSync({
+      op: 'ENQUEUE',
+      id: item.id,
+      eventType: item.eventType,
+      payload: item.payload,
+      createdAt: item.createdAt,
+      retryCount: 0,
+    });
+
+    // 4. Chỉ đưa vào RAM sau khi ghi đĩa thành công
+    this.queue.set(item.id, item);
+
+    if (this.walLineCount >= this.compactionThreshold) {
+      this.compactWALSync();
+    }
+
     return true;
   }
 
   public peekPending(): QueuedEventRecord | null {
-    return this.queue.find((q) => q.status === 'PENDING') || null;
+    for (const q of this.queue.values()) {
+      if (q.status === 'PENDING' && !this.inFlightIds.has(q.id)) {
+        return q;
+      }
+    }
+    return null;
   }
 
   public markInFlight(id: string): void {
-    const item = this.queue.find((q) => q.id === id);
+    const item = this.queue.get(id);
     if (item) {
       item.status = 'IN_FLIGHT';
       item.lastAttemptAt = Date.now();
+      this.inFlightIds.add(id);
     }
   }
 
+  public isInFlight(id: string): boolean {
+    return this.inFlightIds.has(id);
+  }
+
   public markAcked(id: string): void {
-    const idx = this.queue.findIndex((q) => q.id === id);
-    if (idx !== -1) {
-      this.queue.splice(idx, 1);
-      this.schedulePersist();
+    if (!this.queue.has(id)) return;
+    this.inFlightIds.delete(id);
+    this.appendWalSync({
+      op: 'ACK',
+      id,
+      timestamp: Date.now(),
+    });
+    this.queue.delete(id);
+
+    if (this.walLineCount >= this.compactionThreshold) {
+      this.compactWALSync();
     }
   }
 
   public markFailed(id: string, error: string): void {
-    const item = this.queue.find((q) => q.id === id);
+    const item = this.queue.get(id);
     if (!item) return;
 
+    this.inFlightIds.delete(id);
     item.retryCount++;
     item.lastError = error;
     item.lastAttemptAt = Date.now();
 
     if (item.retryCount >= this.maxRetries) {
-      // Vượt quá số lần thử tối đa -> Chuyển vào Dead-Letter Queue
+      // Vượt quá số lần retry -> Chuyển vào Dead-Letter Queue
       item.status = 'DEAD_LETTER';
-      const idx = this.queue.indexOf(item);
-      if (idx !== -1) {
-        this.queue.splice(idx, 1);
-      }
-      this.deadLetters.push(item);
+      this.queue.delete(id);
+      this.deadLetters.set(id, item);
+
+      this.appendWalSync({
+        op: 'DLQ',
+        id,
+        reason: error,
+        timestamp: Date.now(),
+      });
+
+      this.appendDeadLetterSync(item);
       console.error(`[QUEUE DLQ] Event ${id} exhausted max retries (${this.maxRetries}). Moved to Dead-Letter Queue: ${error}`);
     } else {
-      // Đưa trở lại PENDING để chờ retry lần sau
       item.status = 'PENDING';
+      this.appendWalSync({
+        op: 'FAILED',
+        id,
+        retryCount: item.retryCount,
+        lastError: error,
+        timestamp: Date.now(),
+      });
     }
 
-    this.schedulePersist();
+    if (this.walLineCount >= this.compactionThreshold) {
+      this.compactWALSync();
+    }
   }
 
   public getQueueLength(): number {
-    return this.queue.filter((q) => q.status === 'PENDING' || q.status === 'IN_FLIGHT').length;
+    return this.queue.size;
   }
 
   public getDeadLetterCount(): number {
-    return this.deadLetters.length;
+    return this.deadLetters.size;
   }
 
+  /**
+   * P1: Chỉ trả về các item PENDING và KHÔNG nằm trong inFlightIds
+   * Tuyệt đối không dispatch trùng lặp các event đang được gửi
+   */
   public getAllPending(): QueuedEventRecord[] {
-    return this.queue.filter((q) => q.status === 'PENDING' || q.status === 'IN_FLIGHT');
+    return Array.from(this.queue.values()).filter(
+      (q) => q.status === 'PENDING' && !this.inFlightIds.has(q.id)
+    );
+  }
+
+  public replayDeadLetter(id: string): boolean {
+    const item = this.deadLetters.get(id);
+    if (!item) return false;
+
+    this.deadLetters.delete(id);
+    item.retryCount = 0;
+    item.status = 'PENDING';
+    item.lastError = undefined;
+
+    this.appendWalSync({
+      op: 'ENQUEUE',
+      id: item.id,
+      eventType: item.eventType,
+      payload: item.payload,
+      createdAt: Date.now(),
+      retryCount: 0,
+    });
+
+    this.queue.set(item.id, item);
+    return true;
+  }
+
+  public getAllDeadLetters(): QueuedEventRecord[] {
+    return Array.from(this.deadLetters.values());
   }
 
   public clear(): void {
-    this.queue = [];
-    this.deadLetters = [];
+    this.queue.clear();
+    this.deadLetters.clear();
+    this.inFlightIds.clear();
+    this.walLineCount = 0;
     try {
-      if (fs.existsSync(this.storageFile)) fs.unlinkSync(this.storageFile);
+      if (fs.existsSync(this.walFile)) fs.unlinkSync(this.walFile);
       if (fs.existsSync(this.deadLetterFile)) fs.unlinkSync(this.deadLetterFile);
     } catch {}
   }

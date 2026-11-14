@@ -10,6 +10,7 @@ export interface DispatcherOptions {
   maxQueueSize?: number;
   streakTimeoutSeconds?: number;
   queueStorageFile?: string;
+  walFile?: string;
   deadLetterFile?: string;
   maxRetries?: number;
   autoProcessQueue?: boolean;
@@ -37,6 +38,7 @@ export class LiveEventDispatcher {
   private eventQueue: DurableEventQueue;
   private queueWorkerTimer: NodeJS.Timeout | null = null;
   private isDrainingQueue: boolean = false;
+  private activeDispatches: Set<string> = new Set();
 
   private stats: DispatcherStats = {
     receivedCount: 0,
@@ -66,8 +68,9 @@ export class LiveEventDispatcher {
     this.ingressToken = token || 'live_bridge_ingress_secret_2026_token';
     this.streakTracker = new GiftStreakTracker(opts.streakTimeoutSeconds || 300);
 
-    // P0.1 (Phase 08.2): Bền vững hóa hàng đợi trên đĩa
+    // P0.1 (Phase 08.2 & Final Gate): Bền vững hóa hàng đợi trên đĩa bằng WAL
     this.eventQueue = new DurableEventQueue({
+      walFile: opts.walFile,
       storageFile: opts.queueStorageFile,
       deadLetterFile: opts.deadLetterFile,
       maxQueueSize: opts.maxQueueSize || 1000,
@@ -164,6 +167,7 @@ export class LiveEventDispatcher {
         eventType = 'COMMENT';
         payload = {
           type: 'COMMENT',
+          providerEventId: event.eventKey,
           userId: event.userId,
           userName: event.username,
           command: norm,
@@ -245,9 +249,15 @@ export class LiveEventDispatcher {
   }
 
   /**
-   * Dispatch một event cụ thể qua HTTP Ingress với retry và idempotency
+   * Dispatch một event cụ thể qua HTTP Ingress với retry, single-flight mutex và idempotency
    */
   public async dispatchSingleItem(id: string, payload: any): Promise<{ accepted: boolean; queued?: boolean; reason?: string }> {
+    // Single-Flight: Ngăn chặn dispatch trùng lặp đồng thời cho cùng một event ID
+    if (this.activeDispatches.has(id)) {
+      return { accepted: false, queued: true, reason: 'CONCURRENT_SINGLE_FLIGHT_LOCKED' };
+    }
+
+    this.activeDispatches.add(id);
     this.stats.dispatchedCount++;
     const startMs = performance.now();
     this.eventQueue.markInFlight(id);
@@ -270,6 +280,14 @@ export class LiveEventDispatcher {
 
       if (!res.ok) {
         const status = res.status;
+        // HTTP 400 Bad Request là lỗi format vĩnh viễn (không nên retry vô hạn)
+        if (status === 400) {
+          this.eventQueue.markAcked(id);
+          this.stats.rejectedCount++;
+          return { accepted: false, queued: false, reason: 'HTTP_400_BAD_REQUEST_PERMANENT' };
+        }
+
+        // Lỗi 429 hoặc 5xx là RETRYABLE_ERROR
         this.eventQueue.markFailed(id, `HTTP_${status}`);
         this.stats.errorCount++;
         return { accepted: false, queued: true, reason: `HTTP_${status}` };
@@ -280,7 +298,8 @@ export class LiveEventDispatcher {
         data?.accepted || 
         data?.idempotentDuplicate || 
         data?.reason === 'DUPLICATE_EVENT' ||
-        data?.reason === 'DUPLICATE_EVENT_ALREADY_SETTLED'
+        data?.reason === 'DUPLICATE_EVENT_ALREADY_SETTLED' ||
+        data?.reason === 'DUPLICATE_COMMENT_ALREADY_PROCESSED'
       );
 
       // Nếu Server đã ghi nhận thành công hoặc Idempotent duplicate:
@@ -300,23 +319,39 @@ export class LiveEventDispatcher {
         // Đánh dấu hoàn tất và xóa khỏi durable queue
         this.eventQueue.markAcked(id);
         this.stats.acceptedCount++;
-        return { accepted: true, reason: data?.reason || data?.skillName };
+        return { 
+          accepted: true, 
+          reason: data?.reason || data?.skillName || (data?.idempotentDuplicate ? 'DUPLICATE_IDEMPOTENT_ACK' : 'ACCEPTED') 
+        };
       } else {
-        // Nghiệp vụ server từ chối dứt điểm (ví dụ: gift không hợp lệ)
-        this.eventQueue.markAcked(id);
-        this.stats.rejectedCount++;
-        return { accepted: false, reason: data?.reason || 'REJECTED_BY_SERVER' };
+        // Phân biệt từ chối vĩnh viễn vs lỗi tạm thời
+        const isPermanentRejection = 
+          data?.reason === 'UNSUPPORTED_GIFT_TYPE' ||
+          data?.reason === 'INVALID_PAYLOAD' ||
+          data?.reason === 'REJECTED_BY_SERVER';
+
+        if (isPermanentRejection) {
+          this.eventQueue.markAcked(id);
+          this.stats.rejectedCount++;
+          return { accepted: false, queued: false, reason: data?.reason || 'PERMANENTLY_REJECTED' };
+        } else {
+          this.eventQueue.markFailed(id, data?.reason || 'RETRYABLE_ERROR');
+          this.stats.errorCount++;
+          return { accepted: false, queued: true, reason: data?.reason || 'RETRYABLE_ERROR' };
+        }
       }
     } catch (err: any) {
       // Mất mạng / timeout HTTP -> Giữ trong durable queue để retry lần sau
       this.eventQueue.markFailed(id, err.message);
       this.stats.errorCount++;
       return { accepted: false, queued: true, reason: `NETWORK_ERROR: ${err.message}` };
+    } finally {
+      this.activeDispatches.delete(id);
     }
   }
 
   /**
-   * Background Queue Drainer: Quét các event PENDING và retry phát lại
+   * Background Queue Drainer: Quét các event PENDING và retry phát lại với single-flight guard
    */
   public async drainQueue(force: boolean = false): Promise<number> {
     if (this.isDrainingQueue) return 0;
@@ -326,6 +361,10 @@ export class LiveEventDispatcher {
     try {
       const pendingItems = this.eventQueue.getAllPending();
       for (const item of pendingItems) {
+        if (this.activeDispatches.has(item.id)) {
+          continue; // Đang được dispatch ở luồng khác -> bỏ qua
+        }
+
         // Exponential backoff guard: tránh spam server khi đang lỗi (có thể bỏ qua bằng cờ force)
         const backoffDelay = Math.min(5000, 200 * Math.pow(2, item.retryCount));
         if (!force && item.lastAttemptAt && Date.now() - item.lastAttemptAt < backoffDelay) {
