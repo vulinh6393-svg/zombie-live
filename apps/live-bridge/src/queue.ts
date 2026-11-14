@@ -28,12 +28,14 @@ export type WalOperation =
   | { op: 'DLQ'; id: string; reason: string; timestamp: number };
 
 /**
- * P0.1 (Final Reliability Gate): Truly Durable Write-Ahead Log (WAL) Queue cho Live Bridge
+ * P0.1 & P0.2 (Final Acceptance Patch): Truly Durable Write-Ahead Log (WAL) Queue cho Live Bridge
  * - Ghi đĩa tức thời (zero debounce window) với fsyncSync trước khi xác nhận enqueue thành công.
  * - Append-only WAL log line-by-line; phục hồi 100% sau crash hoặc restart bất ngờ.
- * - Fail-closed: Giữ nguyên file hỏng làm tài liệu điều tra (.bak), tuyệt đối không reset queue về [].
+ * - Fail-closed: Giữ nguyên file hỏng làm tài liệu điều tra (.bak), cách ly middle corruption,
+ *   tái dựng valid prefix, tuyệt đối không reset queue về [].
  * - Single-flight isolation: getAllPending() chỉ trả về PENDING (loại trừ IN_FLIGHT), ngăn chặn dispatch trùng lặp đồng thời.
- * - Dead-Letter Queue bền vững với quy trình replay thủ công.
+ * - Durable DLQ Settlement: Ghi đĩa DLQ và fsyncSync TRƯỚC KHI xóa khỏi queue và TRƯỚC KHI ghi WAL DLQ.
+ *   Lỗi lưu trữ (storage error) là fail-closed (throw, không nuốt lỗi, giữ lại event trong queue).
  */
 export class DurableEventQueue {
   private queue: Map<string, QueuedEventRecord> = new Map();
@@ -105,22 +107,47 @@ export class DurableEventQueue {
     }
   }
 
+  /**
+   * P0.2: Fail-closed DLQ persistence.
+   * Tuyệt đối không nuốt lỗi ghi file. Nếu thất bại (disk full, read-only), ném ngoại lệ ngay.
+   */
   private appendDeadLetterSync(item: QueuedEventRecord): void {
+    this.ensureDirs();
+    const line = JSON.stringify(item) + '\n';
+    const fd = fs.openSync(this.deadLetterFile, 'a');
     try {
-      this.ensureDirs();
-      const line = JSON.stringify(item) + '\n';
-      const fd = fs.openSync(this.deadLetterFile, 'a');
-      try {
-        fs.writeSync(fd, line, null, 'utf-8');
-        fs.fsyncSync(fd);
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch (err: any) {
-      console.error(`[QUEUE DLQ WRITE ERROR] Failed to append to DLQ file: ${err.message}`);
+      fs.writeSync(fd, line, null, 'utf-8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
   }
 
+  /**
+   * Tái tạo lại WAL với danh sách operations đã kiểm chứng hợp lệ
+   */
+  private rewriteWalSync(operations: WalOperation[]): void {
+    this.ensureDirs();
+    const tempFile = `${this.walFile}.recover_${Date.now()}`;
+    const fd = fs.openSync(tempFile, 'w');
+    try {
+      for (const op of operations) {
+        fs.writeSync(fd, JSON.stringify(op) + '\n', null, 'utf-8');
+      }
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempFile, this.walFile);
+    this.walLineCount = operations.length;
+  }
+
+  /**
+   * P1.1: Quản lý phục hồi và phát hiện corruption có kiểm chứng:
+   * - Phân biệt: Partial trailing line (crash khi append dòng cuối) vs Middle corrupted line (hỏng ở giữa file).
+   * - Bảo lưu file gốc (.bak) làm chứng cứ pháp chứng.
+   * - Cắt gọt và khôi phục valid prefix lên đĩa; không âm thầm bỏ qua dòng giữa rồi tiếp tục append vào file lỗi.
+   */
   private loadFromDisk(): void {
     if (!fs.existsSync(this.walFile)) {
       return;
@@ -138,47 +165,72 @@ export class DurableEventQueue {
     this.walLineCount = lines.length;
 
     let hasCorruptedLine = false;
+    let corruptionIndex = -1;
+    const validOps: WalOperation[] = [];
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       try {
         const op = JSON.parse(line) as WalOperation;
-        if (op.op === 'ENQUEUE') {
-          this.queue.set(op.id, {
-            id: op.id,
-            eventType: op.eventType,
-            payload: op.payload,
-            createdAt: op.createdAt,
-            retryCount: op.retryCount || 0,
-            status: 'PENDING',
-          });
-        } else if (op.op === 'ACK') {
-          this.queue.delete(op.id);
-        } else if (op.op === 'DLQ') {
-          this.queue.delete(op.id);
-        } else if (op.op === 'FAILED') {
-          const item = this.queue.get(op.id);
-          if (item) {
-            item.retryCount = op.retryCount;
-            item.lastError = op.lastError;
-            item.status = 'PENDING';
-          }
+        if (!op || typeof op.op !== 'string' || !op.id) {
+          throw new Error('Invalid WAL operation payload structure');
         }
+        validOps.push(op);
       } catch (parseErr: any) {
         hasCorruptedLine = true;
-        console.warn(`[QUEUE CORRUPTION DETECTED] Line ${i + 1} in WAL is corrupted: ${parseErr.message}`);
+        corruptionIndex = i;
+        console.warn(`[QUEUE CORRUPTION DETECTED] Line ${i + 1} of ${lines.length} in WAL is corrupted: ${parseErr.message}`);
+        break; // Dừng ngay tại ranh giới lỗi đầu tiên; không đọc tiếp các dòng sau ranh giới hỏng
       }
     }
 
-    // Fail-Closed: Nếu có dòng lỗi, sao lưu sang .bak để điều tra pháp chứng, KHÔNG xóa bộ nhớ
+    // Fail-Closed Recovery:
     if (hasCorruptedLine) {
       const corruptBak = `${this.walFile}.corrupt_${Date.now()}.bak`;
       try {
         fs.copyFileSync(this.walFile, corruptBak);
-        console.warn(`[FORENSIC ARCHIVE] Corrupted WAL preserved at ${corruptBak}. Loaded ${this.queue.size} valid unacked events.`);
-      } catch {}
+        console.warn(`[FORENSIC ARCHIVE] Corrupted WAL preserved at ${corruptBak}.`);
+      } catch (bakErr: any) {
+        console.error(`[FORENSIC ARCHIVE ERROR] Failed to copy corrupted WAL to .bak: ${bakErr.message}`);
+      }
+
+      const isPartialFinalLine = corruptionIndex === lines.length - 1;
+      if (isPartialFinalLine) {
+        console.info(`[WAL RECOVERY] Partial trailing line detected at end of file (index ${corruptionIndex}). Recovering valid prefix (${validOps.length} records).`);
+      } else {
+        console.warn(`[WAL RECOVERY] Middle WAL corruption detected at line ${corruptionIndex + 1}/${lines.length}. Quarantining corrupt remainder and recovering valid prefix (${validOps.length} records).`);
+      }
+
+      // Viết lại WAL chỉ chứa valid prefix để các append sau không nối tiếp vào dữ liệu hỏng
+      this.rewriteWalSync(validOps);
     }
 
-    // Tải DLQ entries
+    // Áp dụng các operation hợp lệ vào queue
+    for (const op of validOps) {
+      if (op.op === 'ENQUEUE') {
+        this.queue.set(op.id, {
+          id: op.id,
+          eventType: op.eventType,
+          payload: op.payload,
+          createdAt: op.createdAt,
+          retryCount: op.retryCount || 0,
+          status: 'PENDING',
+        });
+      } else if (op.op === 'ACK') {
+        this.queue.delete(op.id);
+      } else if (op.op === 'DLQ') {
+        this.queue.delete(op.id);
+      } else if (op.op === 'FAILED') {
+        const item = this.queue.get(op.id);
+        if (item) {
+          item.retryCount = op.retryCount;
+          item.lastError = op.lastError;
+          item.status = 'PENDING';
+        }
+      }
+    }
+
+    // Tải DLQ entries từ file DLQ
     if (fs.existsSync(this.deadLetterFile)) {
       try {
         const dlqRaw = fs.readFileSync(this.deadLetterFile, 'utf-8');
@@ -194,7 +246,7 @@ export class DurableEventQueue {
       } catch {}
     }
 
-    // Crash recovery: Bất kỳ item nào đang dở dang đều đặt lại PENDING để drain
+    // Crash recovery: Bất kỳ item nào dở dang trong RAM đều reset PENDING
     for (const item of this.queue.values()) {
       item.status = 'PENDING';
     }
@@ -234,29 +286,26 @@ export class DurableEventQueue {
     this.compactWALSync();
   }
 
-  /**
-   * Enqueue một event: Bắt buộc ghi WAL đĩa + fsync trước khi xác nhận thành công.
-   * Nếu có lỗi ghi đĩa, ném lỗi hoặc trả về false thay vì nuốt lỗi.
-   */
-  public enqueue(record: Omit<QueuedEventRecord, 'createdAt' | 'retryCount' | 'status'>): boolean {
-    // 1. Backpressure: Kiểm tra giới hạn queue
+  public enqueue(event: { id: string; eventType: 'COMMENT' | 'GIFT'; payload: any }): boolean {
+    if (this.queue.has(event.id)) {
+      return true; // Idempotent: đã tồn tại
+    }
+
     if (this.queue.size >= this.maxQueueSize) {
+      console.warn(`[QUEUE WARNING] Durable queue reached max size ${this.maxQueueSize}. Dropping event with backpressure.`);
       return false;
     }
 
-    // 2. Chống duplicate: Nếu ID đã tồn tại trong queue, return true (idempotent)
-    if (this.queue.has(record.id)) {
-      return true;
-    }
-
     const item: QueuedEventRecord = {
-      ...record,
+      id: event.id,
+      eventType: event.eventType,
+      payload: event.payload,
       createdAt: Date.now(),
       retryCount: 0,
       status: 'PENDING',
     };
 
-    // 3. Write-Ahead Log: Bắt buộc ghi và fsync xuống đĩa TRƯỚC KHI xác nhận enqueue
+    // Ghi WAL và fsyncSync ngay lập tức trước khi cập nhật bộ nhớ
     this.appendWalSync({
       op: 'ENQUEUE',
       id: item.id,
@@ -266,7 +315,6 @@ export class DurableEventQueue {
       retryCount: 0,
     });
 
-    // 4. Chỉ đưa vào RAM sau khi ghi đĩa thành công
     this.queue.set(item.id, item);
 
     if (this.walLineCount >= this.compactionThreshold) {
@@ -313,6 +361,47 @@ export class DurableEventQueue {
     }
   }
 
+  /**
+   * P0.2: Chuyển một sự kiện sang Dead-Letter Queue một cách an toàn và bền vững (Atomic settlement).
+   * 1. Ghi vào tệp bridge_dead_letter.jsonl và fsyncSync trước.
+   * 2. Ghi op DLQ vào WAL và fsyncSync.
+   * 3. CHỈ XÓA khỏi hàng đợi chính khi cả hai bước lưu đĩa thành công.
+   * Nếu có lỗi ghi đĩa, ném ngoại lệ và GIỮ NGUYÊN trong hàng đợi chính để retry/quản trị can thiệp.
+   */
+  public moveToDeadLetter(id: string, reason: string): void {
+    const item = this.queue.get(id);
+    if (!item) return;
+
+    this.inFlightIds.delete(id);
+    item.status = 'DEAD_LETTER';
+    item.lastError = reason;
+    item.lastAttemptAt = Date.now();
+
+    try {
+      // BƯỚC 1: Ghi DLQ file bền vững
+      this.appendDeadLetterSync(item);
+
+      // BƯỚC 2: Ghi WAL terminal state
+      this.appendWalSync({
+        op: 'DLQ',
+        id,
+        reason,
+        timestamp: Date.now(),
+      });
+
+      // BƯỚC 3: Xóa khỏi active queue
+      this.deadLetters.set(id, item);
+      this.queue.delete(id);
+      console.error(`[QUEUE DLQ] Event ${id} moved to Dead-Letter Queue: ${reason}`);
+    } catch (err: any) {
+      // FAIL-CLOSED: Không xóa khỏi queue chính nếu ghi đĩa thất bại
+      item.status = 'PENDING';
+      item.lastError = `STORAGE_DLQ_FAILED: ${err.message}`;
+      console.error(`[QUEUE DLQ FAIL-CLOSED] Failed to persist DLQ record for ${id}. Retaining in queue: ${err.message}`);
+      throw new Error(`DLQ_STORAGE_ERROR: Failed to persist dead-letter record for ${id}: ${err.message}`);
+    }
+  }
+
   public markFailed(id: string, error: string): void {
     const item = this.queue.get(id);
     if (!item) return;
@@ -323,20 +412,7 @@ export class DurableEventQueue {
     item.lastAttemptAt = Date.now();
 
     if (item.retryCount >= this.maxRetries) {
-      // Vượt quá số lần retry -> Chuyển vào Dead-Letter Queue
-      item.status = 'DEAD_LETTER';
-      this.queue.delete(id);
-      this.deadLetters.set(id, item);
-
-      this.appendWalSync({
-        op: 'DLQ',
-        id,
-        reason: error,
-        timestamp: Date.now(),
-      });
-
-      this.appendDeadLetterSync(item);
-      console.error(`[QUEUE DLQ] Event ${id} exhausted max retries (${this.maxRetries}). Moved to Dead-Letter Queue: ${error}`);
+      this.moveToDeadLetter(id, error);
     } else {
       item.status = 'PENDING';
       this.appendWalSync({
@@ -361,10 +437,6 @@ export class DurableEventQueue {
     return this.deadLetters.size;
   }
 
-  /**
-   * P1: Chỉ trả về các item PENDING và KHÔNG nằm trong inFlightIds
-   * Tuyệt đối không dispatch trùng lặp các event đang được gửi
-   */
   public getAllPending(): QueuedEventRecord[] {
     return Array.from(this.queue.values()).filter(
       (q) => q.status === 'PENDING' && !this.inFlightIds.has(q.id)

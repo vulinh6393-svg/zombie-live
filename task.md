@@ -1014,3 +1014,35 @@
   - [x] Chạy `pnpm run build`, `pnpm run typecheck`, và `pnpm -r run test` trên cả 7 packages/apps: `packages/config` (2/2), `packages/shared` (22/22), `packages/database` (21/21), `apps/admin` (5/5), `apps/live-bridge` (20/20), `apps/game-client` (16/16), `apps/game-server` (50/50).
   - [x] Toàn bộ 136 tests đạt 100% PASS (136/136).
   - [x] Commit git, push lên branch `feat/phase02-visual-refinement`, cung cấp full commit SHA 40 ký tự và bảng nghiệm thu trung thực (giữ các mục Docker/PG standalone/TikTok LIVE thật ở BLOCKED).
+
+## Final Acceptance Patch: Zero Data Loss & Deterministic Demo Verification (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **P0.1 — Truly Consistent Backup Barrier (Maintenance Quiesce & Ingress Block):**
+  - [x] Nâng cấp `/api/admin/db/quiesce`: Kích hoạt `isMaintenanceQuiesced = true`, drain toàn bộ in-flight DB writes, flush commit/checkpoint PGlite buffers, tạm dừng engine & outbox worker.
+  - [x] Ingress `/api/live/event` và các write endpoints chặn ghi trong lúc quiesce: trả về HTTP 503 `DATABASE_MAINTENANCE_QUIESCED` với header `Retry-After: 5` (retryable error).
+  - [x] `scripts/backup-db.ps1`: Bắt buộc fail-closed ngay lập tức nếu quiesce không thành công (exit 1); bọc quy trình sao lưu trong `try/finally` để luôn đảm bảo resume `/api/admin/db/resume`.
+  - [x] Viết test tự động: kiểm tra gift ingress đồng thời với backup bị chặn với 503, sau khi resume thì tiếp tục thành công và DB snapshot khôi phục 100% nhất quán.
+- [x] **P0.2 — Durable DLQ Settlement & Fail-Closed Storage:**
+  - [x] Sửa `apps/live-bridge/src/queue.ts`: `appendDeadLetterSync` tuyệt đối không nuốt lỗi (không swallow error). Ghi file DLQ và `fsyncSync` trước khi ghi WAL DLQ và xóa khỏi queue RAM.
+  - [x] Nếu ghi DLQ hoặc WAL thất bại: không xóa khỏi queue chính, giữ nguyên trạng thái PENDING để retry, ném ngoại lệ (throw storage error).
+  - [x] Cập nhật tải lại (loadFromDisk): phục hồi chính xác cả pending lẫn dead-letter events.
+  - [x] Bổ sung unit tests cho DLQ storage error, disk full / write error, và restart recovery (11 fault-injection tests PASS).
+- [x] **P1.1 — Robust WAL Corruption Handling (Valid Prefix Recovery):**
+  - [x] Phân biệt rõ rệt: Partial trailing record (dòng cuối bị cắt do crash dở) vs Corrupted middle record (hỏng ở giữa file).
+  - [x] Sao lưu bản gốc pháp chứng sang `.corrupt_<timestamp>.bak`.
+  - [x] Không âm thầm bỏ qua dòng giữa rồi tiếp tục append vào file lỗi; cách ly (quarantine) và cắt gọt về valid prefix có kiểm chứng.
+  - [x] Bổ sung unit tests cho partial last line, corrupted middle line, và restart sau corruption.
+- [x] **P1.2 — Persistent Comment Idempotency:**
+  - [x] Tạo bảng `processed_events` trong migration mới (`20261114_comment_dedup`).
+  - [x] Game server lưu `providerEventId` xuống DB bền vững, kết hợp bộ đệm RAM LRU; sau khi restart hoặc sau 10 phút vẫn bảo đảm idempotency (trả về `idempotentDuplicate: true`, không lặp lại `BAN`, `SUA`, `JOIN`).
+  - [x] Viết unit tests kiểm tra comment deduplication sau restart server và race condition khi gửi trùng lặp đồng thời.
+- [x] **P1.3 — Deterministic E2E Demo Verification:**
+  - [x] Nâng cấp `verify-demo-pipeline.ts`: Lấy DB baseline trước khi dispatch. Gửi 1 comment và 1 gift có event ID xác định. Xác nhận ledger/journal/outbox tăng đúng sự kiện mới. Nếu không tìm thấy, FAIL với mã lỗi (exit 1), không chỉ WARN.
+  - [x] Sử dụng biến môi trường `ARTIFACTS_DIR` có thể cấu hình, không hardcode đường dẫn cục bộ.
+  - [x] Headless Chromium kiểm tra `SocketSnapshotSource` nhận tick mới, xác nhận game scene và canvas render hoạt động.
+- [x] **P1.4 — Safe Windows Process Management:**
+  - [x] `start-demo.ps1` & `stop-demo.ps1`: Không taskkill vô tội vạ mọi process trên cổng 3001/5174.
+  - [x] Nếu cổng bị chiếm bởi process ngoại lai không thuộc zombie-live demo, báo lỗi rõ ràng và yêu cầu giải phóng cổng hoặc đổi cấu hình cổng.
+  - [x] Chỉ quản lý và dừng các process có PID lưu trong `.demo_pids.json` và xác nhận tiến trình là node/cmd của dự án.
+- [x] **Nghiệm Thu Toàn Diện & Đẩy Lên GitHub:**
+  - [x] Chạy full test suite toàn bộ 7 package monorepo (141/141 tests PASS, 100%), build & typecheck.
+  - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.

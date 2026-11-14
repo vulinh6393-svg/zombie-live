@@ -77,20 +77,24 @@ describe('DurableEventQueue & Fault-Injection Resilience (Final Reliability Gate
     expect(backupFile).toBeDefined();
   });
 
-  it('3. Corrupted queue file: fails closed and NEVER resets queue to empty', () => {
+  it('3. Corrupted queue file: fails closed and NEVER resets queue to empty (recovers valid prefix and preserves forensic backup)', () => {
     const queue1 = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
     queue1.enqueue({ id: 'evt_alpha', eventType: 'GIFT', payload: { giftId: 'rocket' } });
 
-    // Thêm chuỗi rác vào file WAL
+    // Thêm chuỗi rác vào file WAL (hỏng ở giữa file)
     fs.appendFileSync(testWalFile, 'CORRUPTED_GARBAGE_BYTES_INVALID_JSON_LINE\n');
     queue1.enqueue({ id: 'evt_bravo', eventType: 'GIFT', payload: { giftId: 'laser' } });
 
     const queue2 = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
-    // Phải phục hồi được cả evt_alpha và evt_bravo
-    expect(queue2.getQueueLength()).toBe(2);
+    // Fail-Closed: Dừng tại ranh giới hỏng, bảo toàn valid prefix (evt_alpha) và KHÔNG reset về rỗng
+    expect(queue2.getQueueLength()).toBe(1);
     const allPending = queue2.getAllPending().map((q) => q.id);
     expect(allPending).toContain('evt_alpha');
-    expect(allPending).toContain('evt_bravo');
+
+    // Forensic backup phải được bảo tồn
+    const dirFiles = fs.readdirSync(testDir);
+    const backupFile = dirFiles.find((f) => f.includes('corrupt') && f.endsWith('.bak'));
+    expect(backupFile).toBeDefined();
   });
 
   it('4. Disk full / permission denied: fails closed and does not report fake success', () => {
@@ -345,5 +349,77 @@ describe('DurableEventQueue & Fault-Injection Resilience (Final Reliability Gate
     expect(queue.getDeadLetterCount()).toBe(0);
     expect(queue.peekPending()?.id).toBe('dlq_test_1');
     expect(queue.peekPending()?.retryCount).toBe(0);
+  });
+
+  it('10. Fail-closed DLQ settlement: if DLQ storage write fails, event remains in queue and is not lost', () => {
+    // Trỏ deadLetterFile vào một thư mục không thể ghi (file con trong một file bình thường)
+    const blockedFile = path.join(testDir, 'blocking_dlq_file');
+    fs.writeFileSync(blockedFile, 'blocking');
+    const impossibleDlq = path.join(blockedFile, 'dlq.jsonl');
+
+    const queue = new DurableEventQueue({
+      walFile: testWalFile,
+      deadLetterFile: impossibleDlq,
+      maxRetries: 1,
+    });
+
+    queue.enqueue({ id: 'evt_dlq_fail_safe', eventType: 'GIFT', payload: { giftId: 'shield' } });
+    expect(queue.getQueueLength()).toBe(1);
+
+    queue.markInFlight('evt_dlq_fail_safe');
+
+    // Thất bại lần 1 (maxRetries = 1) -> cố gắng ghi sang DLQ nhưng DLQ file không thể ghi
+    // Hệ thống phải fail-closed: THROW lỗi lưu trữ, và KHÔNG xóa event khỏi queue chính
+    expect(() => {
+      queue.markFailed('evt_dlq_fail_safe', 'SIMULATED_FAIL');
+    }).toThrow(/DLQ_STORAGE_ERROR/);
+
+    // Event vẫn được giữ trong queue chính với trạng thái PENDING để không bị mất vĩnh viễn
+    expect(queue.getQueueLength()).toBe(1);
+    const item = queue.peekPending();
+    expect(item).not.toBeNull();
+    expect(item?.id).toBe('evt_dlq_fail_safe');
+    expect(item?.status).toBe('PENDING');
+  });
+
+  it('11. WAL corruption recovery: distinguishes partial final record from middle record corruption, quarantines and recovers valid prefix', () => {
+    // Trường hợp A: Partial final line (crash giữa chừng ở dòng cuối cùng)
+    const queueA = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
+    queueA.enqueue({ id: 'a_1', eventType: 'COMMENT', payload: { cmd: '1' } });
+    queueA.enqueue({ id: 'a_2', eventType: 'COMMENT', payload: { cmd: '2' } });
+
+    // Cắt cụt dòng cuối
+    fs.appendFileSync(testWalFile, '{"op":"ENQUEUE","id":"a_3_cut_off');
+
+    // Khởi động lại: Phải phục hồi valid prefix (a_1, a_2) và rewrite WAL sạch sẽ
+    const recoveredA = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
+    expect(recoveredA.getQueueLength()).toBe(2);
+    expect(recoveredA.getAllPending().map((q) => q.id)).toEqual(['a_1', 'a_2']);
+
+    // Append tiếp vào file đã phục hồi thành công
+    recoveredA.enqueue({ id: 'a_4', eventType: 'COMMENT', payload: { cmd: '4' } });
+    expect(recoveredA.getQueueLength()).toBe(3);
+
+    // Trường hợp B: Middle corruption (dòng ở giữa bị hỏng, tiếp sau là các dòng khác)
+    // Tạo lại WAL có corruption ở dòng thứ 2 (giữa dòng 1 và dòng 3)
+    const testWalB = path.join(testDir, 'bridge_wal_middle_corrupt.jsonl');
+    const testDlqB = path.join(testDir, 'bridge_dlq_b.jsonl');
+    const queueB = new DurableEventQueue({ walFile: testWalB, deadLetterFile: testDlqB });
+    queueB.enqueue({ id: 'b_1', eventType: 'GIFT', payload: { giftId: 'rose' } });
+
+    // Dòng 2 bị rác/hỏng
+    fs.appendFileSync(testWalB, 'CORRUPTED_MIDDLE_LINE_GARBAGE_BYTES\n');
+    // Dòng 3 hợp lệ sau dòng hỏng
+    fs.appendFileSync(testWalB, JSON.stringify({ op: 'ENQUEUE', id: 'b_3', eventType: 'GIFT', payload: { giftId: 'gun' }, createdAt: Date.now() }) + '\n');
+
+    // Khi load lại: Dừng tại ranh giới hỏng (line 2), cách ly và chỉ khôi phục valid prefix trước đó (b_1)
+    const recoveredB = new DurableEventQueue({ walFile: testWalB, deadLetterFile: testDlqB });
+    expect(recoveredB.getQueueLength()).toBe(1);
+    expect(recoveredB.peekPending()?.id).toBe('b_1');
+
+    // File .bak lưu trữ chứng cứ pháp chứng phải tồn tại
+    const bFiles = fs.readdirSync(testDir);
+    const bBak = bFiles.find((f) => f.includes('middle_corrupt') && f.endsWith('.bak'));
+    expect(bBak).toBeDefined();
   });
 });

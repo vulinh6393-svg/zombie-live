@@ -45,6 +45,7 @@ async function main() {
   const journalRes = await db.query<{ count: string | number }>(`SELECT count(*) as count FROM match_command_journal`);
   const matchRes = await db.query<{ count: string | number }>(`SELECT count(*) as count FROM matches`);
   const deferredRes = await db.query<{ count: string | number }>(`SELECT count(*) as count FROM deferred_match_commands`);
+  const processedRes = await db.query<{ count: string | number }>(`SELECT count(*) as count FROM processed_events`);
 
   await db.close();
 
@@ -56,6 +57,7 @@ async function main() {
     commandJournal: Number(journalRes.rows[0]?.count || 0),
     matches: Number(matchRes.rows[0]?.count || 0),
     deferredCommands: Number(deferredRes.rows[0]?.count || 0),
+    processedEvents: Number(processedRes.rows[0]?.count || 0),
   };
 
   // Nếu có manifest: thực hiện đối chiếu nghiêm ngặt
@@ -93,11 +95,14 @@ async function main() {
       if (expected.deferredCommands !== undefined && expected.deferredCommands !== restoredStats.deferredCommands) {
         mismatches.push(`deferredCommands mismatch: expected ${expected.deferredCommands}, got ${restoredStats.deferredCommands}`);
       }
+      if (expected.processedEvents !== undefined && expected.processedEvents !== restoredStats.processedEvents) {
+        mismatches.push(`processedEvents mismatch: expected ${expected.processedEvents}, got ${restoredStats.processedEvents}`);
+      }
 
       if (mismatches.length > 0) {
         throw new Error(`RESTORE_DATA_MISMATCH: ${mismatches.join('; ')}`);
       }
-      console.log(`[VERIFY DB PASS] All 7 table stats matched pre-backup manifest 100%!`);
+      console.log(`[VERIFY DB PASS] All 8 table stats matched pre-backup manifest 100%!`);
     }
   }
 

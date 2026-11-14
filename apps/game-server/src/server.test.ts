@@ -1139,6 +1139,7 @@ describe('Game Server Security & Event Ingestion', () => {
         expect(statsData.stats).toHaveProperty('outboxEvents');
         expect(statsData.stats).toHaveProperty('commandJournal');
         expect(statsData.stats).toHaveProperty('matches');
+        expect(statsData.stats).toHaveProperty('processedEvents');
 
         // 2. Quiesce endpoint
         const quiesceRes = await serverInstance.app.inject({
@@ -1167,6 +1168,195 @@ describe('Game Server Security & Event Ingestion', () => {
         expect(resumeData.success).toBe(true);
         expect(resumeData.status).toBe('resumed');
         expect(serverInstance.engine.isPaused()).toBe(false);
+      });
+
+      it('P0.1 Maintenance Quiesce Barrier: blocks live ingress with HTTP 503 Retry-After and resumes smoothly', async () => {
+        const adminSecret = 'admin_secret_quiesce_barrier';
+        const liveBridgeToken = 'bridge_token_quiesce_barrier';
+        const serverInstance = buildServer({
+          adminSecret,
+          liveBridgeToken,
+          disableAutoTick: true,
+        });
+
+        // Kích hoạt quiesce maintenance barrier
+        const qRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/quiesce',
+          headers: { 'x-admin-token': adminSecret },
+        });
+        expect(qRes.statusCode).toBe(200);
+
+        // Khi đang quiesce, ingress nhận sự kiện phải bị từ chối với HTTP 503 và Retry-After
+        const blockedRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': liveBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: 'blocked_during_quiesce',
+            userId: 'user_q',
+            userName: 'User Quiesce',
+            command: 'JOIN ALPHA',
+          },
+        });
+        expect(blockedRes.statusCode).toBe(503);
+        expect(blockedRes.headers['retry-after']).toBe('5');
+        const blockedData = JSON.parse(blockedRes.payload);
+        expect(blockedData.error).toBe('DATABASE_MAINTENANCE_QUIESCED');
+        expect(blockedData.retryable).toBe(true);
+
+        // Sau khi resume, ingress mở lại và nhận sự kiện bình thường
+        const rRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/resume',
+          headers: { 'x-admin-token': adminSecret },
+        });
+        expect(rRes.statusCode).toBe(200);
+
+        const acceptedRes = await serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': liveBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: 'accepted_after_resume',
+            userId: 'user_q',
+            userName: 'User Quiesce',
+            command: 'JOIN ALPHA',
+          },
+        });
+        expect(acceptedRes.statusCode).toBe(200);
+        const acceptedData = JSON.parse(acceptedRes.payload);
+        expect(acceptedData.accepted).toBe(true);
+      });
+
+      it('P1.2 Persistent Comment Idempotency: survives server restart and prevents duplicate command execution', async () => {
+        const testBridgeToken = 'test_ingress_token_persist_dedup';
+        const testDbDir = path.resolve(process.cwd(), '.data/test_comment_dedup_' + Date.now());
+        const serverInstance1 = buildServer({
+          liveBridgeToken: testBridgeToken,
+          dbDataDir: testDbDir,
+          disableAutoTick: true,
+        });
+
+        try {
+          // 1. Gửi comment lần đầu
+          const commentId = `cmt_persistent_${Date.now()}`;
+          const res1 = await serverInstance1.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: commentId,
+              userId: 'usr_persist_dedup',
+              userName: 'Persist Dedup User',
+              command: 'JOIN 1',
+              timestamp: Date.now(),
+            },
+          });
+          expect(res1.statusCode).toBe(200);
+          const data1 = JSON.parse(res1.payload);
+          expect(data1.accepted).toBe(true);
+          expect(data1.idempotentDuplicate).toBeUndefined();
+
+          // 2. Mô phỏng khởi động lại Game Server (Instance 2 với RAM trống hoàn toàn, cùng kết nối persistent DB)
+          const serverInstance2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            dbDataDir: testDbDir,
+            disableAutoTick: true,
+          });
+
+          // 3. Gửi lại comment cùng ID: DB đã lưu vết -> phải trả về idempotentDuplicate: true
+          const res2 = await serverInstance2.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: commentId,
+              userId: 'usr_persist_dedup',
+              userName: 'Persist Dedup User',
+              command: 'JOIN 1',
+              timestamp: Date.now(),
+            },
+          });
+          expect(res2.statusCode).toBe(200);
+          const data2 = JSON.parse(res2.payload);
+          expect(data2.accepted).toBe(true);
+          expect(data2.idempotentDuplicate).toBe(true);
+          expect(data2.reason).toBe('DUPLICATE_COMMENT_ALREADY_PROCESSED');
+        } finally {
+          if (fs.existsSync(testDbDir)) {
+            try { fs.rmSync(testDbDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P1.2 Concurrent duplicate comments: exactly one executes, second returns idempotentDuplicate', async () => {
+        const testBridgeToken = 'test_ingress_token_concurrent_dedup';
+        const serverInstance = buildServer({
+          liveBridgeToken: testBridgeToken,
+          disableAutoTick: true,
+        });
+
+        const commentId = `cmt_concurrent_${Date.now()}`;
+        const p1 = serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': testBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: commentId,
+            userId: 'usr_concurrent',
+            userName: 'Concurrent User',
+            command: 'JOIN 1',
+            timestamp: Date.now(),
+          },
+        });
+
+        const p2 = serverInstance.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': testBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: commentId,
+            userId: 'usr_concurrent',
+            userName: 'Concurrent User',
+            command: 'JOIN 1',
+            timestamp: Date.now(),
+          },
+        });
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        const d1 = JSON.parse(r1.payload);
+        const d2 = JSON.parse(r2.payload);
+
+        // Exactly one executes, the other is detected as idempotent duplicate
+        const hasExecuted = (d1.accepted && !d1.idempotentDuplicate) || (d2.accepted && !d2.idempotentDuplicate);
+        const hasDuplicate = d1.idempotentDuplicate === true || d2.idempotentDuplicate === true;
+        expect(hasExecuted).toBe(true);
+        expect(hasDuplicate).toBe(true);
       });
     });
   });

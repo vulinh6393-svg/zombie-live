@@ -43,12 +43,27 @@ $spawnedProcesses = @()
 # 1. Kiểm tra build artifacts trước khi khởi động
 Write-Host "[PRE-FLIGHT] Kiểm tra artifacts bản dựng sản phẩm..." -ForegroundColor Yellow
 
-# Dọn dẹp bất kỳ tiến trình cũ nào đang chiếm port trước khi khởi động
+# P1.4 Windows Process Safety: Dừng các tiến trình thuộc phiên demo cũ (nếu có .demo_pids.json)
+$oldPidFile = Join-Path $RootPath ".demo_pids.json"
+if (Test-Path $oldPidFile) {
+  Write-Host "[PRE-FLIGHT] Tìm thấy phiên demo trước đó. Đang dừng an toàn..." -ForegroundColor Yellow
+  & "$PSScriptRoot\stop-demo.ps1"
+  Start-Sleep -Milliseconds 600
+}
+
+# Kiểm tra an toàn: Tuyệt đối không taskkill tùy tiện các tiến trình ngoài luồng của người dùng
 foreach ($port in @($ServerPort, $ClientPort)) {
-  $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-  foreach ($conn in $conns) {
-    if ($conn.OwningProcess -gt 0) {
-      & taskkill /PID $conn.OwningProcess /T /F 2>$null | Out-Null
+  $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  if ($conns) {
+    $owningPids = $conns | Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($pId in $owningPids) {
+      if ($pId -gt 0) {
+        $p = Get-Process -Id $pId -ErrorAction SilentlyContinue
+        $pName = if ($p) { $p.ProcessName } else { "Không rõ" }
+        Write-Host "[FAIL] Cổng $port đang được sử dụng bởi tiến trình bên ngoài: PID $pId ($pName)." -ForegroundColor Red
+        Write-Host "[SAFETY] Hệ thống từ chối tắt ứng dụng khác trên Windows của bạn. Vui lòng giải phóng cổng hoặc cấu hình -ServerPort / -ClientPort khác!" -ForegroundColor Red
+        exit 1
+      }
     }
   }
 }

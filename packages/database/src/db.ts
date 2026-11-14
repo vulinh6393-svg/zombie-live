@@ -97,6 +97,15 @@ export async function runVersionedMigrations(client: DatabaseClient): Promise<vo
         path.join(process.cwd(), 'prisma/migrations/20261113_phase08_1_deferred_transferred/migration.sql'),
       ],
     },
+    {
+      id: '20261114_comment_dedup',
+      candidates: [
+        path.join(currentDir, '../prisma/migrations/20261114_comment_dedup/migration.sql'),
+        path.join(currentDir, '../../prisma/migrations/20261114_comment_dedup/migration.sql'),
+        path.join(process.cwd(), 'packages/database/prisma/migrations/20261114_comment_dedup/migration.sql'),
+        path.join(process.cwd(), 'prisma/migrations/20261114_comment_dedup/migration.sql'),
+      ],
+    },
   ];
 
   for (const mig of migrationsToRun) {

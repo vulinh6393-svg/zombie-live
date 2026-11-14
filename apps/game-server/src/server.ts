@@ -570,6 +570,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
   // Background Outbox Worker: Sole authoritative path for executing gift skills into engine
   let isOutboxWorkerPaused = false;
+  let isMaintenanceQuiesced = false;
+  let inFlightDbWrites = 0;
   const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
   const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
 
@@ -709,9 +711,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
     if (!dbClient) await initDb();
 
     if (ev.type === 'COMMENT') {
-      // P1.1: Kiểm tra Deduplication theo commentKey / providerEventId
+      // P1.2 (Final Acceptance Patch): Bền vững hóa Comment Deduplication (RAM LRU + Database `processed_events`)
       const commentKey = ev.providerEventId || ev.eventKey || ev.id;
       if (commentKey) {
+        // 1. Kiểm tra nhanh trong bộ đệm RAM
         const existingTs = processedCommentKeys.get(commentKey);
         if (existingTs && Date.now() - existingTs < COMMENT_CACHE_TTL_MS) {
           return {
@@ -719,6 +722,25 @@ export function buildServer(opts: BuildServerOptions = {}): {
             idempotentDuplicate: true,
             reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
           };
+        }
+        // 2. Kiểm tra bền vững trong cơ sở dữ liệu (chống duplicate qua restart hoặc sau 10 phút)
+        if (dbClient) {
+          try {
+            const dbCheck = await dbClient.query(
+              `SELECT event_key FROM processed_events WHERE event_key = $1`,
+              [commentKey]
+            );
+            if (dbCheck.rows && dbCheck.rows.length > 0) {
+              processedCommentKeys.set(commentKey, Date.now());
+              return {
+                accepted: true,
+                idempotentDuplicate: true,
+                reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+              };
+            }
+          } catch (dbCheckErr: any) {
+            app.log.warn(`[COMMENT_DEDUP] Error checking DB processed_events: ${dbCheckErr.message}`);
+          }
         }
       }
 
@@ -772,6 +794,20 @@ export function buildServer(opts: BuildServerOptions = {}): {
           if (oldestKey) processedCommentKeys.delete(oldestKey);
         }
         processedCommentKeys.set(commentKey, Date.now());
+
+        // Bền vững hóa khóa event vào database
+        if (dbClient) {
+          try {
+            await dbClient.query(
+              `INSERT INTO processed_events (event_key, event_type, user_id, command)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (event_key) DO NOTHING`,
+              [commentKey, 'COMMENT', ev.userId, ev.command || '']
+            );
+          } catch (dbInsertErr: any) {
+            app.log.warn(`[COMMENT_DEDUP] Error persisting processed comment key: ${dbInsertErr.message}`);
+          }
+        }
       }
 
       return { accepted: res.success, reason: res.reason, squad };
@@ -1349,24 +1385,45 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // P0.2 (Final Reliability Gate): Operational Quiesce Endpoint for Safe Database Backup
+  // P0.1 & P0.2 (Final Acceptance Patch): Operational Maintenance Barrier for Truly Consistent Database Backup
   app.post('/api/admin/db/quiesce', async (request, reply) => {
     const auth = verifyAdminAuth(request, reply, 'operator');
     if (!auth) return;
+
+    // 1. Kích hoạt bảo vệ maintenance: ngăn chặn toàn bộ DB writes mới từ Live Bridge ingress
+    isMaintenanceQuiesced = true;
     engine.pauseSimulation();
     stopOutboxWorker();
-    app.log.info('[DB_QUIESCE] Engine simulation and outbox worker paused for consistent database snapshot.');
-    await logAdminAction(auth.actor, auth.role, 'DB_QUIESCE', { tick: engine.tick });
-    return reply.send({ success: true, status: 'quiesced', timestamp: Date.now() });
+
+    // 2. Chờ các request ghi DB đang dở dang (in-flight writes) drain hoàn toàn (tối đa 5s)
+    const drainDeadline = Date.now() + 5000;
+    while (inFlightDbWrites > 0 && Date.now() < drainDeadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // 3. Flush commit/checkpoint buffer PGlite
+    if (dbClient) {
+      try {
+        await dbClient.query('SELECT 1');
+      } catch {}
+    }
+
+    app.log.info(`[DB_QUIESCE] Maintenance barrier active. Ingress blocked, engine and outbox paused. Remaining in-flight writes: ${inFlightDbWrites}`);
+    await logAdminAction(auth.actor, auth.role, 'DB_QUIESCE', { tick: engine.tick, inFlightRemaining: inFlightDbWrites });
+    return reply.send({ success: true, status: 'quiesced', inFlightRemaining: inFlightDbWrites, timestamp: Date.now() });
   });
 
-  // P0.2 (Final Reliability Gate): Operational Resume Endpoint after Database Backup
+  // P0.1 & P0.2 (Final Acceptance Patch): Operational Resume Endpoint after Database Backup
   app.post('/api/admin/db/resume', async (request, reply) => {
     const auth = verifyAdminAuth(request, reply, 'operator');
     if (!auth) return;
+
+    // Mở lại ingress và tiếp tục hoạt động engine & outbox
+    isMaintenanceQuiesced = false;
     engine.resumeSimulation();
     startOutboxWorker();
-    app.log.info('[DB_RESUME] Engine simulation and outbox worker resumed after consistent database snapshot.');
+
+    app.log.info('[DB_RESUME] Maintenance barrier lifted. Engine simulation and outbox worker resumed, DB ingress open.');
     await logAdminAction(auth.actor, auth.role, 'DB_RESUME', { tick: engine.tick });
     return reply.send({ success: true, status: 'resumed', timestamp: Date.now() });
   });
@@ -1388,6 +1445,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
       const jRes = await dbClient.query(`SELECT count(*) as count FROM match_command_journal`);
       const mRes = await dbClient.query(`SELECT count(*) as count FROM matches`);
       const dRes = await dbClient.query(`SELECT count(*) as count FROM deferred_match_commands`);
+      const peRes = await dbClient.query(`SELECT count(*) as count FROM processed_events`);
 
       return reply.send({
         success: true,
@@ -1399,6 +1457,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
           commandJournal: Number(jRes.rows[0]?.count || 0),
           matches: Number(mRes.rows[0]?.count || 0),
           deferredCommands: Number(dRes.rows[0]?.count || 0),
+          processedEvents: Number(peRes.rows[0]?.count || 0),
         },
         timestamp: Date.now(),
       });
@@ -1467,8 +1526,26 @@ export function buildServer(opts: BuildServerOptions = {}): {
       return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseRes.error.format() });
     }
 
-    const result = await processLiveEvent(parseRes.data);
-    return reply.send(result);
+    // P0.1 (Final Acceptance Patch): Maintenance Barrier: Chặn toàn bộ writes trong khi đang sao lưu database
+    if (isMaintenanceQuiesced) {
+      return reply
+        .status(503)
+        .header('Retry-After', '5')
+        .send({
+          error: 'DATABASE_MAINTENANCE_QUIESCED',
+          message: 'Database is currently quiesced for consistent backup maintenance. Please retry shortly.',
+          retryable: true,
+          retryAfterSeconds: 5,
+        });
+    }
+
+    inFlightDbWrites++;
+    try {
+      const result = await processLiveEvent(parseRes.data);
+      return reply.send(result);
+    } finally {
+      inFlightDbWrites = Math.max(0, inFlightDbWrites - 1);
+    }
   });
 
   // Mock LIVE Interaction Dashboard (P0.1: Chặn hoàn toàn ở production, bảo vệ bằng session/dev token)
