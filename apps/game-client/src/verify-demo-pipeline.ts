@@ -116,8 +116,10 @@ async function main() {
   };
 
   console.log(`[2/4] Dispatching deterministic comment (${testCommentEventId}) and gift (${testGiftEventId}) via Live Bridge...`);
-  await dispatcher.handleIncomingEvent(commentEvent);
-  await dispatcher.handleIncomingEvent(giftEvent);
+  const cmtRes = await dispatcher.handleIncomingEvent(commentEvent);
+  const giftRes = await dispatcher.handleIncomingEvent(giftEvent);
+  console.log(` - Dispatch comment accepted: ${cmtRes.accepted} (${cmtRes.reason})`);
+  console.log(` - Dispatch gift accepted: ${giftRes.accepted} (${giftRes.reason})`);
 
   // Đợi dispatcher drain queue đến khi Game Server phản hồi
   let drained = false;
@@ -137,47 +139,81 @@ async function main() {
 
   // 3. Truy vấn chính xác DB theo providerEventId (Không dùng đếm delta chung chung)
   console.log('[3/4] Verifying exact event identities in Database...');
-  const dbClient = await getDatabaseClient();
+  let dbClient: any = null;
   let dbVerified = false;
 
-  for (let attempt = 0; attempt < 25; attempt++) {
-    await new Promise((r) => setTimeout(r, 400));
+  const runQuery = async (sql: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> => {
+    // Ưu tiên truy vấn trực tiếp qua Game Server Admin Query API để tránh xung đột file lock PGlite
     try {
-      // a. Kiểm tra comment đã được reserve và APPLIED trong processed_events
-      const peRes = await dbClient.query(
-        `SELECT event_key, command, status FROM processed_events WHERE event_key = $1`,
-        [testCommentEventId]
-      );
-      const commentApplied = peRes.rows.length > 0 && peRes.rows[0].status === 'APPLIED';
+      const resp = await fetch(`${serverUrl}/api/admin/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminSecret,
+          'Authorization': `Bearer ${adminSecret}`,
+        },
+        body: JSON.stringify({ sql, params }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (resp.ok) {
+        const body = (await resp.json()) as any;
+        return { rows: body.rows || [], rowCount: body.rowCount ?? body.rows?.length ?? 0 };
+      }
+    } catch {}
 
-      // b. Kiểm tra gift đã được ghi nhận trong gift_events
-      const geRes = await dbClient.query(
-        `SELECT id, provider_event_id, gift_id FROM gift_events WHERE provider_event_id = $1`,
-        [testGiftEventId]
-      );
-      const giftRecorded = geRes.rows.length > 0;
+    // Fallback: kết nối local Database client nếu Game Server không bật API query
+    if (!dbClient) {
+      dbClient = await getDatabaseClient();
+    }
+    return await dbClient.query(sql, params);
+  };
 
-      // c. Kiểm tra outbox_events đã chuyển sang PROCESSED
-      let outboxProcessed = false;
-      if (giftRecorded) {
-        const giftRowId = geRes.rows[0].id;
-        const oeRes = await dbClient.query(
-          `SELECT id, status FROM outbox_events WHERE payload::text LIKE $1`,
-          [`%${giftRowId}%`]
+  try {
+    for (let attempt = 0; attempt < 25; attempt++) {
+      await new Promise((r) => setTimeout(r, 400));
+      try {
+        // a. Kiểm tra comment đã được reserve và APPLIED trong processed_events
+        const peRes = await runQuery(
+          `SELECT event_key, command, status FROM processed_events WHERE event_key = $1`,
+          [testCommentEventId]
         );
-        outboxProcessed = oeRes.rows.length > 0 && oeRes.rows[0].status === 'PROCESSED';
-      }
+        const commentApplied = peRes.rows.length > 0 && peRes.rows[0].status === 'APPLIED';
 
-      if (commentApplied && giftRecorded && outboxProcessed) {
-        dbVerified = true;
-        console.log(`[PASS 3/4] Database verified 100% by exact providerEventId!`);
-        console.log(` - processed_events: ${testCommentEventId} (status: APPLIED)`);
-        console.log(` - gift_events: ${testGiftEventId} (id: ${geRes.rows[0].id})`);
-        console.log(` - outbox_events: PROCESSED`);
-        break;
+        // b. Kiểm tra gift đã được ghi nhận trong gift_events
+        const geRes = await runQuery(
+          `SELECT id, provider_event_id, gift_id FROM gift_events WHERE provider_event_id = $1`,
+          [testGiftEventId]
+        );
+        const giftRecorded = geRes.rows.length > 0;
+
+        // c. Kiểm tra outbox_events đã chuyển sang PROCESSED (aggregate_id = providerEventId)
+        const oeRes = await runQuery(
+          `SELECT id, status FROM outbox_events WHERE aggregate_id = $1`,
+          [testGiftEventId]
+        );
+        const outboxProcessed = oeRes.rows.length > 0 && oeRes.rows[0].status === 'PROCESSED';
+
+        if (commentApplied && giftRecorded && outboxProcessed) {
+          dbVerified = true;
+          console.log(`[PASS 3/4] Database verified 100% by exact providerEventId!`);
+          console.log(` - processed_events: ${testCommentEventId} (status: APPLIED)`);
+          console.log(` - gift_events: ${testGiftEventId} (id: ${geRes.rows[0].id})`);
+          console.log(` - outbox_events: ${oeRes.rows[0].id} (status: PROCESSED)`);
+          break;
+        }
+
+        if (attempt % 3 === 0) {
+          console.log(`[DB CHECK Attempt ${attempt + 1}/25] commentApplied=${commentApplied}, giftRecorded=${giftRecorded}, outboxProcessed=${outboxProcessed} (outboxRows=${oeRes.rows.length}, status=${oeRes.rows[0]?.status})`);
+        }
+      } catch (dbErr: any) {
+        console.warn(`[DB CHECK RETRY] ${dbErr.message}`);
       }
-    } catch (dbErr: any) {
-      console.warn(`[DB CHECK RETRY] ${dbErr.message}`);
+    }
+  } finally {
+    if (dbClient) {
+      try {
+        await dbClient.close();
+      } catch {}
     }
   }
 

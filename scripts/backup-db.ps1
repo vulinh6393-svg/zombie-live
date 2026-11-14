@@ -63,7 +63,7 @@ if ($tcpConn) {
 if ($isServerRunning) {
   Write-Host "[1/4] Game Server đang chạy trên $ServerUrl. Kích hoạt /api/admin/db/quiesce..." -ForegroundColor Yellow
   try {
-    $quiesceRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/quiesce" -Method Post -Headers $headers -TimeoutSec 10
+    $quiesceRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/quiesce" -Method Post -Headers $headers -Body "{}" -TimeoutSec 10
     if (-not $quiesceRes -or $quiesceRes.success -ne $true -or $quiesceRes.status -ne "quiesced") {
       throw "Quiesce thất bại hoặc còn active writers: $(ConvertTo-Json $quiesceRes)"
     }
@@ -143,7 +143,7 @@ try {
   if ($isServerRunning) {
     Write-Host "[4/4] Phục hồi hoạt động bình thường qua /api/admin/db/resume..." -ForegroundColor Yellow
     try {
-      $resumeRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/resume" -Method Post -Headers $headers -TimeoutSec 5
+      $resumeRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/resume" -Method Post -Headers $headers -Body "{}" -TimeoutSec 5
       Write-Host "[PASS] Đã resume Engine, Outbox worker và mở lại DB ingress." -ForegroundColor Green
     } catch {
       Write-Host "[CRITICAL] Không thể tự động resume server: $($_.Exception.Message)" -ForegroundColor Red
