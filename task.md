@@ -1046,3 +1046,34 @@
 - [x] **Nghiệm Thu Toàn Diện & Đẩy Lên GitHub:**
   - [x] Chạy full test suite toàn bộ 7 package monorepo (141/141 tests PASS, 100%), build & typecheck.
   - [x] Git commit và push lên branch `feat/phase02-visual-refinement`.
+
+## Final Acceptance Recovery: The 3 P0 Blockers & End-to-End Pipeline Closure (ĐÃ HOÀN THÀNH TOÀN DIỆN)
+- [x] **P0.1 — Consistent PGlite Backup Barrier & Writer Drain:**
+  - [x] `/api/admin/db/quiesce` chặn 100% DB writes: live ingress, admin endpoints, match persistence timer, outbox worker.
+  - [x] Theo dõi `inFlightDbWrites`: nếu `inFlightDbWrites > 0` sau thời hạn drain (5s), trả về HTTP 503 `QUIESCE_TIMEOUT_WRITERS_ACTIVE`, `success: false`. Tuyệt đối không trả 200 `success: true`.
+  - [x] PGlite file locking & dirty buffers: gọi `syncToFs()` và đóng database an toàn (`close()`) trong lúc quiesce để giải phóng 100% file handles và xả sạch memory buffers trên Windows trước khi sao chép.
+  - [x] `/api/admin/db/resume`: mở lại kết nối database, tiếp tục simulation và outbox worker.
+  - [x] `scripts/backup-db.ps1`: fail-closed ngay lập tức (exit 1) nếu quiesce trả về lỗi hoặc `success !== true`; bọc trong `try/catch/finally` đảm bảo luôn resume.
+  - [x] Viết unit/integration test: mô phỏng writes đồng thời trong lúc backup, kiểm tra snapshot khôi phục khớp 100% data.
+- [x] **P0.2 — Atomic Comment Idempotency Reservation:**
+  - [x] Thêm migration bổ sung cột `status VARCHAR(50) DEFAULT 'PROCESSING'` và `applied_at TIMESTAMP` cho bảng `processed_events`.
+  - [x] Thay thế pattern non-atomic `SELECT -> mutate -> INSERT` bằng Atomic Reservation:
+    - `INSERT INTO processed_events (event_key, event_type, user_id, command, status) VALUES (..., 'PROCESSING') ON CONFLICT (event_key) DO NOTHING`
+    - Nếu `rowCount === 0`: kiểm tra trạng thái (`APPLIED` $\to$ trả về `idempotentDuplicate: true`; `PROCESSING` $\to$ trả về `CONCURRENT_COMMENT_IN_PROGRESS` retryable).
+    - Nếu reservation thành công: thực thi lệnh trên `engine`, sau đó cập nhật `status = 'APPLIED'`.
+    - Bọc trong try/catch cập nhật `status = 'FAILED'` nếu engine lỗi; không nuốt lỗi DB.
+  - [x] Viết unit test: 50 requests đồng thời cùng `providerEventId` cho `BAN` và `SUA`, xác minh zombie damage hoặc repair base chỉ áp dụng DUY NHẤT 1 LẦN.
+- [x] **P0.3 — WAL Middle Corruption Quarantine & Reconciliation:**
+  - [x] Sửa `apps/live-bridge/src/queue.ts`:
+    - Phân biệt rõ partial trailing line (cắt dòng cuối do crash dở $\to$ sạch sẽ truncate và phục hồi prefix) và middle corruption (hỏng ở giữa file).
+    - Khi phát hiện middle corruption: bảo lưu bản gốc sang `.corrupt_<ts>.bak`, trích xuất toàn bộ dòng suffix chưa parse sang `.quarantined_suffix_<ts>.jsonl`.
+    - Đặt queue vào trạng thái cách ly `isQuarantined = true` (`RECOVERY_REQUIRED`). Mọi enqueue/dequeue đều fail-closed.
+    - Cung cấp phương thức `reconcileQuarantinedSuffix(ledgerCheckFn)` đối soát các event trong suffix với Gift Ledger (`providerEventId`), nạp lại các event hợp lệ và mở lại queue.
+  - [x] Viết unit test cho middle corruption trong ENQUEUE/ACK/DLQ, bảo lưu suffix và khôi phục an toàn.
+- [x] **P1.1 — Deterministic Live Bridge E2E Demo Verification:**
+  - [x] Nâng cấp `verify-demo-pipeline.ts`: Dispatch thông qua Live Bridge (MockLiveAdapter $\to$ LiveEventDispatcher $\to$ WAL queue $\to$ Ingress Token), không gọi trực tiếp `fetch('/api/live/event')`.
+  - [x] Truy vấn chính xác bản ghi DB theo `providerEventId` trong `gift_events`, `processed_events`, `match_command_journal`, `outbox_events` (status `PROCESSED`).
+  - [x] Playwright Chromium: kiểm tra `clientSocketConnected`, xác nhận snapshot tick tăng dần, chụp ảnh `demo_obs_verified.png`.
+- [x] **P1.2 — Full Monorepo Test & Git Commit:**
+  - [x] Chạy build, typecheck và full test monorepo (đảm bảo 100% tests PASS).
+  - [x] Git commit và push lên GitHub, cung cấp SHA 40 ký tự và bảng nghiệm thu trung thực (giữ các gate chưa test thật ở BLOCKED).

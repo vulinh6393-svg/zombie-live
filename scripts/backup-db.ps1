@@ -63,11 +63,14 @@ if ($tcpConn) {
 if ($isServerRunning) {
   Write-Host "[1/4] Game Server đang chạy trên $ServerUrl. Kích hoạt /api/admin/db/quiesce..." -ForegroundColor Yellow
   try {
-    $quiesceRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/quiesce" -Method Post -Headers $headers -TimeoutSec 5
-    if (-not $quiesceRes -or $quiesceRes.status -ne "quiesced") {
-      throw "Quiesce phản hồi không hợp lệ: $(ConvertTo-Json $quiesceRes)"
+    $quiesceRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/quiesce" -Method Post -Headers $headers -TimeoutSec 10
+    if (-not $quiesceRes -or $quiesceRes.success -ne $true -or $quiesceRes.status -ne "quiesced") {
+      throw "Quiesce thất bại hoặc còn active writers: $(ConvertTo-Json $quiesceRes)"
     }
-    Write-Host "[PASS] Đã kích hoạt maintenance barrier: chặn Live Bridge ingress, tạm dừng Engine và Outbox worker." -ForegroundColor Green
+    if ($quiesceRes.stats) {
+      $preBackupStats = $quiesceRes.stats
+    }
+    Write-Host "[PASS] Đã kích hoạt maintenance barrier: chặn Live Bridge ingress, tạm dừng Engine và Outbox worker, đóng PGlite an toàn." -ForegroundColor Green
   } catch {
     Write-Host "[FATAL ERROR] Không thể quiesce database an toàn: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "[FAIL-CLOSED] DỪNG SAO LƯU NGAY LẬP TỨC ĐỂ TRÁNH DỮ LIỆU KHÔNG NHẤT QUÁN!" -ForegroundColor Red
@@ -131,7 +134,10 @@ try {
   # Ghi UTF-8 không có BOM để tránh lỗi cú pháp khi node JSON.parse
   [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
   Write-Host "[PASS] Manifest tạo thành công tại: $manifestPath ($($fileList.Count) files, $totalBytes bytes)." -ForegroundColor Green
-
+  $backupSucceeded = $true
+} catch {
+  Write-Host "[FATAL ERROR] Lỗi trong quá trình sao lưu: $($_.Exception.Message)" -ForegroundColor Red
+  $backupSucceeded = $false
 } finally {
   # 4. Luôn luôn resume Game Server trong finally block nếu đã quiesce
   if ($isServerRunning) {
@@ -145,6 +151,13 @@ try {
   } else {
     Write-Host "[4/4] Bỏ qua resume (server offline)." -ForegroundColor Gray
   }
+}
+
+if (-not $backupSucceeded) {
+  Write-Host "================================================================" -ForegroundColor Red
+  Write-Host " [BACKUP FAILED] SAO LƯU THẤT BẠI. DỮ LIỆU CHƯA ĐƯỢC SAO LƯU AN TOÀN!" -ForegroundColor Red
+  Write-Host "================================================================" -ForegroundColor Red
+  exit 1
 }
 
 Write-Host "================================================================" -ForegroundColor Cyan

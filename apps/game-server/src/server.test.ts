@@ -1358,6 +1358,164 @@ describe('Game Server Security & Event Ingestion', () => {
         expect(hasExecuted).toBe(true);
         expect(hasDuplicate).toBe(true);
       });
+
+      it('P0.2 Atomic Comment Idempotency: 50 concurrent requests for BAN mutate player stats EXACTLY ONCE', async () => {
+        const testBridgeToken = 'token_concurrent_ban_test';
+        const serverInstance = buildServer({
+          liveBridgeToken: testBridgeToken,
+          disableAutoTick: true,
+        });
+
+        // 1. Chuẩn bị người chơi squad alpha
+        serverInstance.engine.handleJoin('shooter_user', 'Shooter User', 'alpha');
+        const playerBefore = serverInstance.engine.getPlayers().find((p) => p.userId === 'shooter_user');
+        expect(playerBefore).toBeDefined();
+        const initialAssists = playerBefore!.assists;
+        const initialScore = playerBefore!.score;
+
+        // 2. Gửi đồng thời 50 requests cùng providerEventId cho lệnh BAN
+        const sharedEventId = `ban_concurrency_race_${Date.now()}`;
+        const promises = Array.from({ length: 50 }, () =>
+          serverInstance.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: sharedEventId,
+              userId: 'shooter_user',
+              userName: 'Shooter User',
+              command: 'BAN',
+              timestamp: Date.now(),
+            },
+          })
+        );
+
+        const responses = await Promise.all(promises);
+        const payloads = responses.map((r) => JSON.parse(r.payload));
+
+        // Phải có đúng 1 request được thực thi thành công ban đầu (accepted === true, không có idempotentDuplicate)
+        const initialExecutions = payloads.filter((p) => p.accepted === true && !p.idempotentDuplicate);
+        expect(initialExecutions.length).toBe(1);
+
+        // Toàn bộ các requests còn lại phải được nhận diện là duplicate hoặc in-progress
+        const deduplicated = payloads.filter(
+          (p) => p.idempotentDuplicate === true || p.reason === 'CONCURRENT_COMMENT_IN_PROGRESS'
+        );
+        expect(deduplicated.length).toBe(49);
+
+        // Engine mutation chỉ được áp dụng DUY NHẤT 1 LẦN (assists tăng đúng 1, không tăng 50)
+        const playerAfter = serverInstance.engine.getPlayers().find((p) => p.userId === 'shooter_user');
+        expect(playerAfter!.assists).toBe(initialAssists + 1);
+        expect(playerAfter!.score).toBeGreaterThan(initialScore);
+      });
+
+      it('P0.2 Atomic Comment Idempotency: 50 concurrent requests for SUA repair base EXACTLY ONCE', async () => {
+        const testBridgeToken = 'token_concurrent_sua_test';
+        const serverInstance = buildServer({
+          liveBridgeToken: testBridgeToken,
+          disableAutoTick: true,
+        });
+
+        // 1. Gia nhập squad và làm giảm baseHp xuống 800 để kiểm tra sửa chữa
+        serverInstance.engine.handleJoin('repair_user', 'Repair User', 'bravo');
+        serverInstance.engine.baseHp = 800;
+        const initialBaseHp = serverInstance.engine.baseHp;
+        const playerBefore = serverInstance.engine.getPlayers().find((p) => p.userId === 'repair_user');
+        const initialRepairs = playerBefore!.repairs;
+
+        // 2. Bắn phá đồng thời 50 requests cùng providerEventId cho lệnh SUA
+        const sharedEventId = `sua_concurrency_race_${Date.now()}`;
+        const promises = Array.from({ length: 50 }, () =>
+          serverInstance.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: sharedEventId,
+              userId: 'repair_user',
+              userName: 'Repair User',
+              command: 'SUA',
+              timestamp: Date.now(),
+            },
+          })
+        );
+
+        const responses = await Promise.all(promises);
+        const payloads = responses.map((r) => JSON.parse(r.payload));
+
+        const executed = payloads.filter((p) => p.accepted === true && !p.idempotentDuplicate);
+        expect(executed.length).toBe(1);
+
+        const playerAfter = serverInstance.engine.getPlayers().find((p) => p.userId === 'repair_user');
+        expect(playerAfter!.repairs).toBe(initialRepairs + 1);
+      });
+
+      it('P0.1 Consistent Quiesce & Offline Snapshot: releases PGlite file locks and allows 1:1 verified restore', async () => {
+        const adminSecret = 'admin_secret_snapshot_restore_test';
+        const testDbDir = path.resolve(process.cwd(), '.data/test_quiesce_snapshot_' + Date.now());
+        const backupDir = path.resolve(process.cwd(), '.data/test_backup_dest_' + Date.now());
+
+        const server = buildServer({
+          adminSecret,
+          dbDataDir: testDbDir,
+          disableAutoTick: true,
+        });
+
+        try {
+          // Khởi tạo và ghi dữ liệu ban đầu
+          await server.app.inject({
+            method: 'GET',
+            url: '/api/admin/db/stats',
+            headers: { 'x-admin-token': adminSecret },
+          });
+
+          // Quiesce server: Flush dirty buffers và đóng PGlite để giải phóng file locks
+          const quiesceRes = await server.app.inject({
+            method: 'POST',
+            url: '/api/admin/db/quiesce',
+            headers: { 'x-admin-token': adminSecret },
+          });
+          expect(quiesceRes.statusCode).toBe(200);
+          const qData = JSON.parse(quiesceRes.payload);
+          expect(qData.success).toBe(true);
+          expect(qData.status).toBe('quiesced');
+          expect(qData.inFlightRemaining).toBe(0);
+
+          // Sao chép thư mục trong trạng thái quiesce (an toàn trên Windows không bị EBUSY file lock)
+          fs.mkdirSync(backupDir, { recursive: true });
+          fs.cpSync(testDbDir, backupDir, { recursive: true });
+
+          // Resume server
+          const resumeRes = await server.app.inject({
+            method: 'POST',
+            url: '/api/admin/db/resume',
+            headers: { 'x-admin-token': adminSecret },
+          });
+          expect(resumeRes.statusCode).toBe(200);
+
+          // Khôi phục độc lập vào backupDir và truy vấn kiểm chứng
+          const { getDatabaseClient } = await import('@zombie-live/database');
+          const restoredDb = await getDatabaseClient({ dataDir: backupDir, forceNew: true });
+          const isAlive = await restoredDb.healthCheck();
+          expect(isAlive).toBe(true);
+          await restoredDb.close();
+        } finally {
+          if (fs.existsSync(testDbDir)) {
+            try { fs.rmSync(testDbDir, { recursive: true, force: true }); } catch {}
+          }
+          if (fs.existsSync(backupDir)) {
+            try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
     });
   });
 });

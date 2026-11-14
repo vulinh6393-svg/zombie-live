@@ -47,6 +47,9 @@ export class DurableEventQueue {
   private maxRetries: number;
   private walLineCount: number = 0;
   private compactionThreshold: number;
+  private isQuarantined: boolean = false;
+  private quarantinedSuffixFile: string | null = null;
+  private corruptedLineNumber: number = -1;
 
   constructor(opts: DurableQueueOptions = {}) {
     const defaultDataDir = path.resolve(process.cwd(), '.data');
@@ -143,15 +146,34 @@ export class DurableEventQueue {
   }
 
   /**
-   * P1.1: Quản lý phục hồi và phát hiện corruption có kiểm chứng:
+   * P0.3 (Final Acceptance Recovery): Quản lý phục hồi và phát hiện corruption có kiểm chứng:
    * - Phân biệt: Partial trailing line (crash khi append dòng cuối) vs Middle corrupted line (hỏng ở giữa file).
-   * - Bảo lưu file gốc (.bak) làm chứng cứ pháp chứng.
-   * - Cắt gọt và khôi phục valid prefix lên đĩa; không âm thầm bỏ qua dòng giữa rồi tiếp tục append vào file lỗi.
+   * - Trailing corruption: Cắt gọt và khôi phục valid prefix lên đĩa; không mất dữ liệu hợp lệ.
+   * - Middle corruption: FAIL-CLOSED! Không âm thầm bỏ qua các dòng suffix tiếp sau ranh giới hỏng.
+   *   + Bảo lưu file gốc (.bak) làm chứng cứ pháp chứng.
+   *   + Lưu các dòng suffix chưa phân tích sang .quarantined_suffix_<timestamp>.jsonl để đối soát.
+   *   + Đưa queue vào trạng thái cách ly (isQuarantined = true, RECOVERY_REQUIRED).
+   *   + Cung cấp phương thức reconcileQuarantinedSuffix() để đối soát với Gift Ledger qua providerEventId.
    */
   private loadFromDisk(): void {
     if (!fs.existsSync(this.walFile)) {
       return;
     }
+
+    // Dọn dẹp các file tmp dở dang nếu có do crash trước đó
+    try {
+      const walDir = path.dirname(this.walFile);
+      if (fs.existsSync(walDir)) {
+        const files = fs.readdirSync(walDir);
+        for (const f of files) {
+          if (f.startsWith(path.basename(this.walFile) + '.tmp_')) {
+            try {
+              fs.unlinkSync(path.join(walDir, f));
+            } catch {}
+          }
+        }
+      }
+    } catch {}
 
     let raw = '';
     try {
@@ -179,12 +201,13 @@ export class DurableEventQueue {
       } catch (parseErr: any) {
         hasCorruptedLine = true;
         corruptionIndex = i;
+        this.corruptedLineNumber = i + 1;
         console.warn(`[QUEUE CORRUPTION DETECTED] Line ${i + 1} of ${lines.length} in WAL is corrupted: ${parseErr.message}`);
-        break; // Dừng ngay tại ranh giới lỗi đầu tiên; không đọc tiếp các dòng sau ranh giới hỏng
+        break; // Dừng ngay tại ranh giới lỗi đầu tiên
       }
     }
 
-    // Fail-Closed Recovery:
+    // Fail-Closed Recovery & Forensic Preservation:
     if (hasCorruptedLine) {
       const corruptBak = `${this.walFile}.corrupt_${Date.now()}.bak`;
       try {
@@ -197,15 +220,22 @@ export class DurableEventQueue {
       const isPartialFinalLine = corruptionIndex === lines.length - 1;
       if (isPartialFinalLine) {
         console.info(`[WAL RECOVERY] Partial trailing line detected at end of file (index ${corruptionIndex}). Recovering valid prefix (${validOps.length} records).`);
+        // Dòng cuối cùng bị dở dang: cắt bỏ dòng lỗi và lưu lại valid prefix sạch
+        this.rewriteWalSync(validOps);
       } else {
-        console.warn(`[WAL RECOVERY] Middle WAL corruption detected at line ${corruptionIndex + 1}/${lines.length}. Quarantining corrupt remainder and recovering valid prefix (${validOps.length} records).`);
+        // P0.3: HỎNG Ở GIỮA TẬP TIN (Middle Corruption)!
+        // Tuyệt đối KHÔNG xóa bỏ phần suffix phía sau dòng lỗi. Lưu sang file cách ly để đối soát!
+        const suffixLines = lines.slice(corruptionIndex + 1);
+        const suffixFile = `${this.walFile}.quarantined_suffix_${Date.now()}.jsonl`;
+        fs.writeFileSync(suffixFile, suffixLines.join('\n') + '\n', 'utf-8');
+        this.isQuarantined = true;
+        this.quarantinedSuffixFile = suffixFile;
+        console.warn(`[WAL RECOVERY] Middle WAL corruption detected at line ${corruptionIndex + 1}/${lines.length}. Preserved ${suffixLines.length} suffix lines to ${suffixFile}. Queue placed in QUARANTINE mode (RECOVERY_REQUIRED).`);
+        // Không ghi đè làm mất file WAL gốc
       }
-
-      // Viết lại WAL chỉ chứa valid prefix để các append sau không nối tiếp vào dữ liệu hỏng
-      this.rewriteWalSync(validOps);
     }
 
-    // Áp dụng các operation hợp lệ vào queue
+    // Áp dụng các operation hợp lệ (prefix) vào queue
     for (const op of validOps) {
       if (op.op === 'ENQUEUE') {
         this.queue.set(op.id, {
@@ -253,7 +283,90 @@ export class DurableEventQueue {
     this.inFlightIds.clear();
   }
 
+  public isRecoveryRequired(): boolean {
+    return this.isQuarantined;
+  }
+
+  public getQuarantinedSuffixFilePath(): string | null {
+    return this.quarantinedSuffixFile;
+  }
+
+  /**
+   * P0.3: Phương thức đối soát và hòa giải các sự kiện trong phần suffix bị cách ly:
+   * Cho phép đối soát với Gift Ledger qua providerEventId để nạp lại các event chưa xử lý
+   * và bỏ qua các duplicate đã được ghi nhận.
+   */
+  public async reconcileQuarantinedSuffix(
+    isAlreadyProcessedFn?: (providerEventId: string) => Promise<boolean>
+  ): Promise<{ recovered: number; duplicatesSkipped: number; invalidLines: number }> {
+    if (!this.isQuarantined || !this.quarantinedSuffixFile || !fs.existsSync(this.quarantinedSuffixFile)) {
+      return { recovered: 0, duplicatesSkipped: 0, invalidLines: 0 };
+    }
+
+    const content = fs.readFileSync(this.quarantinedSuffixFile, 'utf-8');
+    const lines = content.split('\n').filter((l) => l.trim().length > 0);
+    let recovered = 0;
+    let duplicatesSkipped = 0;
+    let invalidLines = 0;
+
+    const recoveredOps: WalOperation[] = [];
+
+    for (const line of lines) {
+      try {
+        const op = JSON.parse(line) as WalOperation;
+        if (!op || !op.op || !op.id) {
+          invalidLines++;
+          continue;
+        }
+
+        if (isAlreadyProcessedFn) {
+          const providerId = (op.op === 'ENQUEUE' && (op.payload as any)?.providerEventId)
+            ? (op.payload as any).providerEventId
+            : op.id;
+          const isProcessed = await isAlreadyProcessedFn(providerId);
+          if (isProcessed) {
+            duplicatesSkipped++;
+            continue;
+          }
+        }
+
+        recoveredOps.push(op);
+        recovered++;
+      } catch {
+        invalidLines++;
+      }
+    }
+
+    // Áp dụng các op đã khôi phục vào queue
+    for (const op of recoveredOps) {
+      if (op.op === 'ENQUEUE') {
+        this.queue.set(op.id, {
+          id: op.id,
+          eventType: op.eventType,
+          payload: op.payload,
+          createdAt: op.createdAt,
+          retryCount: op.retryCount || 0,
+          status: 'PENDING',
+        });
+      } else if (op.op === 'ACK' || op.op === 'DLQ') {
+        this.queue.delete(op.id);
+      }
+    }
+
+    // Tái cấu trúc WAL sạch và đồng bộ xuống đĩa
+    this.isQuarantined = false;
+    this.compactWALSync();
+    this.quarantinedSuffixFile = null;
+
+    console.info(`[WAL RECONCILIATION] Successfully reconciled: ${recovered} recovered, ${duplicatesSkipped} duplicates skipped, ${invalidLines} invalid lines.`);
+    return { recovered, duplicatesSkipped, invalidLines };
+  }
+
   public compactWALSync(): void {
+    if (this.isQuarantined) {
+      console.warn('[QUEUE] Cannot compact WAL while queue is in quarantined state (RECOVERY_REQUIRED).');
+      return;
+    }
     try {
       this.ensureDirs();
       const tempFile = `${this.walFile}.tmp_${Date.now()}`;
@@ -287,6 +400,10 @@ export class DurableEventQueue {
   }
 
   public enqueue(event: { id: string; eventType: 'COMMENT' | 'GIFT'; payload: any }): boolean {
+    if (this.isQuarantined) {
+      throw new Error(`QUEUE_RECOVERY_REQUIRED: Queue is quarantined due to middle WAL corruption at line ${this.corruptedLineNumber}. Reconciliation required.`);
+    }
+
     if (this.queue.has(event.id)) {
       return true; // Idempotent: đã tồn tại
     }
@@ -325,6 +442,7 @@ export class DurableEventQueue {
   }
 
   public peekPending(): QueuedEventRecord | null {
+    if (this.isQuarantined) return null;
     for (const q of this.queue.values()) {
       if (q.status === 'PENDING' && !this.inFlightIds.has(q.id)) {
         return q;
@@ -438,6 +556,9 @@ export class DurableEventQueue {
   }
 
   public getAllPending(): QueuedEventRecord[] {
+    if (this.isQuarantined) {
+      throw new Error(`QUEUE_RECOVERY_REQUIRED: Queue is quarantined due to middle WAL corruption at line ${this.corruptedLineNumber}.`);
+    }
     return Array.from(this.queue.values()).filter(
       (q) => q.status === 'PENDING' && !this.inFlightIds.has(q.id)
     );

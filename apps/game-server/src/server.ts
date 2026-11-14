@@ -517,12 +517,22 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   });
 
+  // P0.1 (Final Acceptance Recovery): Operational Maintenance Barrier flags
+  let isMaintenanceQuiesced = false;
+  let inFlightDbWrites = 0;
+  let cachedPreBackupStats: any = null;
+  let isOutboxWorkerPaused = false;
+  const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
+  const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
+
   // Background match persistence watcher (Runs when match ends, strictly non-blocking for 20Hz tick)
   const savedMatchIds = new Set<string>();
   const matchPersistenceTimer = setInterval(async () => {
+    if (isMaintenanceQuiesced) return;
     if (engine.phase === 'RESULTS' && !savedMatchIds.has(engine.matchId)) {
       await initDb();
-      if (matchRepo) {
+      if (matchRepo && !isMaintenanceQuiesced) {
+        inFlightDbWrites++;
         try {
           const snapshot = engine.generateSnapshot();
           const mvpName = snapshot.mvpPlayers?.[0]?.name;
@@ -563,25 +573,22 @@ export function buildServer(opts: BuildServerOptions = {}): {
         } catch (err: any) {
           app.log.warn(`[MATCH_PERSISTENCE] Error saving match: ${err.message}`);
           // DB error: Không thêm vào savedMatchIds -> sẽ retry ở chu kỳ kế tiếp
+        } finally {
+          inFlightDbWrites = Math.max(0, inFlightDbWrites - 1);
         }
       }
     }
   }, 500);
 
   // Background Outbox Worker: Sole authoritative path for executing gift skills into engine
-  let isOutboxWorkerPaused = false;
-  let isMaintenanceQuiesced = false;
-  let inFlightDbWrites = 0;
-  const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
-  const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
-
   const outboxWorkerTimer = setInterval(async () => {
-    if (isOutboxWorkerPaused) return;
+    if (isOutboxWorkerPaused || isMaintenanceQuiesced) return;
     if (!outboxRepo) {
       await initDb();
-      if (!outboxRepo) return;
+      if (!outboxRepo || isMaintenanceQuiesced) return;
     }
 
+    inFlightDbWrites++;
     try {
       // Claim pending or expired events atomically with row locking (SKIP LOCKED) and 30s lease
       const claimed = await outboxRepo.claimPendingEvents(20, workerInstanceId, 30);
@@ -698,6 +705,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
       }
     } catch (err: any) {
       // Worker retry loop continues
+    } finally {
+      inFlightDbWrites = Math.max(0, inFlightDbWrites - 1);
     }
   }, 100);
 
@@ -711,10 +720,11 @@ export function buildServer(opts: BuildServerOptions = {}): {
     if (!dbClient) await initDb();
 
     if (ev.type === 'COMMENT') {
-      // P1.2 (Final Acceptance Patch): Bền vững hóa Comment Deduplication (RAM LRU + Database `processed_events`)
+      // P0.2 (Final Acceptance Recovery): Atomic Comment Idempotency Reservation
+      // Ngăn chặn hoàn toàn race condition bằng nguyên lý Claim / Reserve trước khi mutate engine
       const commentKey = ev.providerEventId || ev.eventKey || ev.id;
       if (commentKey) {
-        // 1. Kiểm tra nhanh trong bộ đệm RAM
+        // 1. Kiểm tra nhanh trong bộ đệm RAM (LRU)
         const existingTs = processedCommentKeys.get(commentKey);
         if (existingTs && Date.now() - existingTs < COMMENT_CACHE_TTL_MS) {
           return {
@@ -723,23 +733,44 @@ export function buildServer(opts: BuildServerOptions = {}): {
             reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
           };
         }
-        // 2. Kiểm tra bền vững trong cơ sở dữ liệu (chống duplicate qua restart hoặc sau 10 phút)
+
+        // 2. Atomic Reservation vào database TRƯỚC KHI thực thi bất kỳ engine mutation nào
         if (dbClient) {
           try {
-            const dbCheck = await dbClient.query(
-              `SELECT event_key FROM processed_events WHERE event_key = $1`,
-              [commentKey]
+            const insertRes = await dbClient.query(
+              `INSERT INTO processed_events (event_key, event_type, user_id, command, status)
+               VALUES ($1, $2, $3, $4, 'PROCESSING')
+               ON CONFLICT (event_key) DO NOTHING
+               RETURNING event_key, status`,
+              [commentKey, 'COMMENT', ev.userId, ev.command || '']
             );
-            if (dbCheck.rows && dbCheck.rows.length > 0) {
-              processedCommentKeys.set(commentKey, Date.now());
+
+            if (insertRes.rowCount === 0) {
+              // Khóa đã được reserve bởi request khác! Kiểm tra trạng thái hiện tại
+              const existing: any = await dbClient.query(
+                `SELECT status FROM processed_events WHERE event_key = $1`,
+                [commentKey]
+              );
+              const rowStatus = existing.rows?.[0]?.status;
+              if (rowStatus === 'APPLIED') {
+                processedCommentKeys.set(commentKey, Date.now());
+                return {
+                  accepted: true,
+                  idempotentDuplicate: true,
+                  reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+                };
+              }
+              // Request đồng thời khác đang trong quá trình thực thi (PROCESSING)
               return {
-                accepted: true,
-                idempotentDuplicate: true,
-                reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+                accepted: false,
+                retryable: true,
+                reason: 'CONCURRENT_COMMENT_IN_PROGRESS',
               };
             }
-          } catch (dbCheckErr: any) {
-            app.log.warn(`[COMMENT_DEDUP] Error checking DB processed_events: ${dbCheckErr.message}`);
+          } catch (dbReservationErr: any) {
+            app.log.error(`[COMMENT_DEDUP] Atomic reservation failed: ${dbReservationErr.message}`);
+            // P0-2 Fail-closed: Tuyệt đối không nuốt lỗi DB khi reserve định danh sự kiện
+            throw new Error(`DATABASE_RESERVATION_ERROR: ${dbReservationErr.message}`);
           }
         }
       }
@@ -749,65 +780,79 @@ export function buildServer(opts: BuildServerOptions = {}): {
       let squad: 'alpha' | 'bravo' | 'charlie' | undefined;
       let missionAction: 'JOIN' | 'BAN' | 'SUA' | 'CUU' | 'BOSS' | null = null;
 
-      if (rawCmd.startsWith('JOIN')) {
-        const parts = rawCmd.split(' ');
-        const laneArg = parts[1];
-        squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
-        res = engine.handleJoin(ev.userId, ev.userName, squad);
-        missionAction = 'JOIN';
-      } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
-        squad = 'alpha';
-        res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
-        missionAction = 'JOIN';
-      } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
-        squad = 'bravo';
-        res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
-        missionAction = 'JOIN';
-      } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
-        squad = 'charlie';
-        res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
-        missionAction = 'JOIN';
-      } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
-        res = engine.handleShoot(ev.userId);
-        missionAction = 'BAN';
-      } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
-        res = engine.handleRepair(ev.userId);
-        missionAction = 'SUA';
-      } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
-        res = engine.handleRescue(ev.userId);
-        missionAction = 'CUU';
-      } else if (rawCmd === 'BOSS') {
-        res = engine.handleBossFocus(ev.userId);
-        missionAction = 'BOSS';
-      }
-
-      if (res.success && missionAction && playerRepo && missionRepo) {
-        playerRepo
-          .findOrCreate('mock', ev.userId, ev.userName, squad || 'bravo')
-          .then((p) => missionRepo!.recordAction(p.id, missionAction!))
-          .catch((err) => app.log.warn(`[PERSISTENCE] Error saving mission action: ${err.message}`));
-      }
-
-      if (commentKey) {
-        if (processedCommentKeys.size >= MAX_COMMENT_CACHE_SIZE) {
-          const oldestKey = processedCommentKeys.keys().next().value;
-          if (oldestKey) processedCommentKeys.delete(oldestKey);
+      try {
+        if (rawCmd.startsWith('JOIN')) {
+          const parts = rawCmd.split(' ');
+          const laneArg = parts[1];
+          squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
+          res = engine.handleJoin(ev.userId, ev.userName, squad);
+          missionAction = 'JOIN';
+        } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
+          squad = 'alpha';
+          res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
+          missionAction = 'JOIN';
+        } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
+          squad = 'bravo';
+          res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
+          missionAction = 'JOIN';
+        } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
+          squad = 'charlie';
+          res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
+          missionAction = 'JOIN';
+        } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
+          res = engine.handleShoot(ev.userId);
+          missionAction = 'BAN';
+        } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
+          res = engine.handleRepair(ev.userId);
+          missionAction = 'SUA';
+        } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
+          res = engine.handleRescue(ev.userId);
+          missionAction = 'CUU';
+        } else if (rawCmd === 'BOSS') {
+          res = engine.handleBossFocus(ev.userId);
+          missionAction = 'BOSS';
         }
-        processedCommentKeys.set(commentKey, Date.now());
 
-        // Bền vững hóa khóa event vào database
-        if (dbClient) {
+        // Cập nhật trạng thái thành APPLIED trong database sau khi engine thực thi thành công
+        if (dbClient && commentKey) {
+          await dbClient.query(
+            `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+            [commentKey]
+          );
+        }
+
+        if (commentKey) {
+          if (processedCommentKeys.size >= MAX_COMMENT_CACHE_SIZE) {
+            const oldestKey = processedCommentKeys.keys().next().value;
+            if (oldestKey) processedCommentKeys.delete(oldestKey);
+          }
+          processedCommentKeys.set(commentKey, Date.now());
+        }
+      } catch (engineErr: any) {
+        if (dbClient && commentKey) {
           try {
             await dbClient.query(
-              `INSERT INTO processed_events (event_key, event_type, user_id, command)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (event_key) DO NOTHING`,
-              [commentKey, 'COMMENT', ev.userId, ev.command || '']
+              `UPDATE processed_events SET status = 'FAILED' WHERE event_key = $1`,
+              [commentKey]
             );
-          } catch (dbInsertErr: any) {
-            app.log.warn(`[COMMENT_DEDUP] Error persisting processed comment key: ${dbInsertErr.message}`);
-          }
+          } catch {}
         }
+        throw engineErr;
+      }
+
+      if (res.success && missionAction && playerRepo && missionRepo && !isMaintenanceQuiesced) {
+        inFlightDbWrites++;
+        playerRepo
+          .findOrCreate('mock', ev.userId, ev.userName, squad || 'bravo')
+          .then(async (p) => {
+            if (missionRepo) {
+              await missionRepo.recordAction(p.id, missionAction!);
+            }
+          })
+          .catch((err) => app.log.warn(`[PERSISTENCE] Error saving mission action: ${err.message}`))
+          .finally(() => {
+            inFlightDbWrites = Math.max(0, inFlightDbWrites - 1);
+          });
       }
 
       return { accepted: res.success, reason: res.reason, squad };
@@ -1385,12 +1430,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
     });
   });
 
-  // P0.1 & P0.2 (Final Acceptance Patch): Operational Maintenance Barrier for Truly Consistent Database Backup
+  // P0.1 & P0.2 (Final Acceptance Recovery): Operational Maintenance Barrier for Truly Consistent Database Backup
   app.post('/api/admin/db/quiesce', async (request, reply) => {
     const auth = verifyAdminAuth(request, reply, 'operator');
     if (!auth) return;
 
-    // 1. Kích hoạt bảo vệ maintenance: ngăn chặn toàn bộ DB writes mới từ Live Bridge ingress
+    // 1. Kích hoạt bảo vệ maintenance: ngăn chặn toàn bộ DB writes mới từ Live Bridge ingress và Admin
     isMaintenanceQuiesced = true;
     engine.pauseSimulation();
     stopOutboxWorker();
@@ -1401,29 +1446,100 @@ export function buildServer(opts: BuildServerOptions = {}): {
       await new Promise((r) => setTimeout(r, 50));
     }
 
-    // 3. Flush commit/checkpoint buffer PGlite
-    if (dbClient) {
-      try {
-        await dbClient.query('SELECT 1');
-      } catch {}
+    // P0.1 FAIL-CLOSED: Nếu sau 5s vẫn còn in-flight writes, rollback và trả về 503 QUIESCE_TIMEOUT_WRITERS_ACTIVE
+    if (inFlightDbWrites > 0) {
+      isMaintenanceQuiesced = false;
+      engine.resumeSimulation();
+      startOutboxWorker();
+      app.log.error(`[DB_QUIESCE_FAILED] Writers still active after timeout: ${inFlightDbWrites}. Aborting quiesce.`);
+      return reply.status(503).send({
+        success: false,
+        error: 'QUIESCE_TIMEOUT_WRITERS_ACTIVE',
+        inFlightRemaining: inFlightDbWrites,
+        timestamp: Date.now(),
+      });
     }
 
-    app.log.info(`[DB_QUIESCE] Maintenance barrier active. Ingress blocked, engine and outbox paused. Remaining in-flight writes: ${inFlightDbWrites}`);
-    await logAdminAction(auth.actor, auth.role, 'DB_QUIESCE', { tick: engine.tick, inFlightRemaining: inFlightDbWrites });
-    return reply.send({ success: true, status: 'quiesced', inFlightRemaining: inFlightDbWrites, timestamp: Date.now() });
+    // 3. Lấy pre-backup stats TRƯỚC KHI đóng database
+    let preBackupStats: any = null;
+    if (!dbClient) await initDb();
+    if (dbClient) {
+      try {
+        const pRes = await dbClient.query(`SELECT count(*) as count, coalesce(sum(xp), 0) as total_xp FROM players`);
+        const gRes = await dbClient.query(`SELECT count(*) as count FROM gift_events`);
+        const oRes = await dbClient.query(`SELECT count(*) as count FROM outbox_events`);
+        const jRes = await dbClient.query(`SELECT count(*) as count FROM match_command_journal`);
+        const mRes = await dbClient.query(`SELECT count(*) as count FROM matches`);
+        const dRes = await dbClient.query(`SELECT count(*) as count FROM deferred_match_commands`);
+        const peRes = await dbClient.query(`SELECT count(*) as count FROM processed_events`);
+
+        preBackupStats = {
+          players: Number(pRes.rows[0]?.count || 0),
+          totalXp: Number(pRes.rows[0]?.total_xp || 0),
+          giftEvents: Number(gRes.rows[0]?.count || 0),
+          outboxEvents: Number(oRes.rows[0]?.count || 0),
+          commandJournal: Number(jRes.rows[0]?.count || 0),
+          matches: Number(mRes.rows[0]?.count || 0),
+          deferredCommands: Number(dRes.rows[0]?.count || 0),
+          processedEvents: Number(peRes.rows[0]?.count || 0),
+        };
+        cachedPreBackupStats = preBackupStats;
+      } catch (err: any) {
+        app.log.warn(`[DB_QUIESCE] Could not fetch pre-backup stats: ${err.message}`);
+      }
+    }
+
+    // 4. PGlite file locking & dirty buffers: Flush buffers và đóng PGlite an toàn để giải phóng 100% file handles trên Windows
+    if (dbClient) {
+      try {
+        const pgliteInstance = (dbClient as any).pglite;
+        if (pgliteInstance?.syncToFs) {
+          await pgliteInstance.syncToFs();
+        }
+        await dbClient.close();
+        dbClient = null;
+        playerRepo = null;
+        missionRepo = null;
+        matchRepo = null;
+        giftLedgerRepo = null;
+        outboxRepo = null;
+        journalRepo = null;
+        deferredRepo = null;
+        sessionRevocationRepo = null;
+        app.log.info('[DB_QUIESCE] PGlite connection closed safely. File locks released for consistent snapshot.');
+      } catch (closeErr: any) {
+        app.log.warn(`[DB_QUIESCE] Error closing dbClient during quiesce: ${closeErr.message}`);
+      }
+    }
+
+    app.log.info(`[DB_QUIESCE] Maintenance barrier active. Ingress blocked, engine and outbox paused, PGlite closed.`);
+    await logAdminAction(auth.actor, auth.role, 'DB_QUIESCE', { tick: engine.tick, inFlightRemaining: 0 });
+    return reply.send({
+      success: true,
+      status: 'quiesced',
+      inFlightRemaining: 0,
+      stats: preBackupStats,
+      timestamp: Date.now(),
+    });
   });
 
-  // P0.1 & P0.2 (Final Acceptance Patch): Operational Resume Endpoint after Database Backup
+  // P0.1 & P0.2 (Final Acceptance Recovery): Operational Resume Endpoint after Database Backup
   app.post('/api/admin/db/resume', async (request, reply) => {
     const auth = verifyAdminAuth(request, reply, 'operator');
     if (!auth) return;
 
-    // Mở lại ingress và tiếp tục hoạt động engine & outbox
+    // 1. Mở lại kết nối DB nếu đã đóng lúc quiesce
+    if (!dbClient) {
+      await initDb();
+    }
+
+    // 2. Mở lại ingress và tiếp tục hoạt động engine & outbox
     isMaintenanceQuiesced = false;
+    cachedPreBackupStats = null;
     engine.resumeSimulation();
     startOutboxWorker();
 
-    app.log.info('[DB_RESUME] Maintenance barrier lifted. Engine simulation and outbox worker resumed, DB ingress open.');
+    app.log.info('[DB_RESUME] Maintenance barrier lifted. Database reopened, engine simulation and outbox worker resumed, DB ingress open.');
     await logAdminAction(auth.actor, auth.role, 'DB_RESUME', { tick: engine.tick });
     return reply.send({ success: true, status: 'resumed', timestamp: Date.now() });
   });
@@ -1432,6 +1548,16 @@ export function buildServer(opts: BuildServerOptions = {}): {
   app.get('/api/admin/db/stats', async (request, reply) => {
     const auth = verifyAdminAuth(request, reply, 'viewer');
     if (!auth) return;
+
+    if (isMaintenanceQuiesced && cachedPreBackupStats) {
+      return reply.send({
+        success: true,
+        isMaintenanceQuiesced: true,
+        stats: cachedPreBackupStats,
+        timestamp: Date.now(),
+      });
+    }
+
     if (!dbClient) await initDb();
 
     if (!dbClient) {
