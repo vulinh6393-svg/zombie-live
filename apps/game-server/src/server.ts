@@ -82,6 +82,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   stopEngine: () => void;
   adminSecret: string;
   dashboardDevToken: string;
+  readonly dbClient: any;
 } {
   const app = fastify({ logger: opts.logger ?? false });
 
@@ -416,6 +417,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         }
         engine.queueSkillCommand({
           commandId: cmd.id,
+          providerEventId: cmd.commandPayload?.providerEventId,
           matchId: targetMatchId,
           seq: jSeq,
           targetTick: engine.tick + 1,
@@ -456,6 +458,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         }
         engine.queueSkillCommand({
           commandId: cmd.id,
+          providerEventId: cmd.commandPayload?.providerEventId,
           matchId: targetMatchId,
           seq: jSeq,
           targetTick: engine.tick + 1,
@@ -529,43 +532,71 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
           if (journalRepo) {
             const latestCheckpoint = await journalRepo.getLatestCheckpoint(activeMatch.id);
+            let lastJournalSeq = 0;
             if (latestCheckpoint) {
               app.log.info(`[RECOVERY] Restoring simulation checkpoint for match ${activeMatch.id} at tick ${latestCheckpoint.tick} (seq ${latestCheckpoint.lastJournalSeq})`);
               engine.loadSimulationState(latestCheckpoint.stateSnapshot);
+              lastJournalSeq = latestCheckpoint.lastJournalSeq;
+            } else {
+              app.log.info(`[RECOVERY] No checkpoint found for active match ${activeMatch.id}. Replaying all journal commands from seq 0.`);
+              lastJournalSeq = 0;
+            }
 
-              // Replay unapplied journal commands after checkpoint sequence via tick-ordered queue
-              const unapplied = await journalRepo.getCommandsToReplay(activeMatch.id, latestCheckpoint.lastJournalSeq);
-              app.log.info(`[RECOVERY] Replaying ${unapplied.length} unapplied commands after seq ${latestCheckpoint.lastJournalSeq}`);
-              for (const cmdEntry of unapplied) {
-                if (cmdEntry.commandType?.startsWith('COMMENT_')) {
-                  const payload = cmdEntry.payload || {};
-                  if (cmdEntry.commandType === 'COMMENT_JOIN') {
-                    engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
-                  } else if (cmdEntry.commandType === 'COMMENT_BAN') {
-                    engine.handleShoot(payload.userId);
-                  } else if (cmdEntry.commandType === 'COMMENT_SUA') {
-                    engine.handleRepair(payload.userId);
-                  } else if (cmdEntry.commandType === 'COMMENT_CUU') {
-                    engine.handleRescue(payload.userId);
-                  } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
-                    engine.handleBossFocus(payload.userId);
-                  }
+            // Replay unapplied journal commands after checkpoint sequence via tick-ordered queue
+            const unapplied = await journalRepo.getCommandsToReplay(activeMatch.id, lastJournalSeq);
+            app.log.info(`[RECOVERY] Replaying ${unapplied.length} commands after seq ${lastJournalSeq}`);
+            for (const cmdEntry of unapplied) {
+              if (cmdEntry.commandType?.startsWith('COMMENT_')) {
+                const payload = cmdEntry.payload || {};
+                let replayResult: { success: boolean; reason?: string } = { success: false, reason: 'UNKNOWN_COMMAND' };
+                if (cmdEntry.commandType === 'COMMENT_JOIN') {
+                  replayResult = engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
+                } else if (cmdEntry.commandType === 'COMMENT_BAN') {
+                  replayResult = engine.handleShoot(payload.userId);
+                } else if (cmdEntry.commandType === 'COMMENT_SUA') {
+                  replayResult = engine.handleRepair(payload.userId);
+                } else if (cmdEntry.commandType === 'COMMENT_CUU') {
+                  replayResult = engine.handleRescue(payload.userId);
+                } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
+                  replayResult = engine.handleBossFocus(payload.userId);
+                }
+
+                if (replayResult.success) {
+                  engine.recordExecutedCommand(cmdEntry.commandId);
                   if (cmdEntry.status === 'PENDING') {
                     await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'APPLIED');
                   }
+                  if (dbClient) {
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                      [cmdEntry.commandId]
+                    );
+                  }
                 } else {
-                  engine.queueSkillCommand({
-                    commandId: cmdEntry.commandId,
-                    matchId: cmdEntry.matchId,
-                    seq: cmdEntry.seq,
-                    targetTick: cmdEntry.tick,
-                    sourceUserId: cmdEntry.payload.senderId,
-                    sourceUserName: cmdEntry.payload.senderName,
-                    skillId: cmdEntry.payload.skillId,
-                    quantity: cmdEntry.payload.deltaQuantity,
-                    streakId: cmdEntry.payload.streakId,
-                  });
+                  // Engine rejected replay (e.g. cooldown, not joined, invalid params)
+                  if (cmdEntry.status === 'PENDING') {
+                    await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'REJECTED', replayResult.reason);
+                  }
+                  if (dbClient) {
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                      [cmdEntry.commandId]
+                    );
+                  }
                 }
+              } else {
+                engine.queueSkillCommand({
+                  commandId: cmdEntry.commandId,
+                  providerEventId: cmdEntry.payload?.providerEventId,
+                  matchId: cmdEntry.matchId,
+                  seq: cmdEntry.seq,
+                  targetTick: cmdEntry.tick,
+                  sourceUserId: cmdEntry.payload.senderId,
+                  sourceUserName: cmdEntry.payload.senderName,
+                  skillId: cmdEntry.payload.skillId,
+                  quantity: cmdEntry.payload.deltaQuantity,
+                  streakId: cmdEntry.payload.streakId,
+                });
               }
             }
           }
@@ -601,9 +632,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
                     [cRow.event_key]
                   );
                 } else {
-                  // PENDING in journal: đã được replay ở vòng lặp recovery trên
+                  // Vẫn còn PENDING: command chưa từng được replay thành công trên engine!
+                  // Đánh dấu FAILED để an toàn cho phép client retry sạch sẽ
                   await dbClient.query(
-                    `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
                     [cRow.event_key]
                   );
                 }
@@ -709,6 +741,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
                 // Trận đấu đang ở màn kết quả: đưa vào hàng đợi hoãn cho trận kế tiếp
                 const queueRes = engine.queueSkillCommand({
                   commandId: ev.id,
+                  providerEventId: p.providerEventId,
                   matchId: targetMatchId,
                   targetTick: engine.tick + 5,
                   sourceUserId: p.senderId,
@@ -776,6 +809,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
             // P0.2: Đưa vào hàng đợi lệnh theo tick của Authoritative Engine kèm journalSeq liên tục
             const queueRes = engine.queueSkillCommand({
               commandId: ev.id,
+              providerEventId: p.providerEventId,
               matchId: activeTargetMatchId,
               seq: journalSeq,
               targetTick: engine.tick + 1,
@@ -861,6 +895,26 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
                 };
               }
+
+              // Kiểm tra xem engine trong RAM đã từng thực thi command này chưa (SSOT RAM / Journal check)
+              if (engine.hasExecutedCommand(commentKey)) {
+                if (dbClient) {
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    [commentKey]
+                  ).catch(() => {});
+                }
+                if (journalRepo) {
+                  await journalRepo.markCommandApplied(engine.matchId, commentKey, engine.tick, 'APPLIED').catch(() => {});
+                }
+                processedCommentKeys.set(commentKey, Date.now());
+                return {
+                  accepted: true,
+                  idempotentDuplicate: true,
+                  reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+                };
+              }
+
               if (rowStatus === 'FAILED' || rowStatus === 'RECOVERY_REQUIRED') {
                 // Đối soát với Command Journal trước khi cho phép re-reserve
                 const journalCheck: any = await dbClient.query(
@@ -881,9 +935,18 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   };
                 }
 
+                if (rowStatus === 'RECOVERY_REQUIRED') {
+                  // Đang ở trạng thái RECOVERY_REQUIRED và chưa xác định command đã thực thi trên engine -> fail-closed từ chối retry trực tiếp!
+                  return {
+                    accepted: false,
+                    retryable: true,
+                    reason: 'COMMAND_RECOVERY_IN_PROGRESS',
+                  };
+                }
+
                 // Cho phép re-reserve nếu lần trước thất bại (engine rejected hoặc crash)
                 const reclaimRes = await dbClient.query(
-                  `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status IN ('FAILED', 'RECOVERY_REQUIRED') RETURNING event_key`,
+                  `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status = 'FAILED' RETURNING event_key`,
                   [commentKey]
                 );
                 if (reclaimRes.rowCount === 0) {
@@ -1002,6 +1065,10 @@ export function buildServer(opts: BuildServerOptions = {}): {
           res = engine.handleRescue(ev.userId);
         } else if (missionAction === 'BOSS') {
           res = engine.handleBossFocus(ev.userId);
+        }
+
+        if (res.success && commentKey) {
+          engine.recordExecutedCommand(commentKey);
         }
 
         // P0.2 Crash Consistency: Mark journal applied/rejected and update processed_events
@@ -2462,5 +2529,15 @@ export function buildServer(opts: BuildServerOptions = {}): {
     }
   });
 
-  return { app, io, engine, stopEngine, adminSecret, dashboardDevToken };
+  return {
+    app,
+    io,
+    engine,
+    stopEngine,
+    adminSecret,
+    dashboardDevToken,
+    get dbClient() {
+      return dbClient;
+    },
+  };
 }

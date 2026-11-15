@@ -19,6 +19,7 @@ import { resolveGiftSkill, SKILL_REGISTRY, SkillConfig } from './SkillRegistry.j
 
 export interface SkillCommand {
   commandId: string;
+  providerEventId?: string;
   matchId: string;
   targetMatchId?: string;
   seq?: number;
@@ -506,6 +507,18 @@ export class AuthoritativeGameEngine {
     return this.activeMechUnit;
   }
 
+  public hasExecutedCommand(commandId: string): boolean {
+    return this.executedCommandIds.has(commandId);
+  }
+
+  public recordExecutedCommand(commandId: string): void {
+    this.executedCommandIds.add(commandId);
+    if (this.executedCommandIds.size > 2000) {
+      const first = this.executedCommandIds.values().next().value;
+      if (first) this.executedCommandIds.delete(first);
+    }
+  }
+
   /**
    * Đưa lệnh kích hoạt kỹ năng vào hàng đợi xử lý theo tick đơn điệu (Monotonic Tick Queue).
    */
@@ -639,9 +652,10 @@ export class AuthoritativeGameEngine {
         const tx = cmd.targetX ?? 540;
         const ty = cmd.targetY ?? 580;
         const warningTicks = config.warningDelayTicks || 20;
+        const airstrikeSourceId = cmd.providerEventId || cmd.commandId;
         const airstrike: ActiveAirstrike = {
           id: `ast_${this.tick}_${cmd.commandId}`,
-          commandId: cmd.commandId,
+          commandId: airstrikeSourceId,
           senderName: cmd.sourceUserName,
           x: tx,
           y: ty,
@@ -653,7 +667,7 @@ export class AuthoritativeGameEngine {
         this.activeAirstrikes.push(airstrike);
         this.recordEvent({
           type: 'SKILL_AIRSTRIKE_WARNING',
-          sourceId: cmd.commandId,
+          sourceId: airstrikeSourceId,
           senderName: cmd.sourceUserName,
           x: tx,
           y: ty,
@@ -1821,6 +1835,10 @@ export class AuthoritativeGameEngine {
 
   public getPlayers(): PlayerContribution[] {
     return Array.from(this.players.values());
+  }
+
+  public getPlayer(userId: string): PlayerContribution | undefined {
+    return this.players.get(userId);
   }
 
   public getAllSoldiers(): EngineSoldier[] {

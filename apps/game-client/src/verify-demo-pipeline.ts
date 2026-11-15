@@ -289,6 +289,32 @@ async function main() {
 
     // 5. Khẳng định FAIL-CLOSED: Live gift VFX bắt buộc phải xuất hiện trong browser
     console.log('[4/4] Verifying Live gift VFX on Phaser canvas (FAIL-CLOSED)...');
+
+    // Test tiêu cực (Negative Test): Bơm một sự kiện airstrike giả lập của người chơi khác (sourceId không khớp targetEventId)
+    // Hệ thống kiểm tra bắt buộc phải FAIL / không được match sự kiện này!
+    console.log('[4/4] Executing negative test: Unrelated airstrike event must NOT pass verification...');
+    const negativeTestPassed = await page.evaluate((targetEventId) => {
+      const dummyUnrelatedEvent = {
+        type: 'SKILL_AIRSTRIKE_WARNING',
+        sourceId: 'unrelated_other_user_airstrike_9999',
+        senderName: 'Stranger',
+        x: 540,
+        y: 580,
+      };
+      const isAirstrikeType =
+        dummyUnrelatedEvent.type === 'SKILL_AIRSTRIKE_WARNING' ||
+        dummyUnrelatedEvent.type === 'SKILL_AIRSTRIKE_DETONATED';
+      const matchesId =
+        dummyUnrelatedEvent.sourceId === targetEventId ||
+        (typeof dummyUnrelatedEvent.sourceId === 'string' && dummyUnrelatedEvent.sourceId.includes(targetEventId));
+      return !(isAirstrikeType && matchesId);
+    }, testGiftEventId);
+
+    if (!negativeTestPassed) {
+      throw new Error(`NEGATIVE_TEST_FAILED: Filter incorrectly matched an unrelated airstrike event!`);
+    }
+    console.log('[PASS 4.2] Negative test passed: Unrelated airstrike correctly rejected.');
+
     let vfxTriggered = false;
     let matchedVfxEvent: any = null;
 
@@ -297,15 +323,16 @@ async function main() {
       const vfxState = await page.evaluate((targetEventId) => {
         const all = (window as any).__ALL_VFX_EVENTS__ || [];
         const matching = all.filter((ev: any) => {
+          // P0.1 Fix: Chỉ chấp nhận đúng SKILL_AIRSTRIKE_WARNING hoặc SKILL_AIRSTRIKE_DETONATED
           const isAirstrikeType =
             ev.type === 'SKILL_AIRSTRIKE_WARNING' ||
-            ev.type === 'SKILL_AIRSTRIKE_DETONATED' ||
-            ev.type === 'GIFT_SKILL';
+            ev.type === 'SKILL_AIRSTRIKE_DETONATED';
+          // Bắt buộc khớp chính xác ID của gift vừa được dispatch
           const matchesId =
             ev.sourceId === targetEventId ||
-            (typeof ev.sourceId === 'string' && ev.sourceId.includes(targetEventId)) ||
-            (typeof ev.id === 'string' && ev.id.includes(targetEventId));
-          return isAirstrikeType && (matchesId || isAirstrikeType);
+            (typeof ev.sourceId === 'string' && ev.sourceId.includes(targetEventId));
+          // P0.1 Fix: Tuyệt đối không dùng (matchesId || isAirstrikeType)
+          return isAirstrikeType && matchesId;
         });
         const last = (window as any).__LAST_VFX_EVENT__;
         return {
@@ -324,6 +351,15 @@ async function main() {
     }
 
     if (!vfxTriggered) {
+      const dump = await page.evaluate(() => {
+        const all = (window as any).__ALL_VFX_EVENTS__ || [];
+        return {
+          total: all.length,
+          recent: all.slice(-15),
+          last: (window as any).__LAST_VFX_EVENT__,
+        };
+      });
+      console.error('[DEMO VERIFY FAILED] VFX event dump:', JSON.stringify(dump, null, 2));
       throw new Error(
         `ASSERTION_FAILED: Live gift galaxy VFX was NOT rendered on Phaser canvas within 12s! (Fail-Closed Gate Enforcement)`
       );

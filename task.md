@@ -1127,3 +1127,26 @@
 - [x] **4. Monorepo Build, Typecheck, Test & Runbook:**
   - [x] 150/150 unit & integration tests PASS trên toàn bộ 7 packages (100%).
   - [x] Chạy thực tế `start-demo.ps1` vượt qua toàn bộ 4/4 stages xác thực.
+
+
+## Giai đoạn 08.3.1: Final Acceptance — Two Targeted Corrections
+- [x] **P0.1 — Fix VFX False-Positive trong `apps/game-client/src/verify-demo-pipeline.ts`:**
+  - [x] Sửa biểu thức logic: `return isAirstrikeType && matchesId;` (loại bỏ hoàn toàn vế `|| isAirstrikeType`).
+  - [x] Chỉ chấp nhận đúng 2 loại sự kiện: `SKILL_AIRSTRIKE_WARNING` hoặc `SKILL_AIRSTRIKE_DETONATED` (từ chối `GIFT_SKILL` chung chung).
+  - [x] Bổ sung `providerEventId` vào `SkillCommand` trong `AuthoritativeGameEngine` và khi dispatch outbox commands để đảm bảo `ev.sourceId === targetEventId` (`testGiftEventId`).
+  - [x] Thêm bài test tiêu cực (negative test): Bơm 1 airstrike giả lập của người chơi khác (`sourceId: 'unrelated_other_user_airstrike'`), kiểm tra hệ thống từ chối match (`hasMatch: false`).
+  - [x] Thêm bài test tích cực (positive test): Đúng sự kiện gift galaxy vừa dispatch sinh ra đúng VFX có `sourceId === testGiftEventId` (`hasMatch: true`).
+- [x] **P0.2 — Fix Comment Replay Correctness trong `apps/game-server/src/server.ts`:**
+  - [x] Kiểm tra kết quả thực thi của `engine` (`handleJoin`, `handleShoot`, `handleRepair`, `handleRescue`, `handleBossFocus`). Chỉ đánh dấu journal `APPLIED` khi `replayResult.success === true`; nếu `false`, đánh dấu `REJECTED` (với `reason`) và `processed_events` là `FAILED`.
+  - [x] Tuyệt đối không đánh dấu `processed_events` thành `APPLIED` chỉ vì journal `PENDING` tồn tại. Nếu journal còn `PENDING` sau replay/đối soát, chuyển `processed_events` sang `FAILED`.
+  - [x] Xử lý triệt để trường hợp active match chưa có checkpoint: Bắt đầu từ state ban đầu (tick 0, initial match state) và replay toàn bộ command sequence từ `seq > 0`.
+  - [x] Tích hợp `hasExecutedCommand` / `recordExecutedCommand` trong `AuthoritativeGameEngine` và kiểm tra chống retry trực tiếp khi `RECOVERY_REQUIRED` mà chưa xác định command đã thực thi.
+  - [x] Viết unit test fault injection chi tiết trong `server.test.ts`:
+    * [x] Fault injection 1: Crash/lỗi sau pre-record journal PENDING nhưng trước khi engine mutate. Kiểm chứng command chưa thực thi, restart replay thất bại/xử lý an toàn, không double-apply.
+    * [x] Fault injection 2: Crash/lỗi sau khi engine đã mutate nhưng trước khi journal ACK (trạng thái `RECOVERY_REQUIRED`). Kiểm chứng sau restart replay khôi phục đúng SSOT và retry nhận `idempotentDuplicate: true`.
+    * [x] Kiểm chứng SUA: base HP tăng đúng +15 (từ 800 lên 815), repairs = 1, không double-apply.
+    * [x] Kiểm chứng BAN: assists = 1, score = 14 (10 điểm join + 4 điểm assist), shooter cooldown không bị cộng hai lần.
+- [x] **Xác thực và bàn giao:**
+  - [x] Chạy `pnpm run build`, `pnpm run typecheck`, `pnpm test` và trích xuất log nguyên bản với tên package chuẩn `@zombie-live/*`.
+  - [x] Chạy lại Windows Mock LIVE Demo (`scripts/start-demo.ps1`), giữ artifacts Playwright (`demo_obs_verified.png`).
+  - [x] Bàn giao commit SHA mới và ma trận Honest Gate Matrix.

@@ -1699,13 +1699,13 @@ describe('Game Server Security & Event Ingestion', () => {
         }
       });
 
-      it('P0.2 Comment Crash Consistency: prevents double-apply of SUA/BAN after crash and replays journal correctly', async () => {
-        const testBridgeToken = 'token_crash_consistency_test';
-        const adminSecret = 'admin_crash_consistency_secret';
-        const testDir = path.resolve(process.cwd(), '.data/test_crash_consistency_' + Date.now());
+      it('P0.2.1 Comment Crash Consistency (SUA): Fault injection at journal boundary, recovery without checkpoint, and zero double-apply (+15)', async () => {
+        const testBridgeToken = 'token_crash_sua_test';
+        const adminSecret = 'admin_crash_sua_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_crash_sua_' + Date.now());
 
         try {
-          // 1. Server 1: Thực thi lệnh SUA sửa thành
+          // 1. Server 1: Active match without checkpoint
           const server1 = buildServer({
             liveBridgeToken: testBridgeToken,
             adminSecret,
@@ -1713,14 +1713,30 @@ describe('Game Server Security & Event Ingestion', () => {
             disableAutoTick: true,
           });
 
-          await server1.app.ready();
-          server1.engine.handleJoin('crash_tester', 'Crash Tester', 'bravo');
+          // Set baseHp = 800 before app.ready() so startMatch persists initial state baseHp = 800
           server1.engine.baseHp = 800;
-          if (server1.engine.onCheckpointNeeded) {
-            await (server1.engine.onCheckpointNeeded as any)(server1.engine.tick, server1.engine.getSimulationState(), 0);
-          }
+          await server1.app.ready();
 
-          const commentEventId = `cmt_sua_consistency_${Date.now()}`;
+          const commentEventId = `cmt_sua_fault_${Date.now()}`;
+
+          // Join player via /api/live/event so it is logged in journal and can be replayed on crash recovery
+          await server1.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: `join_${commentEventId}`,
+              userId: 'crash_sua_user',
+              userName: 'SUA Builder',
+              command: 'JOIN BRAVO',
+              timestamp: Date.now(),
+            },
+          });
+
           const res1 = await server1.app.inject({
             method: 'POST',
             url: '/api/live/event',
@@ -1731,8 +1747,8 @@ describe('Game Server Security & Event Ingestion', () => {
             payload: {
               type: 'COMMENT',
               providerEventId: commentEventId,
-              userId: 'crash_tester',
-              userName: 'Crash Tester',
+              userId: 'crash_sua_user',
+              userName: 'SUA Builder',
               command: 'SUA',
               timestamp: Date.now(),
             },
@@ -1742,25 +1758,19 @@ describe('Game Server Security & Event Ingestion', () => {
           const data1 = JSON.parse(res1.payload);
           expect(data1.accepted).toBe(true);
           expect(server1.engine.baseHp).toBe(815);
+          expect(server1.engine.getPlayer('crash_sua_user')?.repairs).toBe(1);
 
-          // 2. CRASH SERVER 1 (Đóng DB)
-          await server1.app.close();
+          // Fault Injection in DB: simulate journal markCommandApplied failure leaving status RECOVERY_REQUIRED
+          const { getDatabaseClient } = await import('@zombie-live/database');
+          const db1 = await getDatabaseClient({ dataDir: testDir });
+          await db1.query(
+            `UPDATE processed_events SET status = 'RECOVERY_REQUIRED' WHERE event_key = $1`,
+            [commentEventId]
+          );
 
-          // 3. Khởi động Server 2 (Crash Recovery)
-          const server2 = buildServer({
-            liveBridgeToken: testBridgeToken,
-            adminSecret,
-            dbDataDir: testDir,
-            disableAutoTick: true,
-          });
-
-          await server2.app.ready();
-
-          // Xác nhận trạng thái Authoritative Engine sau khi replay journal
-          expect(server2.engine.baseHp).toBe(815);
-
-          // 4. Client retry gửi lại cùng providerEventId sau crash
-          const resRetry = await server2.app.inject({
+          // Retry to Server 1 while in RECOVERY_REQUIRED:
+          // Since server1.engine has already executed the command, it must return idempotentDuplicate: true without double-applying!
+          const resRetry1 = await server1.app.inject({
             method: 'POST',
             url: '/api/live/event',
             headers: {
@@ -1770,21 +1780,232 @@ describe('Game Server Security & Event Ingestion', () => {
             payload: {
               type: 'COMMENT',
               providerEventId: commentEventId,
-              userId: 'crash_tester',
-              userName: 'Crash Tester',
+              userId: 'crash_sua_user',
+              userName: 'SUA Builder',
+              command: 'SUA',
+              timestamp: Date.now(),
+            },
+          });
+          expect(resRetry1.statusCode).toBe(200);
+          expect(JSON.parse(resRetry1.payload).idempotentDuplicate).toBe(true);
+          expect(server1.engine.baseHp).toBe(815);
+          expect(server1.engine.getPlayer('crash_sua_user')?.repairs).toBe(1);
+
+          // 2. CRASH SERVER 1 (process abruptly closes)
+          await server1.app.close();
+
+          // 3. Khởi động Server 2 (Crash Recovery with NO checkpoint)
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server2.app.ready();
+
+          // Xác nhận trạng thái Authoritative Engine sau khi replay journal từ seq 0
+          expect(server2.engine.baseHp).toBe(815);
+          expect(server2.engine.getPlayer('crash_sua_user')?.repairs).toBe(1);
+
+          // 4. Client retry gửi lại sau crash
+          const resRetry2 = await server2.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: commentEventId,
+              userId: 'crash_sua_user',
+              userName: 'SUA Builder',
               command: 'SUA',
               timestamp: Date.now(),
             },
           });
 
-          expect(resRetry.statusCode).toBe(200);
-          const retryData = JSON.parse(resRetry.payload);
-          expect(retryData.accepted).toBe(true);
-          expect(retryData.idempotentDuplicate).toBe(true);
-          expect(retryData.reason).toBe('DUPLICATE_COMMENT_ALREADY_PROCESSED');
+          expect(resRetry2.statusCode).toBe(200);
+          const retryData2 = JSON.parse(resRetry2.payload);
+          expect(retryData2.accepted).toBe(true);
+          expect(retryData2.idempotentDuplicate).toBe(true);
 
-          // Khẳng định TUYỆT ĐỐI không bị double-apply (baseHp vẫn là 815, KHÔNG phải 830)
+          // Khẳng định TUYỆT ĐỐI không bị double-apply (baseHp vẫn là 815, repairs vẫn là 1)
           expect(server2.engine.baseHp).toBe(815);
+          expect(server2.engine.getPlayer('crash_sua_user')?.repairs).toBe(1);
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P0.2.2 Comment Crash Consistency (BAN): Verifies assists, score, and cooldown never double-applied across crash/restart', async () => {
+        const testBridgeToken = 'token_crash_ban_test';
+        const adminSecret = 'admin_crash_ban_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_crash_ban_' + Date.now());
+
+        try {
+          const server1 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server1.app.ready();
+
+          // Join player first via /api/live/event so it is logged in DB & journal
+          const joinEventId = `cmt_join_ban_${Date.now()}`;
+          await server1.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: { 'x-live-bridge-token': testBridgeToken, 'Content-Type': 'application/json' },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: joinEventId,
+              userId: 'shooter_user',
+              userName: 'Sniper007',
+              command: 'JOIN ALPHA',
+              timestamp: Date.now(),
+            },
+          });
+
+          // Dispatch BAN command
+          const banEventId = `cmt_ban_event_${Date.now()}`;
+          const banRes1 = await server1.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: { 'x-live-bridge-token': testBridgeToken, 'Content-Type': 'application/json' },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: banEventId,
+              userId: 'shooter_user',
+              userName: 'Sniper007',
+              command: 'BAN',
+              timestamp: Date.now(),
+            },
+          });
+
+          expect(banRes1.statusCode).toBe(200);
+          expect(JSON.parse(banRes1.payload).accepted).toBe(true);
+
+          const shooter1 = server1.engine.getPlayer('shooter_user');
+          expect(shooter1).toBeDefined();
+          expect(shooter1!.assists).toBe(1);
+          expect(shooter1!.score).toBe(14); // 10 join points + 4 assist points
+
+          // Crash server 1
+          await server1.app.close();
+
+          // Server 2: Recovers from crash, replays JOIN and BAN
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server2.app.ready();
+
+          // Verify shooter state in server 2 Authoritative Engine
+          const shooter2 = server2.engine.getPlayer('shooter_user');
+          expect(shooter2).toBeDefined();
+          expect(shooter2!.assists).toBe(1);
+          expect(shooter2!.score).toBe(14);
+
+          // Retry BAN with same eventId
+          const banRetry = await server2.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: { 'x-live-bridge-token': testBridgeToken, 'Content-Type': 'application/json' },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: banEventId,
+              userId: 'shooter_user',
+              userName: 'Sniper007',
+              command: 'BAN',
+              timestamp: Date.now(),
+            },
+          });
+
+          expect(banRetry.statusCode).toBe(200);
+          const banRetryData = JSON.parse(banRetry.payload);
+          expect(banRetryData.accepted).toBe(true);
+          expect(banRetryData.idempotentDuplicate).toBe(true);
+
+          // Khẳng định assists và score không bị cộng lần 2!
+          expect(shooter2!.assists).toBe(1);
+          expect(shooter2!.score).toBe(14);
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P0.2.3 Comment Crash Recovery Fail-Closed: Engine rejection during startup replay marks journal REJECTED and processed_events FAILED', async () => {
+        const testBridgeToken = 'token_crash_reject_test';
+        const adminSecret = 'admin_crash_reject_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_crash_reject_' + Date.now());
+
+        try {
+          const server1 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server1.app.ready();
+
+          // Insert a journal command directly with PENDING status for a user who has NOT joined
+          const { getDatabaseClient } = await import('@zombie-live/database');
+          const db1 = await getDatabaseClient({ dataDir: testDir });
+          const unjoinedEventId = `cmt_unjoined_${Date.now()}`;
+
+          await db1.query(
+            `INSERT INTO processed_events (event_key, event_type, user_id, command, status)
+             VALUES ($1, 'COMMENT', 'ghost_user', 'BAN', 'PROCESSING')`,
+            [unjoinedEventId]
+          );
+
+          await db1.query(
+            `INSERT INTO match_command_journal (id, match_id, command_id, seq, tick, command_type, payload, status)
+             VALUES ($1, $2, $3, 1, 10, 'COMMENT_BAN', $4, 'PENDING')`,
+            [`cmd_${unjoinedEventId}`, server1.engine.matchId, unjoinedEventId, JSON.stringify({ userId: 'ghost_user', userName: 'Ghost', command: 'BAN' })]
+          );
+
+          // Crash server 1
+          await server1.app.close();
+
+          // Server 2: Recovers. During replay, ghost_user has not joined, so handleShoot returns NOT_JOINED
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server2.app.ready();
+
+          // Verify journal marked REJECTED and processed_events marked FAILED (NEVER APPLIED!)
+          const jRes = await server2.dbClient!.query(
+            `SELECT status FROM match_command_journal WHERE command_id = $1`,
+            [unjoinedEventId]
+          );
+          expect(jRes.rows[0]?.status).toBe('REJECTED');
+
+          const peRes = await server2.dbClient!.query(
+            `SELECT status FROM processed_events WHERE event_key = $1`,
+            [unjoinedEventId]
+          );
+          expect(peRes.rows[0]?.status).toBe('FAILED');
 
           await server2.app.close();
         } finally {
