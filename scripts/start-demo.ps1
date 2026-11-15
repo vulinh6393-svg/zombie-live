@@ -120,29 +120,13 @@ if (-not $serverReady) {
 }
 Write-Host " [PASS: Engine Phase $($res.engine.phase), Base HP $($res.engine.baseHp)]" -ForegroundColor Green
 
-# 4. Khởi chạy Live Bridge Runner (Mock 100 Viewers)
-Write-Host "[2/4] Khởi động Live Bridge Runner ($MockViewers viewers tương tác)..." -ForegroundColor Yellow
-$bridgeProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/live-bridge start" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
-$spawnedProcesses += $bridgeProcess
-
-Start-Sleep -Seconds 3
-
-# Kiểm tra Bridge tiến trình có sống không
-$bridgeAlive = Get-Process -Id $bridgeProcess.Id -ErrorAction SilentlyContinue
-if (-not $bridgeAlive -or $bridgeAlive.HasExited) {
-  Write-Host "[FAIL] Live Bridge tiến trình đã thoát bất ngờ sau khi khởi động!" -ForegroundColor Red
-  Cleanup-Processes $spawnedProcesses
-  exit 1
-}
-Write-Host "[PASS] Live Bridge đang hoạt động liên tục (PID $($bridgeProcess.Id))." -ForegroundColor Green
-
-# 5. Khởi chạy Game Client Preview (Vite Static Server)
-Write-Host "[3/4] Khởi động Game Client Preview trên cổng $ClientPort..." -ForegroundColor Yellow
+# 4. Khởi chạy Game Client Preview (Vite Static Server)
+Write-Host "[2/4] Khởi động Game Client Preview trên cổng $ClientPort..." -ForegroundColor Yellow
 $clientProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/game-client run preview --port $ClientPort --host" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
 $spawnedProcesses += $clientProcess
 
 # Xác minh Game Client trả lời HTTP 200 và chứa thẻ HTML
-Write-Host "[3/4] Đang kiểm tra HTTP 200 Game Client..." -NoNewline
+Write-Host "[2/4] Đang kiểm tra HTTP 200 Game Client..." -NoNewline
 $clientReady = $false
 for ($i = 0; $i -lt 20; $i++) {
   Start-Sleep -Milliseconds 600
@@ -163,8 +147,8 @@ if (-not $clientReady) {
 }
 Write-Host " [PASS: HTTP 200 OK]" -ForegroundColor Green
 
-# 6. Xác minh luồng dữ liệu thực tế (Pipeline E2E Ready Verification - P1.1)
-Write-Host "[4/4] Xác minh End-to-End Pipeline: Socket.IO Snapshot, Bridge Ingress, Phaser Canvas..." -ForegroundColor Yellow
+# 5. Xác minh luồng dữ liệu thực tế (Pipeline E2E Ready Verification - P1.1)
+Write-Host "[3/4] Xác minh End-to-End Pipeline: Socket.IO Snapshot, Bridge Ingress, Phaser Canvas..." -ForegroundColor Yellow
 if (-not $SkipBrowserVerification) {
   & pnpm --filter @zombie-live/game-client run verify:pipeline
   if ($LASTEXITCODE -ne 0) {
@@ -173,8 +157,24 @@ if (-not $SkipBrowserVerification) {
     exit 1
   }
 } else {
-  Write-Host "[4/4] Bỏ qua kiểm tra browser (cờ SkipBrowserVerification)." -ForegroundColor Gray
+  Write-Host "[3/4] Bỏ qua kiểm tra browser (cờ SkipBrowserVerification)." -ForegroundColor Gray
 }
+
+# 6. Khởi chạy Live Bridge Runner (Mock 100 Viewers)
+Write-Host "[4/4] Khởi động Live Bridge Runner ($MockViewers viewers tương tác liên tục)..." -ForegroundColor Yellow
+$bridgeProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c pnpm --filter @zombie-live/live-bridge start" -WorkingDirectory $RootPath -PassThru -WindowStyle Hidden
+$spawnedProcesses += $bridgeProcess
+
+Start-Sleep -Seconds 3
+
+# Kiểm tra Bridge tiến trình có sống không
+$bridgeAlive = Get-Process -Id $bridgeProcess.Id -ErrorAction SilentlyContinue
+if (-not $bridgeAlive -or $bridgeAlive.HasExited) {
+  Write-Host "[FAIL] Live Bridge tiến trình đã thoát bất ngờ sau khi khởi động!" -ForegroundColor Red
+  Cleanup-Processes $spawnedProcesses
+  exit 1
+}
+Write-Host "[PASS] Live Bridge đang hoạt động liên tục (PID $($bridgeProcess.Id))." -ForegroundColor Green
 
 # Lưu thông tin PID để script stop-demo.ps1 dừng sạch sẽ
 $demoPidFile = Join-Path $RootPath ".demo_pids.json"

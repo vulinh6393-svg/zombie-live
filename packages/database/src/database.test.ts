@@ -420,6 +420,7 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
 
         // Đóng adapter (mô phỏng process crash / graceful shutdown)
         await persistentDb.close();
+        await new Promise((r) => setTimeout(r, 200));
 
         // Step 2: Khởi động lại process mới trên cùng dataDir
         const restartedDb = new PGliteDatabaseAdapter(testDir);
@@ -472,6 +473,7 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
         expect(await revokeRepo1.isSessionRevoked('sess_never_revoked')).toBe(false);
 
         await db1.close();
+        await new Promise((r) => setTimeout(r, 200));
 
         // Restart instance
         const db2 = new PGliteDatabaseAdapter(testDir);
@@ -510,6 +512,7 @@ describe('Database Layer & PostgreSQL Persistence (Phase 05)', () => {
         expect(pending1[0].status).toBe('DEFERRED');
 
         await db1.close();
+        await new Promise((r) => setTimeout(r, 200));
 
         // Restart instance (crash recovery simulation)
         const db2 = new PGliteDatabaseAdapter(testDir);

@@ -42,10 +42,28 @@ async function main() {
   console.log(`[VERIFY DEMO] Checking pipeline at Server: ${serverUrl}, Client: ${clientUrl}`);
   console.log(`[VERIFY DEMO] Artifacts target directory: ${configuredArtifactDir}`);
 
+  // 0. Khởi tạo trận đấu demo sạch (seed 42) để bảo đảm cooldown = 0 và không vướng cap từ phiên cũ
+  const freshMatchId = `verify_match_${Date.now()}`;
+  try {
+    const startRes = await fetch(`${serverUrl}/api/admin/match/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': adminSecret,
+      },
+      body: JSON.stringify({ matchId: freshMatchId, seed: 42 }),
+    });
+    if (startRes.ok) {
+      console.log(`[VERIFY DEMO] Started clean authoritative match: ${freshMatchId}`);
+    }
+  } catch (err: any) {
+    console.warn(`[VERIFY DEMO] Match start fallback: ${err.message}`);
+  }
+
   // 1. Kiểm tra Socket.IO Authoritative Snapshot
   console.log('[1/4] Connecting to Game Server Socket.IO /game for snapshot verification...');
   let snapshotTick = -1;
-  let activeMatchId = '';
+  let activeMatchId = freshMatchId;
 
   const socket = io(`${serverUrl}/game`, {
     transports: ['websocket'],

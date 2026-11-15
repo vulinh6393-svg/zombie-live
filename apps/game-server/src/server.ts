@@ -83,6 +83,8 @@ export function buildServer(opts: BuildServerOptions = {}): {
   adminSecret: string;
   dashboardDevToken: string;
   readonly dbClient: any;
+  readonly startupRecoveryError: string | null;
+  setStartupRecoveryError: (err: string) => void;
 } {
   const app = fastify({ logger: opts.logger ?? false });
 
@@ -153,10 +155,23 @@ export function buildServer(opts: BuildServerOptions = {}): {
   let inFlightDbWrites = 0;
   let cachedPreBackupStats: any = null;
   let isOutboxWorkerPaused = false;
+  let startupRecoveryError: string | null = null;
   const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
   const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
 
   app.get('/ready', async (req, reply) => {
+    // P0: Trong trạng thái startup recovery failure, tuyệt đối không trả 200 READY!
+    if (startupRecoveryError) {
+      reply.status(503);
+      return {
+        status: 'recovery_failed',
+        reason: 'STARTUP_RECOVERY_FAILED',
+        error: startupRecoveryError,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     // P0: Trong trạng thái maintenance quiesced, tuyệt đối không gọi initDb() hoặc mở PGlite!
     if (isMaintenanceQuiesced) {
       reply.status(503);
@@ -515,6 +530,34 @@ export function buildServer(opts: BuildServerOptions = {}): {
       }
       return;
     }
+
+    if (startupRecoveryError) {
+      const url = request.url.split('?')[0];
+      if (url === '/ready') {
+        return reply
+          .header('Retry-After', '5')
+          .status(503)
+          .send({
+            status: 'recovery_failed',
+            reason: 'STARTUP_RECOVERY_FAILED',
+            error: startupRecoveryError,
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+          });
+      }
+      if (url !== '/health') {
+        return reply
+          .header('Retry-After', '5')
+          .status(503)
+          .send({
+            statusCode: 503,
+            error: 'STARTUP_RECOVERY_FAILED',
+            message: `SERVER_STARTUP_RECOVERY_FAILED: ${startupRecoveryError}`,
+            retryable: false,
+          });
+      }
+      return;
+    }
     if (!dbClient) await initDb();
   });
 
@@ -546,42 +589,92 @@ export function buildServer(opts: BuildServerOptions = {}): {
             const unapplied = await journalRepo.getCommandsToReplay(activeMatch.id, lastJournalSeq);
             app.log.info(`[RECOVERY] Replaying ${unapplied.length} commands after seq ${lastJournalSeq}`);
             for (const cmdEntry of unapplied) {
+              if (cmdEntry.status === 'REJECTED') {
+                // P0.2 Rule: REJECTED entries must NEVER be re-executed or converted to APPLIED
+                app.log.info(`[RECOVERY] Skipping REJECTED command ${cmdEntry.commandId} (seq ${cmdEntry.seq})`);
+                if (dbClient) {
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status != 'FAILED'`,
+                    [cmdEntry.commandId]
+                  );
+                }
+                continue;
+              }
+
               if (cmdEntry.commandType?.startsWith('COMMENT_')) {
                 const payload = cmdEntry.payload || {};
-                let replayResult: { success: boolean; reason?: string } = { success: false, reason: 'UNKNOWN_COMMAND' };
-                if (cmdEntry.commandType === 'COMMENT_JOIN') {
-                  replayResult = engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
-                } else if (cmdEntry.commandType === 'COMMENT_BAN') {
-                  replayResult = engine.handleShoot(payload.userId);
-                } else if (cmdEntry.commandType === 'COMMENT_SUA') {
-                  replayResult = engine.handleRepair(payload.userId);
-                } else if (cmdEntry.commandType === 'COMMENT_CUU') {
-                  replayResult = engine.handleRescue(payload.userId);
-                } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
-                  replayResult = engine.handleBossFocus(payload.userId);
+
+                if (cmdEntry.status === 'APPLIED') {
+                  // P0.2 Rule: APPLIED command is immutable business truth.
+                  // Only re-apply mutation into engine to reconstruct simulation state after checkpoint.
+                  // NEVER revert APPLIED to FAILED/REJECTED even if engine returns false during replay!
+                  if (!engine.hasExecutedCommand(cmdEntry.commandId)) {
+                    if (cmdEntry.commandType === 'COMMENT_JOIN') {
+                      engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
+                    } else if (cmdEntry.commandType === 'COMMENT_BAN') {
+                      engine.handleShoot(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_SUA') {
+                      engine.handleRepair(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_CUU') {
+                      engine.handleRescue(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
+                      engine.handleBossFocus(payload.userId);
+                    }
+                    engine.recordExecutedCommand(cmdEntry.commandId);
+                  }
+                  if (dbClient) {
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status != 'APPLIED'`,
+                      [cmdEntry.commandId]
+                    );
+                  }
+                  continue;
                 }
 
-                if (replayResult.success) {
-                  engine.recordExecutedCommand(cmdEntry.commandId);
-                  if (cmdEntry.status === 'PENDING') {
+                if (cmdEntry.status === 'PENDING') {
+                  // P0.2 Rule: PENDING command must be processed with strict ordering and checked against engine
+                  if (engine.hasExecutedCommand(cmdEntry.commandId)) {
+                    // Command was already executed in engine before journal could ACK
                     await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'APPLIED');
-                  }
-                  if (dbClient) {
-                    await dbClient.query(
-                      `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
-                      [cmdEntry.commandId]
-                    );
-                  }
-                } else {
-                  // Engine rejected replay (e.g. cooldown, not joined, invalid params)
-                  if (cmdEntry.status === 'PENDING') {
-                    await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'REJECTED', replayResult.reason);
-                  }
-                  if (dbClient) {
-                    await dbClient.query(
-                      `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
-                      [cmdEntry.commandId]
-                    );
+                    if (dbClient) {
+                      await dbClient.query(
+                        `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                        [cmdEntry.commandId]
+                      );
+                    }
+                  } else {
+                    let replayResult: { success: boolean; reason?: string } = { success: false, reason: 'UNKNOWN_COMMAND' };
+                    if (cmdEntry.commandType === 'COMMENT_JOIN') {
+                      replayResult = engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
+                    } else if (cmdEntry.commandType === 'COMMENT_BAN') {
+                      replayResult = engine.handleShoot(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_SUA') {
+                      replayResult = engine.handleRepair(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_CUU') {
+                      replayResult = engine.handleRescue(payload.userId);
+                    } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
+                      replayResult = engine.handleBossFocus(payload.userId);
+                    }
+
+                    if (replayResult.success) {
+                      engine.recordExecutedCommand(cmdEntry.commandId);
+                      await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'APPLIED');
+                      if (dbClient) {
+                        await dbClient.query(
+                          `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                          [cmdEntry.commandId]
+                        );
+                      }
+                    } else {
+                      // Engine rejected replay (e.g. cooldown, not joined, invalid params)
+                      await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'REJECTED', replayResult.reason);
+                      if (dbClient) {
+                        await dbClient.query(
+                          `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                          [cmdEntry.commandId]
+                        );
+                      }
+                    }
                   }
                 }
               } else {
@@ -632,12 +725,20 @@ export function buildServer(opts: BuildServerOptions = {}): {
                     [cRow.event_key]
                   );
                 } else {
-                  // Vẫn còn PENDING: command chưa từng được replay thành công trên engine!
-                  // Đánh dấu FAILED để an toàn cho phép client retry sạch sẽ
-                  await dbClient.query(
-                    `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
-                    [cRow.event_key]
-                  );
+                  // Vẫn còn PENDING: Nếu engine đã thực thi (ví dụ crash sau mutation nhưng trước ACK), đánh dấu APPLIED
+                  if (engine.hasExecutedCommand(cRow.event_key)) {
+                    await journalRepo.markCommandApplied(engine.matchId, cRow.event_key, engine.tick, 'APPLIED');
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                      [cRow.event_key]
+                    );
+                  } else {
+                    // Chưa từng thực thi: Đánh dấu FAILED để cho phép client retry sạch sẽ
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                      [cRow.event_key]
+                    );
+                  }
                 }
               } else {
                 // Lệnh chưa từng được ghi vào journal -> mutation chưa từng xảy ra, an toàn để đánh dấu FAILED cho phép retry
@@ -648,11 +749,13 @@ export function buildServer(opts: BuildServerOptions = {}): {
               }
             }
           } catch (stuckErr: any) {
-            app.log.warn(`[RECOVERY] Stuck comments recovery warning: ${stuckErr.message}`);
+            startupRecoveryError = stuckErr.message;
+            app.log.error(`[RECOVERY] Stuck comments recovery fatal error: ${stuckErr.message}`);
           }
         }
       } catch (recoveryErr: any) {
-        app.log.warn(`[RECOVERY] Startup recovery error: ${recoveryErr.message}`);
+        startupRecoveryError = recoveryErr.message;
+        app.log.error(`[RECOVERY_FATAL] Startup recovery error: ${recoveryErr.message}`);
       }
     }
   });
@@ -2538,6 +2641,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
     dashboardDevToken,
     get dbClient() {
       return dbClient;
+    },
+    get startupRecoveryError() {
+      return startupRecoveryError;
+    },
+    setStartupRecoveryError(err: string) {
+      startupRecoveryError = err;
     },
   };
 }

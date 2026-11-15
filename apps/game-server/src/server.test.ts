@@ -2014,6 +2014,181 @@ describe('Game Server Security & Event Ingestion', () => {
           }
         }
       });
+
+      it('P0.2.4 Journal Replay Invariant: REJECTED command is never re-executed and never flipped to APPLIED', async () => {
+        const testBridgeToken = 'token_replay_rejected_test';
+        const adminSecret = 'admin_replay_rejected_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_replay_rejected_' + Date.now());
+
+        try {
+          const server1 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+          await server1.app.ready();
+
+          // Prepare DB with a REJECTED command in journal
+          const rejectedEventId = `cmt_rejected_${Date.now()}`;
+          await server1.dbClient!.query(
+            `INSERT INTO processed_events (event_key, event_type, user_id, command, status)
+             VALUES ($1, 'COMMENT', 'user_rej', 'BAN', 'FAILED')`,
+            [rejectedEventId]
+          );
+          await server1.dbClient!.query(
+            `INSERT INTO match_command_journal (id, match_id, command_id, seq, tick, command_type, payload, status)
+             VALUES ($1, $2, $3, 1, 10, 'COMMENT_BAN', $4, 'REJECTED')`,
+            [`cmd_${rejectedEventId}`, server1.engine.matchId, rejectedEventId, JSON.stringify({ userId: 'user_rej', userName: 'User Rej' })]
+          );
+
+          await server1.app.close();
+
+          // Server 2 restarts: replay must skip REJECTED command, not execute mutation, not flip to APPLIED
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+          await server2.app.ready();
+
+          const jRes = await server2.dbClient!.query(
+            `SELECT status FROM match_command_journal WHERE command_id = $1`,
+            [rejectedEventId]
+          );
+          expect(jRes.rows[0]?.status).toBe('REJECTED');
+
+          const peRes = await server2.dbClient!.query(
+            `SELECT status FROM processed_events WHERE event_key = $1`,
+            [rejectedEventId]
+          );
+          expect(peRes.rows[0]?.status).toBe('FAILED');
+          expect(server2.engine.hasExecutedCommand(rejectedEventId)).toBe(false);
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P0.2.5 Journal Replay Invariant: APPLIED command after checkpoint reconstructs simulation state and is never flipped to FAILED', async () => {
+        const testBridgeToken = 'token_replay_applied_test';
+        const adminSecret = 'admin_replay_applied_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_replay_applied_' + Date.now());
+
+        try {
+          const server1 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+          server1.engine.baseHp = 800;
+          await server1.app.ready();
+
+          // Prepare DB with a user join + repair (both APPLIED in journal after checkpoint seq 0)
+          const joinEventId = `cmt_join_${Date.now()}`;
+          const suaEventId = `cmt_sua_${Date.now()}`;
+
+          await server1.dbClient!.query(
+            `INSERT INTO processed_events (event_key, event_type, user_id, command, status)
+             VALUES ($1, 'COMMENT', 'u_applied', 'JOIN BRAVO', 'APPLIED'),
+                    ($2, 'COMMENT', 'u_applied', 'SUA', 'APPLIED')`,
+            [joinEventId, suaEventId]
+          );
+          await server1.dbClient!.query(
+            `INSERT INTO match_command_journal (id, match_id, command_id, seq, tick, command_type, payload, status)
+             VALUES ($1, $2, $3, 1, 5, 'COMMENT_JOIN', $4, 'APPLIED'),
+                    ($5, $6, $7, 2, 6, 'COMMENT_SUA', $8, 'APPLIED')`,
+            [
+              `cmd_${joinEventId}`, server1.engine.matchId, joinEventId, JSON.stringify({ userId: 'u_applied', userName: 'Applied User', squad: 'bravo' }),
+              `cmd_${suaEventId}`, server1.engine.matchId, suaEventId, JSON.stringify({ userId: 'u_applied', userName: 'Applied User' }),
+            ]
+          );
+
+          await server1.app.close();
+
+          // Server 2 restarts: reconstructs simulation state (baseHp += 15, player repairs = 1)
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+          await server2.app.ready();
+
+          expect(server2.engine.getPlayer('u_applied')).toBeDefined();
+          expect(server2.engine.getPlayer('u_applied')?.repairs).toBe(1);
+          expect(server2.engine.baseHp).toBe(815);
+          expect(server2.engine.hasExecutedCommand(suaEventId)).toBe(true);
+
+          // Verify journal and processed_events are STILL APPLIED, NEVER FAILED
+          const jRes = await server2.dbClient!.query(
+            `SELECT status FROM match_command_journal WHERE command_id = $1`,
+            [suaEventId]
+          );
+          expect(jRes.rows[0]?.status).toBe('APPLIED');
+
+          const peRes = await server2.dbClient!.query(
+            `SELECT status FROM processed_events WHERE event_key = $1`,
+            [suaEventId]
+          );
+          expect(peRes.rows[0]?.status).toBe('APPLIED');
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P0.2.6 Fail-Closed Startup: Startup recovery failure sets /ready to 503 and blocks event ingress', async () => {
+        const liveBridgeToken = 'token_fail_closed_startup';
+        const server = buildServer({
+          liveBridgeToken,
+          disableAutoTick: true,
+        });
+
+        // Trigger /ready and verify normal 200
+        const ready1 = await server.app.inject({ method: 'GET', url: '/ready' });
+        expect(ready1.statusCode).toBe(200);
+
+        // Inject simulated recovery error into server context
+        server.setStartupRecoveryError('SIMULATED_DATABASE_CORRUPTION');
+
+        // /ready must now return 503 with recovery_failed status
+        const readyRes = await server.app.inject({
+          method: 'GET',
+          url: '/ready',
+        });
+        expect(readyRes.statusCode).toBe(503);
+        const readyBody = JSON.parse(readyRes.payload);
+        expect(readyBody.status).toBe('recovery_failed');
+        expect(readyBody.reason).toBe('STARTUP_RECOVERY_FAILED');
+
+        // /api/live/event must be blocked with 503
+        const ingressRes = await server.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': liveBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: 'blocked_during_fail_closed',
+            userId: 'user_blocked',
+            command: 'JOIN 1',
+          },
+        });
+        expect(ingressRes.statusCode).toBe(503);
+        const ingressBody = JSON.parse(ingressRes.payload);
+        expect(ingressBody.error).toBe('STARTUP_RECOVERY_FAILED');
+      });
     });
   });
 });
