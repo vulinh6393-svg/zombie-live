@@ -139,12 +139,33 @@ describe('DurableEventQueue & Fault-Injection Resilience (Final Reliability Gate
     const queue2 = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
     expect(queue2.isRecoveryRequired()).toBe(true);
 
-    // Reconcile suffix không dùng filter: nạp ACK evt_2
-    await queue2.reconcileQuarantinedSuffix();
+    // Reconcile suffix với callback đối soát Gift Ledger: nạp ACK evt_2
+    await queue2.reconcileQuarantinedSuffix(async () => false);
     expect(queue2.isRecoveryRequired()).toBe(false);
     // evt_2 đã được ACK trong suffix, evt_1 vẫn pending vì dòng ACK của nó bị hỏng
     expect(queue2.getQueueLength()).toBe(1);
     expect(queue2.peekPending()?.id).toBe('evt_1');
+  });
+
+  it('3.1b. Fail-Closed Quarantine: callback mandatory and invalidLines block recovery', async () => {
+    const queue1 = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
+    queue1.enqueue({ id: 'evt_alpha', eventType: 'COMMENT', payload: { command: 'BAN' } });
+
+    // Hỏng ở giữa file
+    fs.appendFileSync(testWalFile, 'CORRUPTED_MIDDLE_LINE_1\n');
+    // Suffix chứa thêm 1 dòng hỏng nữa
+    fs.appendFileSync(testWalFile, 'ANOTHER_CORRUPTED_LINE_IN_SUFFIX\n');
+    fs.appendFileSync(testWalFile, JSON.stringify({ op: 'ENQUEUE', id: 'evt_beta', eventType: 'COMMENT', payload: { command: 'SUA' } }) + '\n');
+
+    const queue2 = new DurableEventQueue({ walFile: testWalFile, deadLetterFile: testDlqFile });
+    expect(queue2.isRecoveryRequired()).toBe(true);
+
+    // 1. Phải ném ngoại lệ nếu thiếu callback
+    await expect(queue2.reconcileQuarantinedSuffix(undefined as any)).rejects.toThrow(/isAlreadyProcessedFn callback is mandatory/);
+
+    // 2. Phải từ chối giải phóng cách ly nếu còn dòng hỏng trong suffix (invalidLines > 0)
+    await expect(queue2.reconcileQuarantinedSuffix(async () => false)).rejects.toThrow(/RECONCILIATION_FAILED: Quarantine contains \d+ unparseable/);
+    expect(queue2.isRecoveryRequired()).toBe(true);
   });
 
   it('3.2. Compaction crash recovery: cleans up stale .tmp files without data loss', () => {
@@ -490,7 +511,7 @@ describe('DurableEventQueue & Fault-Injection Resilience (Final Reliability Gate
     expect(bSuffix).toBeDefined();
 
     // Hòa giải suffix đưa queue trở lại hoạt động bình thường
-    await recoveredB.reconcileQuarantinedSuffix();
+    await recoveredB.reconcileQuarantinedSuffix(async () => false);
     expect(recoveredB.isRecoveryRequired()).toBe(false);
     expect(recoveredB.getQueueLength()).toBe(2);
     expect(recoveredB.peekPending()?.id).toBe('b_1');

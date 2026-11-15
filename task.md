@@ -1077,3 +1077,29 @@
 - [x] **P1.2 — Full Monorepo Test & Git Commit:**
   - [x] Chạy build, typecheck và full test monorepo (đảm bảo 100% tests PASS).
   - [x] Git commit và push lên GitHub, cung cấp SHA 40 ký tự và bảng nghiệm thu trung thực (giữ các gate chưa test thật ở BLOCKED).
+
+## Giai đoạn 08.3: Final Reliability Closure — Remaining Defect Resolution (HOÀN THÀNH 100%)
+- [x] **1. PGlite Maintenance Safety (Quiesce Barrier & DB Closing):**
+  - [x] Di chuyển cờ `isMaintenanceQuiesced` lên phạm vi cao nhất trong `server.ts`.
+  - [x] `initDb(force = false)`: Chặn tuyệt đối hành vi tự động mở database khi đang ở trạng thái quiesced trừ khi được `resume` gọi với `force = true`.
+  - [x] `/ready` và `onRequest`: Trả về HTTP 503 Maintenance Quiesced ngay lập tức, không gọi `initDb()`.
+  - [x] Quiesce fail-closed: Nếu `dbClient.close()` hoặc `syncToFs()` ném ngoại lệ, quiesce phải rollback trạng thái, resume engine và trả HTTP 500 `DATABASE_CLOSE_FAILED`.
+  - [x] Resume fail-closed: Nếu `initDb(true)` thất bại, trả về HTTP 500 `RESUME_FAILED_DB_INIT_ERROR`.
+  - [x] `scripts/backup-db.ps1`: Bắt buộc kiểm tra cả quiesce và resume thành công; nếu resume lỗi, thoát lỗi ngay và không in BACKUP SUCCESS.
+- [x] **2. Comment Crash Recovery & SSOT:**
+  - [x] Không ghi `status = 'APPLIED'` khi engine trả `res.success = false` (chuyển sang `status = 'FAILED'`).
+  - [x] Liên kết `event_key` với `command_id` trong `match_command_journal` để đối soát nhất quán.
+  - [x] Phục hồi trạng thái `PROCESSING` bỏ dở khi server khởi động (đối soát với journal).
+  - [x] Reclaim timeout: Cho phép nhận lại reservation nếu comment bị kẹt ở `PROCESSING` quá 30 giây do crash.
+  - [x] Kiểm thử 50 concurrent `SUA` và `BAN`: Khẳng định SSOT `repairProgress = 15` (+15 HP) và `repairs = 1`.
+- [x] **3. WAL Quarantine Reconciliation:**
+  - [x] Bắt buộc cung cấp `isAlreadyProcessedFn` trong `reconcileQuarantinedSuffix` (không cho phép undefined).
+  - [x] Không giải phóng quarantine (`isQuarantined = false`) nếu có `invalidLines > 0`.
+  - [x] `compactWALSync()` ném lỗi thực tế khi thất bại (không nuốt lỗi).
+  - [x] Rollback trạng thái hàng đợi và bảo lưu quarantine + forensic files nếu compaction lỗi.
+- [x] **4. Final Demo QA:**
+  - [x] Assert `clientSocketConnected === true` trong Playwright.
+  - [x] Assert tick tăng liên tục trên browser sau khi kết nối Socket.IO (`tick > initialTick`).
+  - [x] Dispatch gift trong lúc browser đang mở và assert `__LAST_VFX_EVENT__` / skill visual hiển thị.
+  - [x] Chạy kiểm thử toàn diện monorepo (149/149 tests PASS) và kiểm thử thực tế `start-demo.ps1`.
+

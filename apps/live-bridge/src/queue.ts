@@ -293,12 +293,16 @@ export class DurableEventQueue {
 
   /**
    * P0.3: Phương thức đối soát và hòa giải các sự kiện trong phần suffix bị cách ly:
-   * Cho phép đối soát với Gift Ledger qua providerEventId để nạp lại các event chưa xử lý
-   * và bỏ qua các duplicate đã được ghi nhận.
+   * Bắt buộc đối soát với Gift Ledger qua providerEventId để nạp lại các event chưa xử lý
+   * và loại trừ các duplicate đã được ghi nhận vào Ledger.
    */
   public async reconcileQuarantinedSuffix(
-    isAlreadyProcessedFn?: (providerEventId: string) => Promise<boolean>
+    isAlreadyProcessedFn: (providerEventId: string) => Promise<boolean>
   ): Promise<{ recovered: number; duplicatesSkipped: number; invalidLines: number }> {
+    if (typeof isAlreadyProcessedFn !== 'function') {
+      throw new Error('RECONCILIATION_FAILED: isAlreadyProcessedFn callback is mandatory for quarantine reconciliation.');
+    }
+
     if (!this.isQuarantined || !this.quarantinedSuffixFile || !fs.existsSync(this.quarantinedSuffixFile)) {
       return { recovered: 0, duplicatesSkipped: 0, invalidLines: 0 };
     }
@@ -319,15 +323,13 @@ export class DurableEventQueue {
           continue;
         }
 
-        if (isAlreadyProcessedFn) {
-          const providerId = (op.op === 'ENQUEUE' && (op.payload as any)?.providerEventId)
-            ? (op.payload as any).providerEventId
-            : op.id;
-          const isProcessed = await isAlreadyProcessedFn(providerId);
-          if (isProcessed) {
-            duplicatesSkipped++;
-            continue;
-          }
+        const providerId = (op.op === 'ENQUEUE' && (op.payload as any)?.providerEventId)
+          ? (op.payload as any).providerEventId
+          : op.id;
+        const isProcessed = await isAlreadyProcessedFn(providerId);
+        if (isProcessed) {
+          duplicatesSkipped++;
+          continue;
         }
 
         recoveredOps.push(op);
@@ -337,7 +339,13 @@ export class DurableEventQueue {
       }
     }
 
-    // Áp dụng các op đã khôi phục vào queue
+    // P0: Không cho phép đóng RECOVERY_REQUIRED nếu còn invalidLines chưa xử lý
+    if (invalidLines > 0) {
+      throw new Error(`RECONCILIATION_FAILED: Quarantine contains ${invalidLines} unparseable/corrupted lines. Quarantine preserved for forensics.`);
+    }
+
+    // Sao lưu trạng thái queue hiện tại để bảo toàn nếu compaction đĩa thất bại
+    const backupQueue = new Map(this.queue);
     for (const op of recoveredOps) {
       if (op.op === 'ENQUEUE') {
         this.queue.set(op.id, {
@@ -353,19 +361,27 @@ export class DurableEventQueue {
       }
     }
 
-    // Tái cấu trúc WAL sạch và đồng bộ xuống đĩa
-    this.isQuarantined = false;
-    this.compactWALSync();
-    this.quarantinedSuffixFile = null;
-
-    console.info(`[WAL RECONCILIATION] Successfully reconciled: ${recovered} recovered, ${duplicatesSkipped} duplicates skipped, ${invalidLines} invalid lines.`);
-    return { recovered, duplicatesSkipped, invalidLines };
+    // Tạm hạ cờ để compactWALSync ghi file mới; nếu lỗi sẽ rollback toàn diện
+    try {
+      this.isQuarantined = false;
+      this.compactWALSync();
+      if (!fs.existsSync(this.walFile)) {
+        throw new Error('WAL_FILE_MISSING_AFTER_COMPACTION');
+      }
+      this.quarantinedSuffixFile = null;
+      console.info(`[WAL RECONCILIATION] Successfully reconciled: ${recovered} recovered, ${duplicatesSkipped} duplicates skipped.`);
+      return { recovered, duplicatesSkipped, invalidLines: 0 };
+    } catch (compactErr: any) {
+      // Rollback trạng thái queue và giữ nguyên cờ quarantine cùng các file pháp chứng
+      this.queue = backupQueue;
+      this.isQuarantined = true;
+      throw new Error(`RECONCILIATION_FAILED_COMPACTION_ERROR: ${compactErr.message}`);
+    }
   }
 
   public compactWALSync(): void {
     if (this.isQuarantined) {
-      console.warn('[QUEUE] Cannot compact WAL while queue is in quarantined state (RECOVERY_REQUIRED).');
-      return;
+      throw new Error('WAL_COMPACTION_FAILED: Cannot compact WAL while queue is in quarantined state (RECOVERY_REQUIRED).');
     }
     try {
       this.ensureDirs();
@@ -392,6 +408,7 @@ export class DurableEventQueue {
       this.walLineCount = this.queue.size;
     } catch (err: any) {
       console.error(`[QUEUE COMPACT ERROR] Failed to compact WAL: ${err.message}`);
+      throw new Error(`WAL_COMPACTION_FAILED: ${err.message}`);
     }
   }
 

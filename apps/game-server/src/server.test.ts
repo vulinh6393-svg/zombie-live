@@ -1270,7 +1270,9 @@ describe('Game Server Security & Event Ingestion', () => {
           expect(data1.accepted).toBe(true);
           expect(data1.idempotentDuplicate).toBeUndefined();
 
-          // 2. Mô phỏng khởi động lại Game Server (Instance 2 với RAM trống hoàn toàn, cùng kết nối persistent DB)
+          // 2. Mô phỏng khởi động lại Game Server (Instance 1 đóng DB trước khi Instance 2 khởi động trên cùng thư mục)
+          await serverInstance1.app.close();
+
           const serverInstance2 = buildServer({
             liveBridgeToken: testBridgeToken,
             dbDataDir: testDbDir,
@@ -1299,6 +1301,7 @@ describe('Game Server Security & Event Ingestion', () => {
           expect(data2.accepted).toBe(true);
           expect(data2.idempotentDuplicate).toBe(true);
           expect(data2.reason).toBe('DUPLICATE_COMMENT_ALREADY_PROCESSED');
+          await serverInstance2.app.close();
         } finally {
           if (fs.existsSync(testDbDir)) {
             try { fs.rmSync(testDbDir, { recursive: true, force: true }); } catch {}
@@ -1456,6 +1459,161 @@ describe('Game Server Security & Event Ingestion', () => {
 
         const playerAfter = serverInstance.engine.getPlayers().find((p) => p.userId === 'repair_user');
         expect(playerAfter!.repairs).toBe(initialRepairs + 1);
+        // SSOT Balance: Lệnh SUA phục hồi chính xác +15 HP (repairProgress = 15)
+        expect(serverInstance.engine.baseHp).toBe(initialBaseHp + 15);
+
+        const deduplicated = payloads.filter(
+          (p) => p.idempotentDuplicate === true || p.reason === 'CONCURRENT_COMMENT_IN_PROGRESS'
+        );
+        expect(deduplicated.length).toBe(49);
+      });
+
+      it('P0.1 Quiesce Safety: /ready returns 503 maintenance_quiesced and does NOT call initDb during quiesce', async () => {
+        const adminSecret = 'admin_secret_quiesce_ready_test';
+        const server = buildServer({
+          adminSecret,
+          disableAutoTick: true,
+        });
+
+        // Initialize DB
+        await server.app.inject({
+          method: 'GET',
+          url: '/ready',
+        });
+
+        // Quiesce DB
+        const quiesceRes = await server.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/quiesce',
+          headers: { 'x-admin-token': adminSecret },
+        });
+        expect(quiesceRes.statusCode).toBe(200);
+
+        // While quiesced, /ready must fail closed with 503 maintenance_quiesced
+        const readyWhileQuiesced = await server.app.inject({
+          method: 'GET',
+          url: '/ready',
+        });
+        expect(readyWhileQuiesced.statusCode).toBe(503);
+        const readyBody = JSON.parse(readyWhileQuiesced.payload);
+        expect(readyBody.status).toBe('maintenance_quiesced');
+
+        // Resume DB
+        const resumeRes = await server.app.inject({
+          method: 'POST',
+          url: '/api/admin/db/resume',
+          headers: { 'x-admin-token': adminSecret },
+        });
+        expect(resumeRes.statusCode).toBe(200);
+
+        // After resume, /ready returns 200
+        const readyAfterResume = await server.app.inject({
+          method: 'GET',
+          url: '/ready',
+        });
+        expect(readyAfterResume.statusCode).toBe(200);
+      });
+
+      it('P0.2 Comment Failure Status: writes FAILED instead of APPLIED when engine rejects command', async () => {
+        const liveBridgeToken = 'token_comment_failure_test';
+        const server = buildServer({
+          liveBridgeToken,
+          disableAutoTick: true,
+        });
+
+        // Send a command for a non-existent player that engine rejects
+        const testEventId = `fail_comment_${Date.now()}`;
+        const res = await server.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          headers: {
+            'x-live-bridge-token': liveBridgeToken,
+            'Content-Type': 'application/json',
+          },
+          payload: {
+            type: 'COMMENT',
+            providerEventId: testEventId,
+            userId: 'unjoined_user',
+            userName: 'Unjoined',
+            command: 'BAN',
+            timestamp: Date.now(),
+          },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.payload);
+        expect(body.accepted).toBe(false);
+
+        // Verify in processed_events that status is FAILED
+        const dbRes = await server.app.inject({
+          method: 'POST',
+          url: '/api/admin/query',
+          headers: { 'x-admin-token': server.adminSecret },
+          payload: {
+            sql: `SELECT status FROM processed_events WHERE event_key = $1`,
+            params: [testEventId],
+          },
+        });
+        const queryBody = JSON.parse(dbRes.payload);
+        expect(queryBody.rows.length).toBe(1);
+        expect(queryBody.rows[0].status).toBe('FAILED');
+      });
+
+      it('P0.2 Startup Recovery: recovers stuck PROCESSING comments using match_command_journal', async () => {
+        const adminSecret = 'admin_recovery_test_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_recovery_db_' + Date.now());
+
+        try {
+          const appliedEventKey = 'applied_stuck_event';
+          const failedEventKey = 'failed_stuck_event';
+
+          // Ghi trước dữ liệu mô phỏng sự cố crash khi comment đang ở trạng thái PROCESSING
+          const { getDatabaseClient } = await import('@zombie-live/database');
+          const dbInit = await getDatabaseClient({ dataDir: testDir, forceNew: true });
+          await dbInit.query(
+            `INSERT INTO processed_events (event_key, event_type, status) VALUES ($1, 'COMMENT', 'PROCESSING'), ($2, 'COMMENT', 'PROCESSING')`,
+            [appliedEventKey, failedEventKey]
+          );
+          await dbInit.query(
+            `INSERT INTO match_command_journal (id, match_id, command_id, seq, tick, command_type, payload, status)
+             VALUES ('journal_row_recovery_1', $1, $2, 999, 10, 'COMMENT', '{}'::jsonb, 'APPLIED')`,
+            ['test_recovery_match', appliedEventKey]
+          );
+          await dbInit.close();
+
+          // Instance 2: Start new server on the same dataDir (simulating crash recovery)
+          const server2 = buildServer({
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server2.app.ready();
+
+          // Query processed_events: appliedEventKey should now be APPLIED, failedEventKey should be FAILED
+          const checkRes = await server2.app.inject({
+            method: 'POST',
+            url: '/api/admin/query',
+            headers: { 'x-admin-token': adminSecret },
+            payload: {
+              sql: `SELECT event_key, status FROM processed_events WHERE event_key IN ($1, $2) ORDER BY event_key ASC`,
+              params: [appliedEventKey, failedEventKey],
+            },
+          });
+
+          const checkBody = JSON.parse(checkRes.payload);
+          expect(checkBody.rows.length).toBe(2);
+          const appliedRow = checkBody.rows.find((r: any) => r.event_key === appliedEventKey);
+          const failedRow = checkBody.rows.find((r: any) => r.event_key === failedEventKey);
+          expect(appliedRow.status).toBe('APPLIED');
+          expect(failedRow.status).toBe('FAILED');
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+          }
+        }
       });
 
       it('P0.1 Consistent Quiesce & Offline Snapshot: releases PGlite file locks and allows 1:1 verified restore', async () => {

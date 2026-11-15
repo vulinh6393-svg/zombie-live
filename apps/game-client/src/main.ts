@@ -69,6 +69,7 @@ const initPhaser = async () => {
 
   gameInstance = new Phaser.Game(phaserGameConfig);
   (window as any).__PHASER_GAME__ = gameInstance;
+  (window as any).__SNAPSHOT_SOURCE__ = snapshotSource;
 
   // Register all scenes with autoStart = false to prevent duplicate preloads & texture collision
   gameInstance.scene.add('BattlefieldScene', BattlefieldScene, false);

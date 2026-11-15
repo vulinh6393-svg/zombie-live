@@ -147,7 +147,26 @@ export function buildServer(opts: BuildServerOptions = {}): {
     };
   });
 
+  // P0.1 (Final Acceptance Recovery & Closure): Operational Maintenance Barrier flags
+  let isMaintenanceQuiesced = false;
+  let inFlightDbWrites = 0;
+  let cachedPreBackupStats: any = null;
+  let isOutboxWorkerPaused = false;
+  const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
+  const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
+
   app.get('/ready', async (req, reply) => {
+    // P0: Trong trạng thái maintenance quiesced, tuyệt đối không gọi initDb() hoặc mở PGlite!
+    if (isMaintenanceQuiesced) {
+      reply.status(503);
+      return {
+        status: 'maintenance_quiesced',
+        reason: 'DATABASE_BACKUP_MAINTENANCE_IN_PROGRESS',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     let dbAlive = true;
     try {
       if (!dbClient) await initDb();
@@ -231,7 +250,12 @@ export function buildServer(opts: BuildServerOptions = {}): {
   let sessionRevocationRepo: SessionRevocationRepository | null = null;
   let deferredRepo: DeferredCommandRepository | null = null;
 
-  const initDb = async () => {
+  const initDb = async (force: boolean = false) => {
+    // P0: Trong trạng thái maintenance quiesced, chặn tuyệt đối việc tự động mở database trừ khi có cờ force (từ resume)
+    if (isMaintenanceQuiesced && !force) {
+      return;
+    }
+
     if (!dbClient) {
       try {
         const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
@@ -465,6 +489,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
   };
 
   app.addHook('onRequest', async () => {
+    if (isMaintenanceQuiesced) return;
     if (!dbClient) await initDb();
   });
 
@@ -511,19 +536,39 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
         // P0.6 (Phase 08.1): Phục hồi các lệnh hoãn đã chuyển giao nhưng chưa hoàn thành (crash recovery)
         await recoverUnappliedTransferredCommands(engine.matchId);
+
+        // P0.2 Recovery: Phục hồi các comment dở dang (PROCESSING) sau server crash
+        if (dbClient && journalRepo) {
+          try {
+            const stuckComments: any = await dbClient.query(
+              `SELECT event_key FROM processed_events WHERE status = 'PROCESSING'`
+            );
+            for (const cRow of stuckComments.rows || []) {
+              const jRes: any = await dbClient.query(
+                `SELECT status FROM match_command_journal WHERE command_id = $1`,
+                [cRow.event_key]
+              );
+              if (jRes.rows?.length > 0 && jRes.rows[0].status === 'APPLIED') {
+                await dbClient.query(
+                  `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                  [cRow.event_key]
+                );
+              } else {
+                await dbClient.query(
+                  `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                  [cRow.event_key]
+                );
+              }
+            }
+          } catch (stuckErr: any) {
+            app.log.warn(`[RECOVERY] Stuck comments recovery warning: ${stuckErr.message}`);
+          }
+        }
       } catch (recoveryErr: any) {
         app.log.warn(`[RECOVERY] Startup recovery error: ${recoveryErr.message}`);
       }
     }
   });
-
-  // P0.1 (Final Acceptance Recovery): Operational Maintenance Barrier flags
-  let isMaintenanceQuiesced = false;
-  let inFlightDbWrites = 0;
-  let cachedPreBackupStats: any = null;
-  let isOutboxWorkerPaused = false;
-  const stopOutboxWorker = () => { isOutboxWorkerPaused = true; };
-  const startOutboxWorker = () => { isOutboxWorkerPaused = false; };
 
   // Background match persistence watcher (Runs when match ends, strictly non-blocking for 20Hz tick)
   const savedMatchIds = new Set<string>();
@@ -748,10 +793,11 @@ export function buildServer(opts: BuildServerOptions = {}): {
             if (insertRes.rowCount === 0) {
               // Khóa đã được reserve bởi request khác! Kiểm tra trạng thái hiện tại
               const existing: any = await dbClient.query(
-                `SELECT status FROM processed_events WHERE event_key = $1`,
+                `SELECT status, applied_at, processed_at FROM processed_events WHERE event_key = $1`,
                 [commentKey]
               );
-              const rowStatus = existing.rows?.[0]?.status;
+              const row = existing.rows?.[0];
+              const rowStatus = row?.status;
               if (rowStatus === 'APPLIED') {
                 processedCommentKeys.set(commentKey, Date.now());
                 return {
@@ -760,12 +806,56 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
                 };
               }
-              // Request đồng thời khác đang trong quá trình thực thi (PROCESSING)
-              return {
-                accepted: false,
-                retryable: true,
-                reason: 'CONCURRENT_COMMENT_IN_PROGRESS',
-              };
+              if (rowStatus === 'FAILED') {
+                // Cho phép re-reserve nếu lần trước thất bại (engine rejected hoặc crash)
+                const reclaimRes = await dbClient.query(
+                  `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status = 'FAILED' RETURNING event_key`,
+                  [commentKey]
+                );
+                if (reclaimRes.rowCount === 0) {
+                  return { accepted: false, retryable: true, reason: 'CONCURRENT_COMMENT_IN_PROGRESS' };
+                }
+              } else {
+                // Trạng thái PROCESSING: Kiểm tra xem có phải do crash bỏ dở (quá 30s)
+                const rowTime = row?.applied_at || row?.processed_at;
+                const isStale = rowTime && Date.now() - new Date(rowTime).getTime() > 30000;
+                if (isStale) {
+                  // Đối soát với Command Journal trước khi reclaim
+                  const journalCheck: any = await dbClient.query(
+                    `SELECT status FROM match_command_journal WHERE command_id = $1`,
+                    [commentKey]
+                  ).catch(() => ({ rows: [] }));
+
+                  if (journalCheck.rows?.length > 0 && journalCheck.rows[0].status === 'APPLIED') {
+                    await dbClient.query(
+                      `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                      [commentKey]
+                    );
+                    processedCommentKeys.set(commentKey, Date.now());
+                    return {
+                      accepted: true,
+                      idempotentDuplicate: true,
+                      reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+                    };
+                  }
+
+                  // Cho phép reclaim stale PROCESSING
+                  const reclaimStale = await dbClient.query(
+                    `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status = 'PROCESSING' RETURNING event_key`,
+                    [commentKey]
+                  );
+                  if (reclaimStale.rowCount === 0) {
+                    return { accepted: false, retryable: true, reason: 'CONCURRENT_COMMENT_IN_PROGRESS' };
+                  }
+                } else {
+                  // Request đồng thời khác đang trong quá trình thực thi (PROCESSING)
+                  return {
+                    accepted: false,
+                    retryable: true,
+                    reason: 'CONCURRENT_COMMENT_IN_PROGRESS',
+                  };
+                }
+              }
             }
           } catch (dbReservationErr: any) {
             app.log.error(`[COMMENT_DEDUP] Atomic reservation failed: ${dbReservationErr.message}`);
@@ -813,15 +903,44 @@ export function buildServer(opts: BuildServerOptions = {}): {
           missionAction = 'BOSS';
         }
 
-        // Cập nhật trạng thái thành APPLIED trong database sau khi engine thực thi thành công
-        if (dbClient && commentKey) {
-          await dbClient.query(
-            `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
-            [commentKey]
-          );
+        // P0: Liên kết comment identity với match_command_journal
+        if (journalRepo && commentKey) {
+          try {
+            await journalRepo.appendCommand({
+              matchId: engine.matchId,
+              commandId: commentKey,
+              tick: engine.tick,
+              commandType: 'COMMENT_' + (missionAction || 'COMMAND'),
+              payload: { userId: ev.userId, userName: ev.userName, command: rawCmd, success: res.success, reason: res.reason },
+            });
+            await journalRepo.markCommandApplied(
+              engine.matchId,
+              commentKey,
+              engine.tick,
+              res.success ? 'APPLIED' : 'REJECTED',
+              res.reason
+            );
+          } catch (jErr: any) {
+            app.log.warn(`[JOURNAL] Failed to append comment command to journal: ${jErr.message}`);
+          }
         }
 
-        if (commentKey) {
+        // P0: Không ghi APPLIED khi engine trả success: false
+        if (dbClient && commentKey) {
+          if (res.success) {
+            await dbClient.query(
+              `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+              [commentKey]
+            );
+          } else {
+            await dbClient.query(
+              `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+              [commentKey]
+            );
+          }
+        }
+
+        if (commentKey && res.success) {
           if (processedCommentKeys.size >= MAX_COMMENT_CACHE_SIZE) {
             const oldestKey = processedCommentKeys.keys().next().value;
             if (oldestKey) processedCommentKeys.delete(oldestKey);
@@ -832,7 +951,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         if (dbClient && commentKey) {
           try {
             await dbClient.query(
-              `UPDATE processed_events SET status = 'FAILED' WHERE event_key = $1`,
+              `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
               [commentKey]
             );
           } catch {}
@@ -1508,7 +1627,16 @@ export function buildServer(opts: BuildServerOptions = {}): {
         sessionRevocationRepo = null;
         app.log.info('[DB_QUIESCE] PGlite connection closed safely. File locks released for consistent snapshot.');
       } catch (closeErr: any) {
-        app.log.warn(`[DB_QUIESCE] Error closing dbClient during quiesce: ${closeErr.message}`);
+        app.log.error(`[DB_QUIESCE] Error closing dbClient during quiesce: ${closeErr.message}`);
+        // P0 FAIL-CLOSED: Nếu đóng database hoặc flush lỗi, quiesce phải THẤT BẠI, không trả success: true!
+        isMaintenanceQuiesced = false;
+        engine.resumeSimulation();
+        startOutboxWorker();
+        return reply.status(500).send({
+          success: false,
+          error: 'DATABASE_CLOSE_FAILED',
+          message: `Failed to safely close database: ${closeErr.message}`,
+        });
       }
     }
 
@@ -1528,9 +1656,21 @@ export function buildServer(opts: BuildServerOptions = {}): {
     const auth = verifyAdminAuth(request, reply, 'operator');
     if (!auth) return;
 
-    // 1. Mở lại kết nối DB nếu đã đóng lúc quiesce
+    if (!isMaintenanceQuiesced && dbClient) {
+      return reply.send({ success: true, status: 'active', message: 'Database is already active.' });
+    }
+
+    // 1. Mở lại kết nối DB nếu đã đóng lúc quiesce (bắt buộc truyền force = true)
     if (!dbClient) {
-      await initDb();
+      await initDb(true);
+    }
+
+    if (!dbClient) {
+      return reply.status(500).send({
+        success: false,
+        error: 'RESUME_FAILED_DB_INIT_ERROR',
+        message: 'Could not reopen database during resume.',
+      });
     }
 
     // 2. Mở lại ingress và tiếp tục hoạt động engine & outbox
@@ -1541,7 +1681,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
 
     app.log.info('[DB_RESUME] Maintenance barrier lifted. Database reopened, engine simulation and outbox worker resumed, DB ingress open.');
     await logAdminAction(auth.actor, auth.role, 'DB_RESUME', { tick: engine.tick });
-    return reply.send({ success: true, status: 'resumed', timestamp: Date.now() });
+    return reply.send({ success: true, status: 'resumed', engineTick: engine.tick, timestamp: Date.now() });
   });
 
   // P0.2 (Final Reliability Gate): Operational Database Pre-Backup Statistics Endpoint

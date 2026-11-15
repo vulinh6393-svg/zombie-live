@@ -314,6 +314,11 @@ export class BattlefieldScene extends Phaser.Scene {
   // Mọi sát thương, tia đạn, số damage và hoạt ảnh tử vong đều kích hoạt từ sự kiện Server!
   // =========================================================================
   private handleCombatEvent(ev: CombatEvent): void {
+    if (typeof window !== 'undefined') {
+      (window as any).__LAST_VFX_EVENT__ = ev;
+      if (!(window as any).__ALL_VFX_EVENTS__) (window as any).__ALL_VFX_EVENTS__ = [];
+      (window as any).__ALL_VFX_EVENTS__.push(ev);
+    }
     if (ev.type === 'SHOOT') {
       const target = ev.targetId ? this.zombies.get(ev.targetId) : null;
       const targetX = target ? target.getX() : ev.x;
@@ -392,6 +397,10 @@ export class BattlefieldScene extends Phaser.Scene {
   // =========================================================================
   private handleSnapshot(snapshot: ExtendedMatchSnapshot): void {
     this.latestSnapshot = snapshot;
+    if (typeof window !== 'undefined') {
+      (window as any).__LAST_SNAPSHOT_TICK__ = snapshot.tick;
+      (window as any).__SNAPSHOT_COUNT__ = ((window as any).__SNAPSHOT_COUNT__ || 0) + 1;
+    }
     // 1. Process Authoritative Combat Events (Deduplicated by eventId)
     if ((snapshot as any).recentEvents && (snapshot as any).recentEvents.length > 0) {
       for (const ev of (snapshot as any).recentEvents as CombatEvent[]) {

@@ -139,23 +139,28 @@ try {
   Write-Host "[FATAL ERROR] Lỗi trong quá trình sao lưu: $($_.Exception.Message)" -ForegroundColor Red
   $backupSucceeded = $false
 } finally {
+  $resumeSucceeded = $true
   # 4. Luôn luôn resume Game Server trong finally block nếu đã quiesce
   if ($isServerRunning) {
     Write-Host "[4/4] Phục hồi hoạt động bình thường qua /api/admin/db/resume..." -ForegroundColor Yellow
     try {
       $resumeRes = Invoke-RestMethod -Uri "$ServerUrl/api/admin/db/resume" -Method Post -Headers $headers -Body "{}" -TimeoutSec 5
+      if (-not $resumeRes -or $resumeRes.success -ne $true) {
+        throw "Resume returned failure status: $(ConvertTo-Json $resumeRes)"
+      }
       Write-Host "[PASS] Đã resume Engine, Outbox worker và mở lại DB ingress." -ForegroundColor Green
     } catch {
       Write-Host "[CRITICAL] Không thể tự động resume server: $($_.Exception.Message)" -ForegroundColor Red
+      $resumeSucceeded = $false
     }
   } else {
     Write-Host "[4/4] Bỏ qua resume (server offline)." -ForegroundColor Gray
   }
 }
 
-if (-not $backupSucceeded) {
+if (-not $backupSucceeded -or -not $resumeSucceeded) {
   Write-Host "================================================================" -ForegroundColor Red
-  Write-Host " [BACKUP FAILED] SAO LƯU THẤT BẠI. DỮ LIỆU CHƯA ĐƯỢC SAO LƯU AN TOÀN!" -ForegroundColor Red
+  Write-Host " [BACKUP FAILED] SAO LƯU HOẶC RESUME THẤT BẠI. DỮ LIỆU CHƯA ĐƯỢC SAO LƯU HOẶC PHỤC HỒI AN TOÀN!" -ForegroundColor Red
   Write-Host "================================================================" -ForegroundColor Red
   exit 1
 }
