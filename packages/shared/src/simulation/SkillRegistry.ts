@@ -140,10 +140,14 @@ export const GIFT_ID_TO_SKILL_ID: Record<string, string> = {
   gift_missile: 'airstrike',
   missile: 'airstrike',
   airstrike: 'airstrike',
+  galaxy: 'airstrike',
+  gift_galaxy: 'airstrike',
 
   // Shield
   gift_shield: 'shield',
   shield: 'shield',
+  donut: 'shield',
+  gift_donut: 'shield',
 
   // Machinegun / Overclock
   gift_doughnut: 'overclock',

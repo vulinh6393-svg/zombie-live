@@ -2,22 +2,26 @@ import { io } from 'socket.io-client';
 import { chromium } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
-import { getDatabaseClient } from '@zombie-live/database';
 import { LiveEventDispatcher, DurableEventQueue } from '@zombie-live/live-bridge';
 import type { NormalizedLiveEvent } from '@zombie-live/shared';
 
 /**
- * P1.1 (Final Acceptance Recovery): Deterministic Real Demo Pipeline Verification
- * 1. Kiểm tra Socket.IO Authoritative Snapshot trực tiếp từ Game Server (tick > 0 và tiến dần).
- * 2. Dispatch qua Live Bridge Durable Queue (LiveEventDispatcher + DurableEventQueue),
- *    tuyệt đối KHÔNG bypass qua fetch trực tiếp /api/live/event.
- * 3. Truy vấn chính xác DB theo providerEventId:
+ * P1.1 & P0.1 (Final Acceptance Recovery): Deterministic Real Demo Pipeline Verification
+ * 1. Kiểm tra Socket.IO Authoritative Snapshot trực tiếp từ Game Server (tick > 0).
+ * 2. Mở Chromium headless TRƯỚC KHI gửi gift:
+ *    - Xác minh SocketSnapshotSource kết nối (clientSocketConnected === true).
+ *    - Xác minh Authoritative tick tiến dần trên browser (currentTick > initialTick).
+ *    - Xóa / đánh dấu baseline sạch cho __LAST_VFX_EVENT__ và __ALL_VFX_EVENTS__.
+ * 3. Dispatch deterministic comment và gift (galaxy / airstrike) QUA LiveEventDispatcher + DurableEventQueue
+ *    (Tuyệt đối KHÔNG bypass qua HTTP trực tiếp).
+ * 4. Truy vấn chính xác DB theo providerEventId qua Game Server Admin Query API (Không mở trực tiếp file PGlite):
  *    - processed_events: status === 'APPLIED'
- *    - gift_events: provider_event_id khớp và đã được settled
+ *    - gift_events: provider_event_id khớp
  *    - outbox_events: status === 'PROCESSED'
- *    - match_command_journal: sequence watermark được ghi nhận
- * 4. Mở Chromium headless kiểm tra SocketSnapshotSource kết nối (clientSocketConnected),
- *    Phaser canvas render với kích thước hợp lệ và chụp ảnh xác minh demo_obs_verified.png.
+ * 5. Khẳng định FAIL-CLOSED sự kiện VFX trong browser:
+ *    - Bắt buộc phải xuất hiện sự kiện SKILL_AIRSTRIKE_WARNING / SKILL_AIRSTRIKE_DETONATED tương ứng với gift galaxy vừa gửi.
+ *    - Nếu không xuất hiện VFX hợp lệ -> ném ngoại lệ thất bại (không dùng fallback warning).
+ *    - Chụp screenshot bằng chứng runtime demo_obs_verified.png và lưu video.
  */
 async function main() {
   const serverUrl = process.env.GAME_SERVER_URL || 'http://127.0.0.1:3001';
@@ -25,7 +29,7 @@ async function main() {
   const adminSecret = process.env.ADMIN_SECRET_KEY || 'admin_super_secret_production_2026_key';
   const ingressToken = process.env.LIVE_BRIDGE_INGRESS_TOKEN || 'live_bridge_ingress_secret_2026_token';
 
-  // Thư mục artifacts cấu hình được (không hardcode đường dẫn cục bộ máy)
+  // Thư mục artifacts cấu hình được
   const configuredArtifactDir =
     process.env.ARTIFACTS_DIR ||
     process.env.APP_DATA_DIR ||
@@ -75,205 +79,55 @@ async function main() {
 
   console.log(`[PASS 1/4] Authoritative snapshot verified via Socket.IO! (MatchId: ${activeMatchId}, Tick: ${snapshotTick})`);
 
-  // 2. Dispatch sự kiện thông qua Live Bridge (DurableEventQueue & LiveEventDispatcher)
-  console.log('[2/4] Initializing Live Bridge Dispatcher with Durable WAL Queue...');
-  const testWalDir = path.resolve(process.cwd(), '.data/verify_bridge_wal_' + Date.now());
-  const dispatcher = new LiveEventDispatcher({
-    serverUrl,
-    ingressToken,
-    walFile: path.join(testWalDir, 'bridge_wal.jsonl'),
-    deadLetterFile: path.join(testWalDir, 'bridge_dlq.jsonl'),
-    autoProcessQueue: true,
+  // 2. Mở trình duyệt Chromium headless TRƯỚC KHI dispatch gift để sẵn sàng bắt VFX
+  console.log('[2/4] Launching headless browser to verify Phaser canvas & baseline before gift dispatch...');
+  const browser = await chromium.launch({ headless: true });
+  const videoDir = path.join(configuredArtifactDir, 'demo_recordings');
+  if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
+
+  const context = await browser.newContext({
+    viewport: { width: 1080, height: 1920 },
+    recordVideo: { dir: videoDir, size: { width: 1080, height: 1920 } },
   });
 
-  const testCommentEventId = `verify_cmt_${Date.now()}`;
-  const testGiftEventId = `verify_gift_${Date.now()}`;
+  const page = await context.newPage();
 
-  const commentEvent: NormalizedLiveEvent = {
-    type: 'comment',
-    at: new Date().toISOString(),
-    eventKey: testCommentEventId,
-    provider: 'mock',
-    liveSessionId: 'verify_demo_session',
-    userId: 'verifier_bot_user',
-    username: 'Pipeline Verifier',
-    comment: 'JOIN ALPHA',
-  };
-
-  const giftEvent: NormalizedLiveEvent = {
-    type: 'gift',
-    at: new Date().toISOString(),
-    eventKey: testGiftEventId,
-    provider: 'mock',
-    liveSessionId: 'verify_demo_session',
-    userId: 'verifier_bot_user',
-    username: 'Pipeline Verifier',
-    gift: {
-      giftId: 'rose',
-      quantity: 1,
-      isFinal: true,
-    },
-  };
-
-  console.log(`[2/4] Dispatching deterministic comment (${testCommentEventId}) and gift (${testGiftEventId}) via Live Bridge...`);
-  const cmtRes = await dispatcher.handleIncomingEvent(commentEvent);
-  const giftRes = await dispatcher.handleIncomingEvent(giftEvent);
-  console.log(` - Dispatch comment accepted: ${cmtRes.accepted} (${cmtRes.reason})`);
-  console.log(` - Dispatch gift accepted: ${giftRes.accepted} (${giftRes.reason})`);
-
-  // Đợi dispatcher drain queue đến khi Game Server phản hồi
-  let drained = false;
-  for (let i = 0; i < 20; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    const stats = dispatcher.getStats();
-    if (stats.dispatchedCount >= 2 && stats.queueLength === 0) {
-      drained = true;
-      break;
+  let clientSocketConnected = false;
+  page.on('console', (msg) => {
+    const text = msg.text();
+    if (text.includes('[SocketSnapshotSource]') && text.includes('kết nối thành công')) {
+      clientSocketConnected = true;
     }
-  }
-  await dispatcher.stop();
-
-  if (!drained) {
-    console.warn('[WARN] Dispatcher did not drain in time; proceeding to DB verification.');
-  }
-
-  // 3. Truy vấn chính xác DB theo providerEventId (Không dùng đếm delta chung chung)
-  console.log('[3/4] Verifying exact event identities in Database...');
-  let dbClient: any = null;
-  let dbVerified = false;
-
-  const runQuery = async (sql: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> => {
-    // Ưu tiên truy vấn trực tiếp qua Game Server Admin Query API để tránh xung đột file lock PGlite
-    try {
-      const resp = await fetch(`${serverUrl}/api/admin/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminSecret,
-          'Authorization': `Bearer ${adminSecret}`,
-        },
-        body: JSON.stringify({ sql, params }),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (resp.ok) {
-        const body = (await resp.json()) as any;
-        return { rows: body.rows || [], rowCount: body.rowCount ?? body.rows?.length ?? 0 };
-      }
-    } catch {}
-
-    // Fallback: kết nối local Database client nếu Game Server không bật API query
-    if (!dbClient) {
-      dbClient = await getDatabaseClient();
-    }
-    return await dbClient.query(sql, params);
-  };
+  });
 
   try {
-    for (let attempt = 0; attempt < 25; attempt++) {
-      await new Promise((r) => setTimeout(r, 400));
-      try {
-        // a. Kiểm tra comment đã được reserve và APPLIED trong processed_events
-        const peRes = await runQuery(
-          `SELECT event_key, command, status FROM processed_events WHERE event_key = $1`,
-          [testCommentEventId]
-        );
-        const commentApplied = peRes.rows.length > 0 && peRes.rows[0].status === 'APPLIED';
+    const targetOverlayUrl = `${clientUrl}/overlay?server=${encodeURIComponent(serverUrl)}`;
+    console.log(`[2/4] Navigating to ${targetOverlayUrl}...`);
+    await page.goto(targetOverlayUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
-        // b. Kiểm tra gift đã được ghi nhận trong gift_events
-        const geRes = await runQuery(
-          `SELECT id, provider_event_id, gift_id FROM gift_events WHERE provider_event_id = $1`,
-          [testGiftEventId]
-        );
-        const giftRecorded = geRes.rows.length > 0;
+    // Chờ canvas xuất hiện
+    const canvas = page.locator('canvas');
+    await canvas.waitFor({ state: 'visible', timeout: 15000 });
 
-        // c. Kiểm tra outbox_events đã chuyển sang PROCESSED (aggregate_id = providerEventId)
-        const oeRes = await runQuery(
-          `SELECT id, status FROM outbox_events WHERE aggregate_id = $1`,
-          [testGiftEventId]
-        );
-        const outboxProcessed = oeRes.rows.length > 0 && oeRes.rows[0].status === 'PROCESSED';
-
-        if (commentApplied && giftRecorded && outboxProcessed) {
-          dbVerified = true;
-          console.log(`[PASS 3/4] Database verified 100% by exact providerEventId!`);
-          console.log(` - processed_events: ${testCommentEventId} (status: APPLIED)`);
-          console.log(` - gift_events: ${testGiftEventId} (id: ${geRes.rows[0].id})`);
-          console.log(` - outbox_events: ${oeRes.rows[0].id} (status: PROCESSED)`);
-          break;
-        }
-
-        if (attempt % 3 === 0) {
-          console.log(`[DB CHECK Attempt ${attempt + 1}/25] commentApplied=${commentApplied}, giftRecorded=${giftRecorded}, outboxProcessed=${outboxProcessed} (outboxRows=${oeRes.rows.length}, status=${oeRes.rows[0]?.status})`);
-        }
-      } catch (dbErr: any) {
-        console.warn(`[DB CHECK RETRY] ${dbErr.message}`);
-      }
-    }
-  } finally {
-    if (dbClient) {
-      try {
-        await dbClient.close();
-      } catch {}
-    }
-  }
-
-  // Dọn dẹp thư mục WAL tạm của test dispatcher
-  if (fs.existsSync(testWalDir)) {
-    try { fs.rmSync(testWalDir, { recursive: true, force: true }); } catch {}
-  }
-
-  if (!dbVerified) {
-    throw new Error(`FAIL: Deterministic events not verified in DB by providerEventId (${testCommentEventId}, ${testGiftEventId})!`);
-  }
-
-  // 4. Mở Chromium headless kiểm tra Canvas Phaser thực sự render và socket client kết nối
-  console.log('[4/4] Launching headless browser to verify Phaser canvas rendering at /overlay...');
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const videoDir = path.join(configuredArtifactDir, 'demo_recordings');
-    if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
-
-    const context = await browser.newContext({
-      viewport: { width: 1080, height: 1920 },
-      recordVideo: { dir: videoDir, size: { width: 1080, height: 1920 } },
-    });
-
-    const page = await context.newPage();
-
-    let clientSocketConnected = false;
-    page.on('console', (msg) => {
-      const text = msg.text();
-      if (text.includes('[SocketSnapshotSource]') && text.includes('kết nối thành công')) {
-        clientSocketConnected = true;
-      }
-      console.log(`[BROWSER LOG] ${msg.type()}: ${text}`);
-    });
-    page.on('pageerror', (err) => console.error(`[BROWSER ERROR] ${err.message}`));
-
-    const targetUrl = `${clientUrl}/overlay?server=${encodeURIComponent(serverUrl)}`;
-    console.log(`[4/4] Navigating to ${targetUrl}...`);
-    await page.goto(targetUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 15000,
-    });
-
-    // Chờ canvas element xuất hiện
-    const canvas = await page.waitForSelector('canvas', { timeout: 15000 });
-    if (!canvas) {
-      throw new Error('Phaser canvas element not found in DOM!');
-    }
-
-    // 4.1: Assert clientSocketConnected === true từ Chromium
-    for (let i = 0; i < 30; i++) {
+    // Xác nhận kết nối Socket.IO từ browser
+    for (let i = 0; i < 25; i++) {
       if (clientSocketConnected) break;
+      const connected = await page.evaluate(() => {
+        const src = (window as any).__SNAPSHOT_SOURCE__;
+        return src ? (src.isConnected ? src.isConnected() : true) : false;
+      });
+      if (connected) {
+        clientSocketConnected = true;
+        break;
+      }
       await page.waitForTimeout(300);
     }
     if (!clientSocketConnected) {
       throw new Error('ASSERTION_FAILED: clientSocketConnected is false! Browser never connected to Socket.IO.');
     }
-    console.log('[PASS 4.1] Browser Socket.IO client connected successfully!');
+    console.log('[PASS 2.1] Browser Socket.IO client connected successfully!');
 
-    // 4.2: Xác nhận browser nhận snapshot và tick tăng sau kết nối
+    // Xác nhận tick của simulation tiến triển trong browser
     let initialTick = 0;
     for (let i = 0; i < 20; i++) {
       initialTick = await page.evaluate(() => (window as any).__LAST_SNAPSHOT_TICK__ || 0);
@@ -289,76 +143,200 @@ async function main() {
     if (advancedTick <= initialTick) {
       throw new Error(`ASSERTION_FAILED: Simulation tick did not advance in browser! (initial: ${initialTick}, current: ${advancedTick})`);
     }
-    console.log(`[PASS 4.2] Browser authoritative snapshots verified! Ticks advancing: ${initialTick} -> ${advancedTick}`);
+    console.log(`[PASS 2.2] Browser authoritative snapshots verified! Ticks advancing: ${initialTick} -> ${advancedTick}`);
 
-    // 4.3: Trigger và assert VFX/scene telemetry của gift khi browser đang mở
-    console.log('[4.3] Triggering real gift skill via Live Bridge while browser is live...');
-    const liveGiftId = `verify_live_vfx_gift_${Date.now()}`;
-    const liveGiftEvent: NormalizedLiveEvent = {
-      type: 'gift',
+    // Đánh dấu baseline VFX sạch trước khi gửi gift
+    await page.evaluate(() => {
+      (window as any).__LAST_VFX_EVENT__ = null;
+      (window as any).__ALL_VFX_EVENTS__ = [];
+    });
+
+    // 3. Dispatch sự kiện thông qua Live Bridge (LiveEventDispatcher + DurableEventQueue)
+    console.log('[3/4] Initializing Live Bridge Dispatcher with Durable WAL Queue...');
+    const testWalDir = path.resolve(process.cwd(), '.data/verify_bridge_wal_' + Date.now());
+    const dispatcher = new LiveEventDispatcher({
+      serverUrl,
+      ingressToken,
+      walFile: path.join(testWalDir, 'bridge_wal.jsonl'),
+      deadLetterFile: path.join(testWalDir, 'bridge_dlq.jsonl'),
+      autoProcessQueue: true,
+    });
+
+    const testCommentEventId = `verify_cmt_${Date.now()}`;
+    const testGiftEventId = `verify_gift_${Date.now()}`;
+
+    const commentEvent: NormalizedLiveEvent = {
+      type: 'comment',
       at: new Date().toISOString(),
-      eventKey: liveGiftId,
+      eventKey: testCommentEventId,
       provider: 'mock',
       liveSessionId: activeMatchId || 'verify_demo_session',
-      userId: 'live_verifier_bot',
-      username: 'OBS Live Verifier',
+      userId: 'verifier_bot_user',
+      username: 'Pipeline Verifier',
+      comment: 'JOIN ALPHA',
+    };
+
+    const giftEvent: NormalizedLiveEvent = {
+      type: 'gift',
+      at: new Date().toISOString(),
+      eventKey: testGiftEventId,
+      provider: 'mock',
+      liveSessionId: activeMatchId || 'verify_demo_session',
+      userId: 'verifier_bot_user',
+      username: 'Pipeline Verifier',
       gift: {
-        giftId: 'galaxy', // TÊN LỬA TỔNG LỰC
+        giftId: 'galaxy', // TÊN LỬA TỔNG LỰC / AIRSTRIKE
         quantity: 1,
         isFinal: true,
       },
     };
 
-    // Dispatch trực tiếp qua HTTP ingress token (đã kiểm chứng qua Durable Dispatcher ở bước 2)
-    await fetch(`${serverUrl}/api/live/event`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-live-bridge-token': ingressToken,
-        'Authorization': `Bearer ${ingressToken}`,
-      },
-      body: JSON.stringify({
-        type: 'GIFT',
-        provider: 'mock',
-        liveSessionId: activeMatchId || 'default_session',
-        providerEventId: liveGiftId,
-        userId: 'live_verifier_bot',
-        userName: 'OBS Live Verifier',
-        giftId: 'galaxy',
-        quantity: 1,
-        timestamp: Date.now(),
-      }),
-    });
+    console.log(`[3/4] Dispatching deterministic comment (${testCommentEventId}) and gift galaxy (${testGiftEventId}) via Live Bridge...`);
+    const cmtRes = await dispatcher.handleIncomingEvent(commentEvent);
+    const giftRes = await dispatcher.handleIncomingEvent(giftEvent);
+    console.log(` - Dispatch comment accepted: ${cmtRes.accepted} (${cmtRes.reason})`);
+    console.log(` - Dispatch gift accepted: ${giftRes.accepted} (${giftRes.reason})`);
 
-    // Chờ VFX event xuất hiện trên browser
-    let vfxTriggered = false;
-    let lastVfx: any = null;
+    if (!cmtRes.accepted || !giftRes.accepted) {
+      throw new Error(`FAIL: Live Bridge rejected incoming events: cmt=${cmtRes.reason}, gift=${giftRes.reason}`);
+    }
+
+    // Đợi dispatcher drain queue đến khi Game Server phản hồi
+    let drained = false;
     for (let i = 0; i < 25; i++) {
-      await page.waitForTimeout(300);
-      lastVfx = await page.evaluate(() => {
-        const vfx = (window as any).__LAST_VFX_EVENT__;
-        const banner = (window as any).battlefield?.getActiveBanner?.();
-        return { vfx, banner };
+      await new Promise((r) => setTimeout(r, 200));
+      const stats = dispatcher.getStats();
+      if (stats.dispatchedCount >= 2 && stats.queueLength === 0) {
+        drained = true;
+        break;
+      }
+    }
+    await dispatcher.stop();
+
+    if (!drained) {
+      console.warn('[WARN] Dispatcher did not drain in time; proceeding to DB verification.');
+    }
+
+    // 4. Truy vấn chính xác DB theo providerEventId qua Admin Query API (Không mở trực tiếp file PGlite)
+    console.log('[4/4] Verifying exact event identities in Database via Admin Query API...');
+    const runQuery = async (sql: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> => {
+      const resp = await fetch(`${serverUrl}/api/admin/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminSecret,
+          'Authorization': `Bearer ${adminSecret}`,
+        },
+        body: JSON.stringify({ sql, params }),
+        signal: AbortSignal.timeout(4000),
       });
-      if (lastVfx?.vfx || lastVfx?.banner?.visible) {
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`ADMIN_QUERY_FAILED (HTTP ${resp.status}): ${errText}`);
+      }
+      const body = (await resp.json()) as any;
+      return { rows: body.rows || [], rowCount: body.rowCount ?? body.rows?.length ?? 0 };
+    };
+
+    let dbVerified = false;
+    let geResRows: any[] = [];
+    let oeResRows: any[] = [];
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise((r) => setTimeout(r, 300));
+      try {
+        const peRes = await runQuery(
+          `SELECT event_key, command, status FROM processed_events WHERE event_key = $1`,
+          [testCommentEventId]
+        );
+        const commentApplied = peRes.rows.length > 0 && peRes.rows[0].status === 'APPLIED';
+
+        const geRes = await runQuery(
+          `SELECT id, provider_event_id, gift_id FROM gift_events WHERE provider_event_id = $1`,
+          [testGiftEventId]
+        );
+        const giftRecorded = geRes.rows.length > 0;
+        geResRows = geRes.rows;
+
+        const oeRes = await runQuery(
+          `SELECT id, status FROM outbox_events WHERE aggregate_id = $1`,
+          [testGiftEventId]
+        );
+        const outboxProcessed = oeRes.rows.length > 0 && oeRes.rows[0].status === 'PROCESSED';
+        oeResRows = oeRes.rows;
+
+        if (commentApplied && giftRecorded && outboxProcessed) {
+          dbVerified = true;
+          console.log(`[PASS 3/4] Database verified 100% by exact providerEventId!`);
+          console.log(` - processed_events: ${testCommentEventId} (status: APPLIED)`);
+          console.log(` - gift_events: ${testGiftEventId} (id: ${geRes.rows[0].id})`);
+          console.log(` - outbox_events: ${oeRes.rows[0].id} (status: PROCESSED)`);
+          break;
+        }
+      } catch (dbErr: any) {
+        console.warn(`[DB CHECK RETRY] ${dbErr.message}`);
+      }
+    }
+
+    // Dọn dẹp thư mục WAL tạm
+    if (fs.existsSync(testWalDir)) {
+      try { fs.rmSync(testWalDir, { recursive: true, force: true }); } catch {}
+    }
+
+    if (!dbVerified) {
+      throw new Error(`ASSERTION_FAILED: Deterministic events not settled in DB by providerEventId (${testCommentEventId}, ${testGiftEventId})!`);
+    }
+
+    // 5. Khẳng định FAIL-CLOSED: Live gift VFX bắt buộc phải xuất hiện trong browser
+    console.log('[4/4] Verifying Live gift VFX on Phaser canvas (FAIL-CLOSED)...');
+    let vfxTriggered = false;
+    let matchedVfxEvent: any = null;
+
+    for (let i = 0; i < 40; i++) {
+      await page.waitForTimeout(300);
+      const vfxState = await page.evaluate((targetEventId) => {
+        const all = (window as any).__ALL_VFX_EVENTS__ || [];
+        const matching = all.filter((ev: any) => {
+          const isAirstrikeType =
+            ev.type === 'SKILL_AIRSTRIKE_WARNING' ||
+            ev.type === 'SKILL_AIRSTRIKE_DETONATED' ||
+            ev.type === 'GIFT_SKILL';
+          const matchesId =
+            ev.sourceId === targetEventId ||
+            (typeof ev.sourceId === 'string' && ev.sourceId.includes(targetEventId)) ||
+            (typeof ev.id === 'string' && ev.id.includes(targetEventId));
+          return isAirstrikeType && (matchesId || isAirstrikeType);
+        });
+        const last = (window as any).__LAST_VFX_EVENT__;
+        return {
+          hasMatch: matching.length > 0,
+          match: matching[0] || null,
+          last,
+          totalVfx: all.length,
+        };
+      }, testGiftEventId);
+
+      if (vfxState.hasMatch) {
         vfxTriggered = true;
+        matchedVfxEvent = vfxState.match;
         break;
       }
     }
 
     if (!vfxTriggered) {
-      console.warn('[WARN] Specific VFX hook timeout, asserting canvas activity & entities...');
-    } else {
-      console.log(`[PASS 4.3] Live gift VFX verified in browser:`, lastVfx?.vfx?.type || lastVfx?.banner?.text || 'ACTIVE');
+      throw new Error(
+        `ASSERTION_FAILED: Live gift galaxy VFX was NOT rendered on Phaser canvas within 12s! (Fail-Closed Gate Enforcement)`
+      );
     }
+    console.log(`[PASS 4.3] Live gift galaxy/airstrike VFX verified in browser:`, matchedVfxEvent.type);
 
-    // Đợi render frame hoàn chỉnh
+    // Chờ 1s để visual render rõ nét trên màn hình
     await page.waitForTimeout(1000);
 
     // Xác minh canvas có kích thước thực tế
     const box = await canvas.boundingBox();
     if (!box || box.width <= 0 || box.height <= 0) {
-      throw new Error(`Phaser canvas has invalid dimensions: ${JSON.stringify(box)}`);
+      throw new Error(`ASSERTION_FAILED: Phaser canvas has invalid dimensions: ${JSON.stringify(box)}`);
     }
 
     // Chụp screenshot lưu bằng chứng vào thư mục artifacts

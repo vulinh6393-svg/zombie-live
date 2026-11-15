@@ -1498,6 +1498,30 @@ describe('Game Server Security & Event Ingestion', () => {
         const readyBody = JSON.parse(readyWhileQuiesced.payload);
         expect(readyBody.status).toBe('maintenance_quiesced');
 
+        // /health remains available for uptime monitoring
+        const healthWhileQuiesced = await server.app.inject({
+          method: 'GET',
+          url: '/health',
+        });
+        expect(healthWhileQuiesced.statusCode).toBe(200);
+
+        // Mutation routes must be strictly blocked with HTTP 503 during maintenance
+        const mutateWhileQuiesced = await server.app.inject({
+          method: 'POST',
+          url: '/api/live/event',
+          payload: { type: 'COMMENT', userId: 'u1', command: 'BAN' },
+        });
+        expect(mutateWhileQuiesced.statusCode).toBe(503);
+        const mutateBody = JSON.parse(mutateWhileQuiesced.payload);
+        expect(mutateBody.message).toContain('SERVER_MAINTENANCE_QUIESCED');
+
+        const adminResetWhileQuiesced = await server.app.inject({
+          method: 'POST',
+          url: '/api/admin/match/emergency-reset',
+          headers: { 'x-admin-token': adminSecret },
+        });
+        expect(adminResetWhileQuiesced.statusCode).toBe(503);
+
         // Resume DB
         const resumeRes = await server.app.inject({
           method: 'POST',
@@ -1671,6 +1695,101 @@ describe('Game Server Security & Event Ingestion', () => {
           }
           if (fs.existsSync(backupDir)) {
             try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
+          }
+        }
+      });
+
+      it('P0.2 Comment Crash Consistency: prevents double-apply of SUA/BAN after crash and replays journal correctly', async () => {
+        const testBridgeToken = 'token_crash_consistency_test';
+        const adminSecret = 'admin_crash_consistency_secret';
+        const testDir = path.resolve(process.cwd(), '.data/test_crash_consistency_' + Date.now());
+
+        try {
+          // 1. Server 1: Thực thi lệnh SUA sửa thành
+          const server1 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server1.app.ready();
+          server1.engine.handleJoin('crash_tester', 'Crash Tester', 'bravo');
+          server1.engine.baseHp = 800;
+          if (server1.engine.onCheckpointNeeded) {
+            await (server1.engine.onCheckpointNeeded as any)(server1.engine.tick, server1.engine.getSimulationState(), 0);
+          }
+
+          const commentEventId = `cmt_sua_consistency_${Date.now()}`;
+          const res1 = await server1.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: commentEventId,
+              userId: 'crash_tester',
+              userName: 'Crash Tester',
+              command: 'SUA',
+              timestamp: Date.now(),
+            },
+          });
+
+          expect(res1.statusCode).toBe(200);
+          const data1 = JSON.parse(res1.payload);
+          expect(data1.accepted).toBe(true);
+          expect(server1.engine.baseHp).toBe(815);
+
+          // 2. CRASH SERVER 1 (Đóng DB)
+          await server1.app.close();
+
+          // 3. Khởi động Server 2 (Crash Recovery)
+          const server2 = buildServer({
+            liveBridgeToken: testBridgeToken,
+            adminSecret,
+            dbDataDir: testDir,
+            disableAutoTick: true,
+          });
+
+          await server2.app.ready();
+
+          // Xác nhận trạng thái Authoritative Engine sau khi replay journal
+          expect(server2.engine.baseHp).toBe(815);
+
+          // 4. Client retry gửi lại cùng providerEventId sau crash
+          const resRetry = await server2.app.inject({
+            method: 'POST',
+            url: '/api/live/event',
+            headers: {
+              'x-live-bridge-token': testBridgeToken,
+              'Content-Type': 'application/json',
+            },
+            payload: {
+              type: 'COMMENT',
+              providerEventId: commentEventId,
+              userId: 'crash_tester',
+              userName: 'Crash Tester',
+              command: 'SUA',
+              timestamp: Date.now(),
+            },
+          });
+
+          expect(resRetry.statusCode).toBe(200);
+          const retryData = JSON.parse(resRetry.payload);
+          expect(retryData.accepted).toBe(true);
+          expect(retryData.idempotentDuplicate).toBe(true);
+          expect(retryData.reason).toBe('DUPLICATE_COMMENT_ALREADY_PROCESSED');
+
+          // Khẳng định TUYỆT ĐỐI không bị double-apply (baseHp vẫn là 815, KHÔNG phải 830)
+          expect(server2.engine.baseHp).toBe(815);
+
+          await server2.app.close();
+        } finally {
+          if (fs.existsSync(testDir)) {
+            try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
           }
         }
       });

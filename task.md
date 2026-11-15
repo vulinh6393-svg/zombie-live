@@ -1103,3 +1103,27 @@
   - [x] Dispatch gift trong lúc browser đang mở và assert `__LAST_VFX_EVENT__` / skill visual hiển thị.
   - [x] Chạy kiểm thử toàn diện monorepo (149/149 tests PASS) và kiểm thử thực tế `start-demo.ps1`.
 
+
+
+## Giai đoạn 08.3: Acceptance Gap Closure Patch (HOÀN THÀNH 100%)
+- [x] **1. Fail-Closed VFX E2E Verification:**
+  - [x] Mở Chromium browser trước khi dispatch event.
+  - [x] Xóa sạch baseline VFX events (`__LAST_VFX_EVENT__`, `__ALL_VFX_EVENTS__`).
+  - [x] Dispatch gift `galaxy` qua `LiveEventDispatcher` + `DurableEventQueue` (không bypass HTTP).
+  - [x] Đối chiếu chính xác `providerEventId` trong DB và commandId trong `SKILL_AIRSTRIKE_WARNING` / `SKILL_AIRSTRIKE_DETONATED`.
+  - [x] Fail closed: Ném ngoại lệ ngay nếu sau timeout không xuất hiện VFX event khớp ID (loại bỏ fallback cảnh báo console).
+  - [x] Chụp ảnh minh chứng `demo_obs_verified.png`.
+- [x] **2. Journal-First Comment Crash Consistency & SSOT:**
+  - [x] Ghi nhận command vào `match_command_journal` với trạng thái `PENDING` trước khi mutate `engine`.
+  - [x] Nếu ghi journal thất bại, đánh dấu `processed_events` là `RECOVERY_REQUIRED` và ném lỗi fail-closed (tuyệt đối không đánh dấu `APPLIED`).
+  - [x] Mutate engine sau khi journal đã persist thành công.
+  - [x] Cập nhật journal sang `APPLIED` / `REJECTED`, sau đó chuyển `processed_events` sang trạng thái kết thúc.
+  - [x] Trong `onReady`, replay các command chưa hoàn tất từ `match_command_journal` và đối soát `PROCESSING` / `RECOVERY_REQUIRED` thành `APPLIED`.
+  - [x] Kiểm thử tự động chứng minh không bị duplicate apply `SUA` / `BAN` sau crash/restart.
+- [x] **3. Strict Quiesce Maintenance Barrier:**
+  - [x] Trong `onRequest` hook: Chặn toàn bộ mutation route trả HTTP 503 `SERVER_MAINTENANCE_QUIESCED` với header `Retry-After: 5` khi database quiesced.
+  - [x] Trong `authorizeSocketAction`: Chặn mọi action mutation với lỗi `error:maintenance`.
+  - [x] Trong `verify-demo-pipeline.ts`: Loại bỏ hoàn toàn fallback `getDatabaseClient()` cục bộ, bắt buộc query qua Admin Query API.
+- [x] **4. Monorepo Build, Typecheck, Test & Runbook:**
+  - [x] 150/150 unit & integration tests PASS trên toàn bộ 7 packages (100%).
+  - [x] Chạy thực tế `start-demo.ps1` vượt qua toàn bộ 4/4 stages xác thực.

@@ -488,8 +488,30 @@ export function buildServer(opts: BuildServerOptions = {}): {
     await transferAndQueueDeferredCommands(matchId);
   };
 
-  app.addHook('onRequest', async () => {
-    if (isMaintenanceQuiesced) return;
+  app.addHook('onRequest', async (request, reply) => {
+    if (isMaintenanceQuiesced) {
+      const url = request.url.split('?')[0];
+      const isAllowed =
+        url === '/health' ||
+        url === '/ready' ||
+        url === '/api/admin/db/resume' ||
+        url === '/api/admin/db/stats';
+
+      if (!isAllowed) {
+        return reply
+          .header('Retry-After', '5')
+          .header('retry-after', '5')
+          .status(503)
+          .send({
+            statusCode: 503,
+            error: 'DATABASE_MAINTENANCE_QUIESCED',
+            message: 'SERVER_MAINTENANCE_QUIESCED: Server is undergoing offline database maintenance or backup.',
+            retryable: true,
+            retryAfter: 5,
+          });
+      }
+      return;
+    }
     if (!dbClient) await initDb();
   });
 
@@ -515,17 +537,35 @@ export function buildServer(opts: BuildServerOptions = {}): {
               const unapplied = await journalRepo.getCommandsToReplay(activeMatch.id, latestCheckpoint.lastJournalSeq);
               app.log.info(`[RECOVERY] Replaying ${unapplied.length} unapplied commands after seq ${latestCheckpoint.lastJournalSeq}`);
               for (const cmdEntry of unapplied) {
-                engine.queueSkillCommand({
-                  commandId: cmdEntry.commandId,
-                  matchId: cmdEntry.matchId,
-                  seq: cmdEntry.seq,
-                  targetTick: cmdEntry.tick,
-                  sourceUserId: cmdEntry.payload.senderId,
-                  sourceUserName: cmdEntry.payload.senderName,
-                  skillId: cmdEntry.payload.skillId,
-                  quantity: cmdEntry.payload.deltaQuantity,
-                  streakId: cmdEntry.payload.streakId,
-                });
+                if (cmdEntry.commandType?.startsWith('COMMENT_')) {
+                  const payload = cmdEntry.payload || {};
+                  if (cmdEntry.commandType === 'COMMENT_JOIN') {
+                    engine.handleJoin(payload.userId, payload.userName, payload.squad || 'bravo');
+                  } else if (cmdEntry.commandType === 'COMMENT_BAN') {
+                    engine.handleShoot(payload.userId);
+                  } else if (cmdEntry.commandType === 'COMMENT_SUA') {
+                    engine.handleRepair(payload.userId);
+                  } else if (cmdEntry.commandType === 'COMMENT_CUU') {
+                    engine.handleRescue(payload.userId);
+                  } else if (cmdEntry.commandType === 'COMMENT_BOSS') {
+                    engine.handleBossFocus(payload.userId);
+                  }
+                  if (cmdEntry.status === 'PENDING') {
+                    await journalRepo.markCommandApplied(cmdEntry.matchId, cmdEntry.commandId, engine.tick, 'APPLIED');
+                  }
+                } else {
+                  engine.queueSkillCommand({
+                    commandId: cmdEntry.commandId,
+                    matchId: cmdEntry.matchId,
+                    seq: cmdEntry.seq,
+                    targetTick: cmdEntry.tick,
+                    sourceUserId: cmdEntry.payload.senderId,
+                    sourceUserName: cmdEntry.payload.senderName,
+                    skillId: cmdEntry.payload.skillId,
+                    quantity: cmdEntry.payload.deltaQuantity,
+                    streakId: cmdEntry.payload.streakId,
+                  });
+                }
               }
             }
           }
@@ -537,23 +577,38 @@ export function buildServer(opts: BuildServerOptions = {}): {
         // P0.6 (Phase 08.1): Phục hồi các lệnh hoãn đã chuyển giao nhưng chưa hoàn thành (crash recovery)
         await recoverUnappliedTransferredCommands(engine.matchId);
 
-        // P0.2 Recovery: Phục hồi các comment dở dang (PROCESSING) sau server crash
+        // P0.2 Recovery: Phục hồi các comment dở dang (PROCESSING / RECOVERY_REQUIRED) sau server crash
         if (dbClient && journalRepo) {
           try {
             const stuckComments: any = await dbClient.query(
-              `SELECT event_key FROM processed_events WHERE status = 'PROCESSING'`
+              `SELECT event_key FROM processed_events WHERE status IN ('PROCESSING', 'RECOVERY_REQUIRED')`
             );
             for (const cRow of stuckComments.rows || []) {
               const jRes: any = await dbClient.query(
                 `SELECT status FROM match_command_journal WHERE command_id = $1`,
                 [cRow.event_key]
               );
-              if (jRes.rows?.length > 0 && jRes.rows[0].status === 'APPLIED') {
-                await dbClient.query(
-                  `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
-                  [cRow.event_key]
-                );
+              if (jRes.rows?.length > 0) {
+                const jStatus = jRes.rows[0].status;
+                if (jStatus === 'APPLIED') {
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    [cRow.event_key]
+                  );
+                } else if (jStatus === 'REJECTED') {
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    [cRow.event_key]
+                  );
+                } else {
+                  // PENDING in journal: đã được replay ở vòng lặp recovery trên
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    [cRow.event_key]
+                  );
+                }
               } else {
+                // Lệnh chưa từng được ghi vào journal -> mutation chưa từng xảy ra, an toàn để đánh dấu FAILED cho phép retry
                 await dbClient.query(
                   `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
                   [cRow.event_key]
@@ -806,10 +861,29 @@ export function buildServer(opts: BuildServerOptions = {}): {
                   reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
                 };
               }
-              if (rowStatus === 'FAILED') {
+              if (rowStatus === 'FAILED' || rowStatus === 'RECOVERY_REQUIRED') {
+                // Đối soát với Command Journal trước khi cho phép re-reserve
+                const journalCheck: any = await dbClient.query(
+                  `SELECT status FROM match_command_journal WHERE command_id = $1`,
+                  [commentKey]
+                ).catch(() => ({ rows: [] }));
+
+                if (journalCheck.rows?.length > 0 && journalCheck.rows[0].status === 'APPLIED') {
+                  await dbClient.query(
+                    `UPDATE processed_events SET status = 'APPLIED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                    [commentKey]
+                  );
+                  processedCommentKeys.set(commentKey, Date.now());
+                  return {
+                    accepted: true,
+                    idempotentDuplicate: true,
+                    reason: 'DUPLICATE_COMMENT_ALREADY_PROCESSED',
+                  };
+                }
+
                 // Cho phép re-reserve nếu lần trước thất bại (engine rejected hoặc crash)
                 const reclaimRes = await dbClient.query(
-                  `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status = 'FAILED' RETURNING event_key`,
+                  `UPDATE processed_events SET status = 'PROCESSING', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status IN ('FAILED', 'RECOVERY_REQUIRED') RETURNING event_key`,
                   [commentKey]
                 );
                 if (reclaimRes.rowCount === 0) {
@@ -875,35 +949,27 @@ export function buildServer(opts: BuildServerOptions = {}): {
           const parts = rawCmd.split(' ');
           const laneArg = parts[1];
           squad = laneArg === '1' || laneArg === 'ALPHA' ? 'alpha' : laneArg === '3' || laneArg === 'CHARLIE' ? 'charlie' : 'bravo';
-          res = engine.handleJoin(ev.userId, ev.userName, squad);
           missionAction = 'JOIN';
         } else if (rawCmd === '1' || rawCmd === 'ALPHA') {
           squad = 'alpha';
-          res = engine.handleJoin(ev.userId, ev.userName, 'alpha');
           missionAction = 'JOIN';
         } else if (rawCmd === '2' || rawCmd === 'BRAVO') {
           squad = 'bravo';
-          res = engine.handleJoin(ev.userId, ev.userName, 'bravo');
           missionAction = 'JOIN';
         } else if (rawCmd === '3' || rawCmd === 'CHARLIE') {
           squad = 'charlie';
-          res = engine.handleJoin(ev.userId, ev.userName, 'charlie');
           missionAction = 'JOIN';
         } else if (rawCmd === 'BAN' || rawCmd === 'BẮN') {
-          res = engine.handleShoot(ev.userId);
           missionAction = 'BAN';
         } else if (rawCmd === 'SUA' || rawCmd === 'SỬA') {
-          res = engine.handleRepair(ev.userId);
           missionAction = 'SUA';
         } else if (rawCmd === 'CUU' || rawCmd === 'CỨU') {
-          res = engine.handleRescue(ev.userId);
           missionAction = 'CUU';
         } else if (rawCmd === 'BOSS') {
-          res = engine.handleBossFocus(ev.userId);
           missionAction = 'BOSS';
         }
 
-        // P0: Liên kết comment identity với match_command_journal
+        // P0.2 Crash Consistency: Pre-record command into match_command_journal as PENDING BEFORE mutating engine
         if (journalRepo && commentKey) {
           try {
             await journalRepo.appendCommand({
@@ -911,8 +977,36 @@ export function buildServer(opts: BuildServerOptions = {}): {
               commandId: commentKey,
               tick: engine.tick,
               commandType: 'COMMENT_' + (missionAction || 'COMMAND'),
-              payload: { userId: ev.userId, userName: ev.userName, command: rawCmd, success: res.success, reason: res.reason },
+              payload: { userId: ev.userId, userName: ev.userName, command: rawCmd, squad },
             });
+          } catch (jAppendErr: any) {
+            app.log.error(`[JOURNAL] Failed to pre-record comment ${commentKey} to journal: ${jAppendErr.message}`);
+            if (dbClient) {
+              await dbClient.query(
+                `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                [commentKey]
+              ).catch(() => {});
+            }
+            throw new Error(`JOURNAL_PRE_RECORD_FAILED: ${jAppendErr.message}`);
+          }
+        }
+
+        // Mutate Authoritative Engine
+        if (missionAction === 'JOIN') {
+          res = engine.handleJoin(ev.userId, ev.userName, squad || 'bravo');
+        } else if (missionAction === 'BAN') {
+          res = engine.handleShoot(ev.userId);
+        } else if (missionAction === 'SUA') {
+          res = engine.handleRepair(ev.userId);
+        } else if (missionAction === 'CUU') {
+          res = engine.handleRescue(ev.userId);
+        } else if (missionAction === 'BOSS') {
+          res = engine.handleBossFocus(ev.userId);
+        }
+
+        // P0.2 Crash Consistency: Mark journal applied/rejected and update processed_events
+        if (journalRepo && commentKey) {
+          try {
             await journalRepo.markCommandApplied(
               engine.matchId,
               commentKey,
@@ -920,12 +1014,19 @@ export function buildServer(opts: BuildServerOptions = {}): {
               res.success ? 'APPLIED' : 'REJECTED',
               res.reason
             );
-          } catch (jErr: any) {
-            app.log.warn(`[JOURNAL] Failed to append comment command to journal: ${jErr.message}`);
+          } catch (jMarkErr: any) {
+            app.log.error(`[JOURNAL] Failed to mark comment ${commentKey} in journal: ${jMarkErr.message}`);
+            if (dbClient) {
+              await dbClient.query(
+                `UPDATE processed_events SET status = 'RECOVERY_REQUIRED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+                [commentKey]
+              ).catch(() => {});
+            }
+            throw new Error(`JOURNAL_PERSISTENCE_FAILED: ${jMarkErr.message}`);
           }
         }
 
-        // P0: Không ghi APPLIED khi engine trả success: false
+        // Update processed_events terminal status
         if (dbClient && commentKey) {
           if (res.success) {
             await dbClient.query(
@@ -951,7 +1052,7 @@ export function buildServer(opts: BuildServerOptions = {}): {
         if (dbClient && commentKey) {
           try {
             await dbClient.query(
-              `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1`,
+              `UPDATE processed_events SET status = 'FAILED', applied_at = CURRENT_TIMESTAMP WHERE event_key = $1 AND status = 'PROCESSING'`,
               [commentKey]
             );
           } catch {}
@@ -2176,6 +2277,13 @@ export function buildServer(opts: BuildServerOptions = {}): {
     minRole: 'viewer' | 'operator' | 'admin',
     action: string
   ): boolean => {
+    if (isMaintenanceQuiesced) {
+      socket.emit('error:maintenance', {
+        action,
+        error: 'SERVER_MAINTENANCE_QUIESCED: Server is undergoing offline database maintenance. Mutations are prohibited.',
+      });
+      return false;
+    }
     const role = (socket.data?.role || 'viewer') as 'viewer' | 'operator' | 'admin';
     const currentLevel = ROLE_HIERARCHY[role] || 0;
     const requiredLevel = ROLE_HIERARCHY[minRole];
