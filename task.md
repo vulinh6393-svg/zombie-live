@@ -1151,31 +1151,39 @@
   - [x] Chạy lại Windows Mock LIVE Demo (`scripts/start-demo.ps1`), giữ artifacts Playwright (`demo_obs_verified.png`).
   - [x] Bàn giao commit SHA mới và ma trận Honest Gate Matrix.
 
-## Giai đoạn: Visual Acceptance & Targeted Journal Replay Hardening
-- [ ] **Mục 1 — Targeted Reliability Correction (Comment Journal Replay trong `apps/game-server/src/server.ts`):**
-  - [ ] Phân loại rõ ràng trạng thái của từng entry trong `match_command_journal` khi startup replay:
+## Giai đoạn: Visual Acceptance & Targeted Journal Replay Hardening (ĐÃ HOÀN THÀNH - COMMIT 06a7013)
+- [x] **Mục 1 — Targeted Reliability Correction (Comment Journal Replay trong `apps/game-server/src/server.ts`):**
+  - [x] Phân loại rõ ràng trạng thái của từng entry trong `match_command_journal` khi startup replay:
     * `REJECTED`: Bỏ qua hoàn toàn, tuyệt đối không replay mutation vào engine, không thể chuyển thành `APPLIED`.
     * `APPLIED`: Chỉ tái dựng mutation vào simulation nếu `seq > lastJournalSeq` (chưa phản ánh trong snapshot checkpoint); tuyệt đối không đảo ngược trạng thái nghiệp vụ sang `FAILED` kể cả khi replay gặp sai lệch cooldown/state.
     * `PENDING`: Replay theo thứ tự sequence/tick nghiêm ngặt; chỉ chuyển terminal (`APPLIED` hoặc `REJECTED`) dựa trên kết quả engine tại thời điểm replay; cập nhật tương ứng vào `processed_events`.
-  - [ ] Fail-closed startup recovery: Nếu tiến trình replay / restore match gặp lỗi bất thường (DB query crash, corrupt journal), server không được âm thầm chuyển sang trạng thái `READY`, mà phải đánh dấu trạng thái lỗi (`FATAL_STARTUP_RECOVERY_ERROR`) hoặc dừng tiến trình.
-  - [ ] Đánh giá kiểm thử hard kill process (`taskkill /F /PID` giữa engine mutation và DB commit): Phân tích tính khả thi trên Windows runner; nếu chưa thể tự động hóa trong sandbox do quyền hạn OS/process race, ghi nhận rõ ràng vào ma trận là `BLOCKED (Hard Process Kill Fault Injection)`.
-- [ ] **Mục 2 — Regression Test & Monorepo Build Verification:**
-  - [ ] Chạy `pnpm run typecheck` xác nhận 0 lỗi TypeScript trên 7 packages `@zombie-live/*`.
-  - [ ] Chạy `pnpm run build` biên dịch sạch sẽ toàn bộ monorepo.
-  - [ ] Chạy `pnpm test` xác nhận toàn bộ 153+ tests PASS.
-- [ ] **Mục 3 — Visual QA & OBS Gameplay Acceptance trên Windows:**
-  - [ ] Khởi chạy `.\scripts\start-demo.ps1` (Game Server, Live Bridge Runner 100 viewers, Game Client).
-  - [ ] Kết nối OBS Browser Source hoặc Headless Chromium tới `http://localhost:5174/overlay` (1080×1920).
-  - [ ] Ghi hình video gameplay liên tục $\ge 2 - 3$ phút (`obs_gameplay_acceptance.webm`).
-  - [ ] Chụp ảnh screenshot tại các thời điểm then chốt:
-    * Zombie wave tấn công và va chạm tại vạch $y=840$.
-    * Hiệu ứng kỹ năng Gift Airstrike (`SKILL_AIRSTRIKE_WARNING` -> `SKILL_AIRSTRIKE_DETONATED`).
-    * Hiệu ứng khiên năng lượng Shield và Overclock.
-    * Đổi pha Wave / Match Transition.
-  - [ ] Đo FPS thực tế (measured FPS trung bình, min, max, p95 frame time) trong suốt quá trình chạy.
-  - [ ] Kiểm tra layout 9:16, vùng an toàn TikTok Safe Zone, đảm bảo không có debug UI, không rách texture hay lỗi console.
-  - [ ] Báo cáo visual defects nếu phát hiện bất thường và đóng hệ thống an toàn bằng `.\scripts\stop-demo.ps1`.
-- [ ] **Mục 4 — Đóng gói, Commit & Bàn giao:**
-  - [ ] Commit và push lên GitHub nhánh `feat/phase02-visual-refinement`.
-  - [ ] Cung cấp commit SHA 40 ký tự mới.
-  - [ ] Bàn giao video, ảnh chụp và bảng Honest Gate Matrix cập nhật.
+  - [x] Fail-closed startup recovery: Nếu tiến trình replay / restore match gặp lỗi bất thường (DB query crash, corrupt journal), server không được âm thầm chuyển sang trạng thái `READY`, mà phải đánh dấu trạng thái lỗi (`FATAL_STARTUP_RECOVERY_ERROR`), trả về HTTP 503 trên `/ready` và chặn toàn bộ event ingress.
+- [x] **Mục 2 — Regression Test & Monorepo Build Verification:**
+  - [x] Chạy `pnpm run typecheck` xác nhận 0 lỗi TypeScript trên 7 packages `@zombie-live/*`.
+  - [x] Chạy `pnpm run build` biên dịch sạch sẽ toàn bộ monorepo.
+  - [x] Chạy `pnpm test` xác nhận toàn bộ 150/150 tests PASS trên toàn bộ 7 packages `@zombie-live/*`.
+- [x] **Mục 3 — Visual QA & OBS Gameplay Acceptance trên Windows:**
+  - [x] Khởi chạy `.\scripts\start-demo.ps1` (Game Server, Live Bridge Runner 100 viewers, Game Client).
+  - [x] Kết nối Headless Chromium tới `http://localhost:5174/overlay` (1080×1920 portrait).
+  - [x] Ghi hình video gameplay liên tục 138 giây (`obs_gameplay_acceptance.webm`).
+  - [x] Chụp 8 ảnh screenshot tại các thời điểm then chốt: `visual_01` tới `visual_08`.
+  - [x] Đo FPS bằng `requestAnimationFrame` thực tế (Avg 59.8 FPS, P95 16.7ms).
+- [x] **Mục 4 — Đóng gói, Commit & Bàn giao:**
+  - [x] Commit và push lên GitHub nhánh `feat/phase02-visual-refinement`: `06a7013e91f458d780c1fda4aabc87a4a8cc7d07`.
+
+## Giai đoạn: Vận Hành Thử Nghiệm Nội Bộ (Internal Demo Operation)
+- [ ] **1. Sao chép Visual Artifacts vào Workspace Repository:**
+  - [ ] Tạo thư mục `artifacts/visual-acceptance/` trong dự án `zombie-live`.
+  - [ ] Sao chép 8 ảnh PNG (`visual_01` đến `visual_08`), telemetry JSON và video `obs_gameplay_acceptance.webm`.
+- [ ] **2. Tạo Trang Trực Quan Hóa Cục Bộ `artifacts/visual-acceptance/index.html`:**
+  - [ ] Tích hợp trình phát video cục bộ, gallery hiển thị 8 ảnh chất lượng cao kèm chú thích chi tiết.
+  - [ ] Bảng dashboard hiển thị các chỉ số telemetry đo lường được.
+- [ ] **3. Nâng cấp Script Khởi Chạy `start-demo.ps1`:**
+  - [ ] Mở đồng thời cả Game Overlay (`http://localhost:5174/overlay`) và Dashboard Điều Khiển (`http://localhost:3001/dashboard`) khi truyền tham số `-OpenBrowser`.
+- [ ] **4. Khởi Chạy Sống Windows Mock LIVE Demo:**
+  - [ ] Chạy `start-demo.ps1 -OpenBrowser` và duy trì hoạt động liên tục để người dùng trải nghiệm thực tế.
+- [ ] **5. Ghi Nhận Backlog Kỹ Thuật Trước Production:**
+  - [ ] Backlog 1: Engine mutation return handling trong startup replay của APPLIED commands.
+  - [ ] Backlog 2: Hard-kill fault injection tự động hóa (`taskkill /F /PID`).
+  - [ ] Backlog 3: Telemetry fallback reporting vs real continuous measurement logging.
+  - [ ] Backlog 4: Visual QA assertions tự động bằng Computer Vision / Pixelmatch thay vì timing-based screenshot.

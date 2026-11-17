@@ -38,3 +38,6 @@ coverage/
 .nyc_output/
 playwright-report/
 test-results/
+
+# Large raw video captures (>100MB exceeds GitHub limits; lightweight MP4 is committed)
+artifacts/**/*.webm

@@ -193,7 +193,9 @@ Write-Host "====================================================================
 Write-Host " [OBS Overlay]      http://localhost:$ClientPort/overlay" -ForegroundColor White
 Write-Host " [Game Canvas]       http://localhost:$ClientPort/" -ForegroundColor White
 Write-Host " [Admin Dashboard]  http://localhost:$ServerPort/admin" -ForegroundColor White
+Write-Host " [Mock Dashboard]   http://localhost:$ServerPort/dashboard?token=admin_super_secret_production_2026_key" -ForegroundColor White
 Write-Host " [Server Ready]     http://localhost:$ServerPort/ready" -ForegroundColor White
+Write-Host " [Visual Viewer]    file://$RootPath/artifacts/visual-acceptance/index.html" -ForegroundColor White
 Write-Host " [Live Telemetry]   http://localhost:$ServerPort/api/admin/monitoring" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Green
 Write-Host " * Luồng dữ liệu hoàn chỉnh: Mock 100 Viewers -> Live Bridge CLI -> Ingress Token -> Gift Ledger -> Outbox -> Authoritative Engine (20Hz) -> Phaser Canvas/OBS" -ForegroundColor Cyan
@@ -201,4 +203,6 @@ Write-Host " * Để dừng toàn bộ hệ thống demo: Chạy .\scripts\stop-
 
 if ($OpenBrowser) {
   Start-Process "http://localhost:$ClientPort/overlay"
+  Start-Process "http://localhost:$ServerPort/dashboard?token=admin_super_secret_production_2026_key"
+  Start-Process (Join-Path $RootPath "artifacts/visual-acceptance/index.html")
 }

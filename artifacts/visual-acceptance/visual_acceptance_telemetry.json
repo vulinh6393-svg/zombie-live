@@ -1,0 +1,33 @@
+{
+  "recordedAt": "2026-11-15T16:33:04.753Z",
+  "durationSeconds": 138,
+  "viewport": {
+    "width": 1080,
+    "height": 1920,
+    "orientation": "portrait"
+  },
+  "performance": {
+    "averageFps": 59.8,
+    "minFps": 4.3,
+    "p95FrameDurationMs": 16.7,
+    "frameDropsUnder30Fps": 8,
+    "totalFramesRendered": 8133,
+    "snapshotsReceived": 1221,
+    "finalSimulationTick": 2580
+  },
+  "serverTelemetry": {
+    "simulationHz": 20
+  },
+  "screenshots": [
+    "visual_01_zombie_wave_attack.png",
+    "visual_02_join_and_squads.png",
+    "visual_03_ban_combat_feedback.png",
+    "visual_04_sua_repair_feedback.png",
+    "visual_05_galaxy_airstrike_detonation.png",
+    "visual_06_skills_shield_overclock.png",
+    "visual_07_leaderboard_fortress_hp.png",
+    "visual_08_tiktok_safe_zone.png"
+  ],
+  "video": "obs_gameplay_acceptance.webm",
+  "verdict": "VISUAL_ACCEPTANCE_PASS"
+}
