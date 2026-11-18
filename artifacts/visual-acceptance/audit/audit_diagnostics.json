@@ -1,0 +1,566 @@
+{
+  "timestamp": "2026-11-18T16:26:23.245Z",
+  "resolutionsTested": [
+    {
+      "resolution": "1080x1920_desktop_obs",
+      "dimensions": "1080x1920",
+      "rawScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_1080x1920_desktop_obs_raw.png",
+      "tiktokOverlayScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_1080x1920_desktop_obs_tiktok_overlay.png"
+    },
+    {
+      "resolution": "540x960_tablet_scaled",
+      "dimensions": "540x960",
+      "rawScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_540x960_tablet_scaled_raw.png",
+      "tiktokOverlayScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_540x960_tablet_scaled_tiktok_overlay.png"
+    },
+    {
+      "resolution": "360x640_mobile_viewport",
+      "dimensions": "360x640",
+      "rawScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_360x640_mobile_viewport_raw.png",
+      "tiktokOverlayScreenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_360x640_mobile_viewport_tiktok_overlay.png"
+    }
+  ],
+  "combatInteractions": [
+    {
+      "action": "BAN",
+      "screenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_action_ban_shoot.png",
+      "description": "Gunfire tracers and damage numbers on zombies"
+    },
+    {
+      "action": "SUA",
+      "screenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_action_sua_repair.png",
+      "description": "Base repair particles (+15 HP) on gate"
+    },
+    {
+      "action": "GIFT_SHIELD",
+      "screenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_skill_shield_active.png",
+      "description": "Energy barrier dome covering bastion gate"
+    },
+    {
+      "action": "GIFT_OVERCLOCK",
+      "screenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_skill_overclock_active.png",
+      "description": "Turret rate-of-fire boost and aura"
+    },
+    {
+      "action": "GIFT_MISSILE",
+      "screenshot": "C:\\Users\\admin\\.gemini\\antigravity\\scratch\\zombie-live\\apps\\game-client\\artifacts\\visual-acceptance\\audit\\audit_skill_missile_airstrike.png",
+      "description": "Airstrike reticle, red AoE circle and detonation shockwave"
+    }
+  ],
+  "occlusionAnalysis": {},
+  "visualObservations": {},
+  "sceneInspection": {
+    "sceneKey": "BattlefieldScene",
+    "displayCounts": {
+      "totalDisplayObjects": 172,
+      "sprites": 61,
+      "images": 8,
+      "containers": 34,
+      "textObjects": 50,
+      "graphics": 19
+    },
+    "hudTexts": [
+      {
+        "text": "-68 CRIT!",
+        "x": 793.4238068824272,
+        "y": 477.4721794592335,
+        "visible": true,
+        "style": {
+          "fontSize": "19px",
+          "color": "#fee440"
+        }
+      },
+      {
+        "text": "-55",
+        "x": 532.5112098128508,
+        "y": 506.7830807330844,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-68 CRIT!",
+        "x": 803.2685147327776,
+        "y": 455.2804489780217,
+        "visible": false,
+        "style": {
+          "fontSize": "19px",
+          "color": "#fee440"
+        }
+      },
+      {
+        "text": "-45 CRIT!",
+        "x": 537.5299588601225,
+        "y": 531.7123105498133,
+        "visible": false,
+        "style": {
+          "fontSize": "19px",
+          "color": "#fee440"
+        }
+      },
+      {
+        "text": "-28",
+        "x": 543.3626401641102,
+        "y": 531.7123105498133,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-38",
+        "x": 538.9663559304639,
+        "y": 586.7658134914934,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-55",
+        "x": 541.4886398224776,
+        "y": 598.6152849901637,
+        "visible": true,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-28",
+        "x": 537.7968495444155,
+        "y": 562.6178796768188,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-38",
+        "x": 533.9742076942681,
+        "y": 535.3185546875001,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-55",
+        "x": 536.1623375614438,
+        "y": 535.3185546875001,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-28",
+        "x": 547.1904888023865,
+        "y": 546.8979370117187,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-55",
+        "x": 533.2753143504427,
+        "y": 522.2625,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "-38",
+        "x": 540.5332486797408,
+        "y": 525.621875,
+        "visible": false,
+        "style": {
+          "fontSize": "15px",
+          "color": "#ff4d4d"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      },
+      {
+        "text": "",
+        "x": 0,
+        "y": 0,
+        "visible": false,
+        "style": {
+          "fontSize": "22px",
+          "color": "#ff3333"
+        }
+      }
+    ],
+    "rendererType": "WEBGL"
+  }
+}

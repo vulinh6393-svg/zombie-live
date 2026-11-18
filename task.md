@@ -1172,18 +1172,19 @@
   - [x] Commit và push lên GitHub nhánh `feat/phase02-visual-refinement`: `06a7013e91f458d780c1fda4aabc87a4a8cc7d07`.
 
 ## Giai đoạn: Vận Hành Thử Nghiệm Nội Bộ (Internal Demo Operation)
-- [ ] **1. Sao chép Visual Artifacts vào Workspace Repository:**
-  - [ ] Tạo thư mục `artifacts/visual-acceptance/` trong dự án `zombie-live`.
-  - [ ] Sao chép 8 ảnh PNG (`visual_01` đến `visual_08`), telemetry JSON và video `obs_gameplay_acceptance.webm`.
-- [ ] **2. Tạo Trang Trực Quan Hóa Cục Bộ `artifacts/visual-acceptance/index.html`:**
-  - [ ] Tích hợp trình phát video cục bộ, gallery hiển thị 8 ảnh chất lượng cao kèm chú thích chi tiết.
-  - [ ] Bảng dashboard hiển thị các chỉ số telemetry đo lường được.
-- [ ] **3. Nâng cấp Script Khởi Chạy `start-demo.ps1`:**
-  - [ ] Mở đồng thời cả Game Overlay (`http://localhost:5174/overlay`) và Dashboard Điều Khiển (`http://localhost:3001/dashboard`) khi truyền tham số `-OpenBrowser`.
-- [ ] **4. Khởi Chạy Sống Windows Mock LIVE Demo:**
-  - [ ] Chạy `start-demo.ps1 -OpenBrowser` và duy trì hoạt động liên tục để người dùng trải nghiệm thực tế.
-- [ ] **5. Ghi Nhận Backlog Kỹ Thuật Trước Production:**
-  - [ ] Backlog 1: Engine mutation return handling trong startup replay của APPLIED commands.
-  - [ ] Backlog 2: Hard-kill fault injection tự động hóa (`taskkill /F /PID`).
-  - [ ] Backlog 3: Telemetry fallback reporting vs real continuous measurement logging.
-  - [ ] Backlog 4: Visual QA assertions tự động bằng Computer Vision / Pixelmatch thay vì timing-based screenshot.
+- [x] **1. Sao chép Visual Artifacts vào Workspace Repository:**
+  - [x] Tạo thư mục `artifacts/visual-acceptance/` trong dự án `zombie-live`.
+  - [x] Sao chép 8 ảnh PNG (`visual_01` đến `visual_08`), telemetry JSON và video `obs_gameplay_acceptance.webm`.
+- [x] **2. Tạo Trang Trực Quan Hóa Cục Bộ `artifacts/visual-acceptance/index.html`:**
+  - [x] Tích hợp trình phát video cục bộ, gallery hiển thị 8 ảnh chất lượng cao kèm chú thích chi tiết.
+  - [x] Bảng dashboard hiển thị các chỉ số telemetry đo lường được.
+- [x] **3. Nâng cấp Script Khởi Chạy `start-demo.ps1`:**
+  - [x] Mở đồng thời cả Game Overlay (`http://localhost:5174/overlay`) và Dashboard Điều Khiển (`http://localhost:3001/dashboard`) khi truyền tham số `-OpenBrowser`.
+- [x] **4. Khởi Chạy Sống Windows Mock LIVE Demo:**
+  - [x] Chạy `start-demo.ps1 -OpenBrowser` và duy trì hoạt động liên tục để người dùng trải nghiệm thực tế.
+- [x] **5. Gameplay & Visual Quality Acceptance Audit (5 Chuyên Môn Độc Lập):**
+  - [x] Khởi chạy Playwright automation kiểm tra trực tiếp game tại 3 độ phân giải: 1080×1920, 540×960, 360×640.
+  - [x] Mô phỏng lớp phủ giao diện TikTok LIVE (Header host pill, top viewers, bottom comment feed, bottom-right interaction tray).
+  - [x] Thực thi chuỗi tương tác Dashboard (JOIN 1/2/3, BAN, SUA, Khiên, Ép Xung, Tên Lửa Airstrike).
+  - [x] Đánh giá chi tiết chất lượng đồ họa, animation, tỷ lệ sprite, bố cục Safe Zone và trải nghiệm người xem TikTok LIVE.
+  - [x] Xuất báo cáo chuyên sâu và bộ ảnh audit tại `artifacts/visual-acceptance/audit/`.
