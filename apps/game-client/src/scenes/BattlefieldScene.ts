@@ -1212,6 +1212,13 @@ export class BattlefieldScene extends Phaser.Scene {
           targetFps: loop.targetFps,
         };
       },
+      getSkillStates: () => ({
+        shieldActive: Boolean(this.activeShieldGraphic || (this.latestSnapshot as any)?.activeShieldBuff),
+        overclockActive: Boolean(this.activeOverclockGraphics.length > 0 || (this.latestSnapshot as any)?.activeOverclockBuff),
+        mechActive: Boolean(this.activeMechContainer),
+        baseHp: this.latestSnapshot?.baseHp ?? 0,
+        tick: this.latestSnapshot?.tick ?? 0,
+      }),
     };
 
     const urlParams = new URLSearchParams(window.location.search);

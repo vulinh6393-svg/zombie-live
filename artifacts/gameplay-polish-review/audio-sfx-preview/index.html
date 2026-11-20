@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zombie Đại Chiến — Web Audio SFX Prototype & Soundboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 10%, #0d1527 0%, #030712 100%);
+      color: #f8fafc;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 900px;
+      width: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #1e293b;
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #00f5d4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      background: rgba(247, 37, 133, 0.2);
+      border: 1px solid #f72585;
+      color: #f72585;
+      font-size: 13px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+
+    .visualizer-card {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: 140px;
+      background: #020617;
+      border-radius: 6px;
+    }
+    .voice-meter {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .voice-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #334155;
+      transition: background 0.15s;
+    }
+    .dot.active {
+      background: #00f5d4;
+      box-shadow: 0 0 8px #00f5d4;
+    }
+
+    .controls-panel {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 16px 24px;
+      margin-bottom: 28px;
+    }
+    .control-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .control-item label {
+      font-size: 12px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    input[type=range] {
+      accent-color: #00f5d4;
+      cursor: pointer;
+    }
+    .mute-btn {
+      background: #334155;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mute-btn.active {
+      background: #ef4444;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+    }
+
+    .soundboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+    .sfx-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f1f5f9;
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+    }
+    .sfx-btn:hover {
+      background: #334155;
+      border-color: #00f5d4;
+      transform: translateY(-2px);
+    }
+    .sfx-btn:active {
+      transform: scale(0.98);
+    }
+    .sfx-header {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      align-items: center;
+    }
+    .sfx-name {
+      font-weight: 800;
+      font-size: 15px;
+      color: #00f5d4;
+    }
+    .sfx-key {
+      background: #020617;
+      border: 1px solid #475569;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #94a3b8;
+    }
+    .sfx-desc {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+
+    .obs-guide {
+      background: #020617;
+      border-left: 4px solid #38bdf8;
+      padding: 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+    .obs-guide h3 {
+      color: #38bdf8;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>🔊 Web Audio SFX Prototype & Soundboard</h1>
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Procedural Web Audio Synthesis — Zero MP3/WAV Bandwidth</p>
+      </div>
+      <span class="badge">PREVIEW ONLY</span>
+    </header>
+
+    <div class="visualizer-card">
+      <canvas id="visualizer"></canvas>
+      <div class="voice-meter">
+        <span>Kênh Voice Đang Chạy (Max 4):</span>
+        <div class="voice-dots">
+          <div class="dot" id="dot-1"></div>
+          <div class="dot" id="dot-2"></div>
+          <div class="dot" id="dot-3"></div>
+          <div class="dot" id="dot-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls-panel">
+      <div class="control-item">
+        <label>Master Volume: <span id="master-val">80%</span></label>
+        <input type="range" id="master-slider" min="0" max="1" step="0.05" value="0.8">
+      </div>
+      <div class="control-item">
+        <label>SFX Volume: <span id="sfx-val">80%</span></label>
+        <input type="range" id="sfx-slider" min="0" max="1" step="0.05" value="0.8">
+      </div>
+      <button class="mute-btn" id="mute-toggle">🔇 BẬT ÂM THANH</button>
+    </div>
+
+    <div class="soundboard-grid">
+      <button class="sfx-btn" onclick="playSfx('GUNSHOT')">
+        <div class="sfx-header">
+          <span class="sfx-name">🔫 GUNSHOT</span>
+          <span class="sfx-key">[1]</span>
+        </div>
+        <div class="sfx-desc">Súng trường bắn đanh thép (White noise burst 120ms + Lowpass filter sweep).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('ZOMBIE_ATTACK')">
+        <div class="sfx-header">
+          <span class="sfx-name">🧟 ZOMBIE ATTACK</span>
+          <span class="sfx-key">[2]</span>
+        </div>
+        <div class="sfx-desc">Tiếng gầm cắn xé quái vật (Sawtooth 110Hz -> 55Hz + Resonant Lowpass).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('AIRSTRIKE_WARNING')">
+        <div class="sfx-header">
+          <span class="sfx-name">🚨 AIRSTRIKE WARNING</span>
+          <span class="sfx-key">[3]</span>
+        </div>
+        <div class="sfx-desc">Còi báo động không kích dồn dập (Sine siren glissando 600Hz -> 1200Hz).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('AIRSTRIKE_DETONATION')">
+        <div class="sfx-header">
+          <span class="sfx-name">💥 DETONATION</span>
+          <span class="sfx-key">[4]</span>
+        </div>
+        <div class="sfx-desc">Nổ tên lửa rung chuyển (Sub-bass boom 25Hz + Deep noise explosion 800ms).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('SHIELD_BUZZ')">
+        <div class="sfx-header">
+          <span class="sfx-name">🛡️ SHIELD BUZZ</span>
+          <span class="sfx-key">[5]</span>
+        </div>
+        <div class="sfx-desc">Khiên năng lượng plasma (Dual detuned 120Hz + 242Hz electric hum).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('BOSS_ROAR')">
+        <div class="sfx-header">
+          <span class="sfx-name">👑 BOSS ROAR</span>
+          <span class="sfx-key">[6]</span>
+        </div>
+        <div class="sfx-desc">Chúa tể gầm rung màn hình (Multi-sawtooth 90Hz -> 130Hz -> 45Hz + Resonant filter).</div>
+      </button>
+
+      <button class="sfx-btn" onclick="playSfx('ALARM')">
+        <div class="sfx-header">
+          <span class="sfx-name">⚠️ FORTRESS ALARM</span>
+          <span class="sfx-key">[7]</span>
+        </div>
+        <div class="sfx-desc">Cảnh báo tường thành nguy cấp (Square pulse 880Hz / 659Hz).</div>
+      </button>
+    </div>
+
+    <div class="obs-guide">
+      <h3>🎙️ Hướng dẫn tích hợp OBS Studio Browser Source:</h3>
+      <p>1. Trong OBS Studio, mở thuộc tính của <strong>Browser Source</strong> game overlay.<br>
+         2. Tích chọn <strong>"Control audio via OBS"</strong> để OBS nhận luồng âm thanh độc lập.<br>
+         3. Trong <strong>Audio Mixer</strong>, kéo fader mức <code>-6.0 dB</code> để không lấn át giọng nói của Streamer.<br>
+         4. Game mặc định tắt âm thanh để an toàn. Chỉ phát khi kích hoạt tính năng.</p>
+    </div>
+  </div>
+
+  <script>
+    let ctx = null;
+    let masterGain = null;
+    let sfxGain = null;
+    let analyser = null;
+    let isMuted = true;
+    let activeVoices = 0;
+
+    function initAudio() {
+      if (!ctx) {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+
+        masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(isMuted ? 0 : 0.8, ctx.currentTime);
+
+        sfxGain = ctx.createGain();
+        sfxGain.gain.setValueAtTime(0.8, ctx.currentTime);
+
+        sfxGain.connect(masterGain);
+        masterGain.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        drawVisualizer();
+      }
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+    }
+
+    function updateVoiceMeter() {
+      for (let i = 1; i <= 4; i++) {
+        const dot = document.getElementById('dot-' + i);
+        if (i <= activeVoices) dot.classList.add('active');
+        else dot.classList.remove('active');
+      }
+    }
+
+    function releaseVoice(delay) {
+      setTimeout(() => {
+        activeVoices = Math.max(0, activeVoices - 1);
+        updateVoiceMeter();
+      }, delay);
+    }
+
+    function playSfx(type) {
+      initAudio();
+      if (isMuted) {
+        toggleMute();
+      }
+      if (activeVoices >= 4) return;
+      activeVoices++;
+      updateVoiceMeter();
+
+      const t0 = ctx.currentTime;
+
+      if (type === 'GUNSHOT') {
+        const bufferSize = ctx.sampleRate * 0.12;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1800, t0);
+        filter.frequency.exponentialRampToValueAtTime(100, t0 + 0.12);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.7, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(sfxGain);
+        noise.start(t0);
+        releaseVoice(130);
+      } else if (type === 'ZOMBIE_ATTACK') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(110, t0);
+        osc.frequency.linearRampToValueAtTime(55, t0 + 0.25);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(450, t0);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.5, t0);
+        gain.gain.exponentialRampToValueAtTime(0.01, t0 + 0.25);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + 0.25);
+        releaseVoice(260);
+      } else if (type === 'AIRSTRIKE_WARNING') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, t0);
+        osc.frequency.linearRampToValueAtTime(1200, t0 + 0.4);
+        osc.frequency.linearRampToValueAtTime(600, t0 + 0.8);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.4, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.85);
+        osc.connect(gain);
+        gain.connect(sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + 0.85);
+        releaseVoice(900);
+      } else if (type === 'AIRSTRIKE_DETONATION') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(120, t0);
+        osc.frequency.exponentialRampToValueAtTime(25, t0 + 0.6);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.9, t0);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6);
+        osc.connect(oscGain);
+        oscGain.connect(sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + 0.6);
+
+        const bufferSize = ctx.sampleRate * 0.8;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, t0);
+        filter.frequency.exponentialRampToValueAtTime(60, t0 + 0.8);
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.8, t0);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(sfxGain);
+        noise.start(t0);
+        releaseVoice(850);
+      } else if (type === 'SHIELD_BUZZ') {
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'triangle';
+        osc1.frequency.setValueAtTime(120, t0);
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(242, t0);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.3, t0);
+        gain.gain.exponentialRampToValueAtTime(0.01, t0 + 0.4);
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(sfxGain);
+        osc1.start(t0);
+        osc2.start(t0);
+        osc1.stop(t0 + 0.4);
+        osc2.stop(t0 + 0.4);
+        releaseVoice(450);
+      } else if (type === 'BOSS_ROAR') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(90, t0);
+        osc.frequency.linearRampToValueAtTime(130, t0 + 0.3);
+        osc.frequency.linearRampToValueAtTime(45, t0 + 1.2);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(350, t0);
+        filter.frequency.linearRampToValueAtTime(700, t0 + 0.4);
+        filter.frequency.linearRampToValueAtTime(150, t0 + 1.2);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.6, t0);
+        gain.gain.exponentialRampToValueAtTime(0.01, t0 + 1.2);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + 1.2);
+        releaseVoice(1300);
+      } else if (type === 'ALARM') {
+        const osc = ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(880, t0);
+        osc.frequency.setValueAtTime(659, t0 + 0.25);
+        osc.frequency.setValueAtTime(880, t0 + 0.5);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.3, t0);
+        gain.gain.exponentialRampToValueAtTime(0.01, t0 + 0.7);
+        osc.connect(gain);
+        gain.connect(sfxGain);
+        osc.start(t0);
+        osc.stop(t0 + 0.7);
+        releaseVoice(750);
+      }
+    }
+
+    function toggleMute() {
+      initAudio();
+      isMuted = !isMuted;
+      const btn = document.getElementById('mute-toggle');
+      if (isMuted) {
+        masterGain.gain.setValueAtTime(0, ctx.currentTime);
+        btn.innerText = '🔇 BẬT ÂM THANH';
+        btn.classList.remove('active');
+      } else {
+        const val = parseFloat(document.getElementById('master-slider').value);
+        masterGain.gain.setValueAtTime(val, ctx.currentTime);
+        btn.innerText = '🔊 ĐANG BẬT ÂM THANH';
+        btn.classList.add('active');
+      }
+    }
+
+    document.getElementById('mute-toggle').onclick = toggleMute;
+
+    document.getElementById('master-slider').oninput = (e) => {
+      const val = parseFloat(e.target.value);
+      document.getElementById('master-val').innerText = Math.round(val * 100) + '%';
+      if (masterGain && !isMuted) masterGain.gain.setValueAtTime(val, ctx.currentTime);
+    };
+
+    document.getElementById('sfx-slider').oninput = (e) => {
+      const val = parseFloat(e.target.value);
+      document.getElementById('sfx-val').innerText = Math.round(val * 100) + '%';
+      if (sfxGain) sfxGain.gain.setValueAtTime(val, ctx.currentTime);
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '1') playSfx('GUNSHOT');
+      if (e.key === '2') playSfx('ZOMBIE_ATTACK');
+      if (e.key === '3') playSfx('AIRSTRIKE_WARNING');
+      if (e.key === '4') playSfx('AIRSTRIKE_DETONATION');
+      if (e.key === '5') playSfx('SHIELD_BUZZ');
+      if (e.key === '6') playSfx('BOSS_ROAR');
+      if (e.key === '7') playSfx('ALARM');
+    });
+
+    function drawVisualizer() {
+      const canvas = document.getElementById('visualizer');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      const c = canvas.getContext('2d');
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      function render() {
+        requestAnimationFrame(render);
+        analyser.getByteFrequencyData(dataArray);
+
+        c.fillStyle = '#020617';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+
+        const barWidth = (canvas.width / bufferLength) * 2.5;
+        let barHeight;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          barHeight = (dataArray[i] / 255) * canvas.height;
+          const r = barHeight + 25 * (i / bufferLength);
+          const g = 245 * (1 - i / bufferLength);
+          const b = 212;
+
+          c.fillStyle = `rgb(${r},${g},${b})`;
+          c.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+          x += barWidth + 1;
+        }
+      }
+      render();
+    }
+  </script>
+</body>
+</html>

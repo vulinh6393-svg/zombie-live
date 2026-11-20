@@ -1,0 +1,157 @@
+{
+  "auditMetadata": {
+    "title": "Zombie Sprite Diversity Specification & Technical Blueprint",
+    "version": "1.0.0-preview",
+    "author": "Senior Technical Game Artist & Systems Designer",
+    "status": "RESEARCH_AND_PREVIEW_ONLY",
+    "defaultRendererChanged": false
+  },
+  "licenseAudit": {
+    "currentBaseAsset": {
+      "name": "Riley Gombart Top-Down Zombie",
+      "source": "OpenGameArt.org",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "totalFramesInBundle": 44,
+      "currentUsage": "Used for all 4 zombie types (Walker, Runner, Tank, Boss) with only scale multipliers applied."
+    },
+    "survivorBaseAsset": {
+      "name": "Riley Gombart Top-Down Survivor / Player",
+      "source": "OpenGameArt.org",
+      "license": "CC-BY 3.0",
+      "attribution": "Riley Gombart (opengameart.org/content/animated-top-down-survivor-player)"
+    },
+    "recommendedDiversityAssets": {
+      "runner": {
+        "candidate": "Riley Gombart Zombie Crawler / Feral Dog mutation",
+        "license": "CC0 1.0 Universal",
+        "alternative": "Custom AI-assisted sprite strip matching Riley Gombart top-down lighting (CC-BY 4.0 / Proprietary Studio Asset)"
+      },
+      "tank": {
+        "candidate": "Top-Down Mutated Behemoth / Brute (CC0 / Custom Studio Render)",
+        "license": "CC0 / Custom CC-BY 4.0",
+        "silhouette": "Wide hunched back, broad shoulders, massive arms, bone spikes protruding from spine"
+      },
+      "boss": {
+        "candidate": "Towering Nemesis / Zombie King (Custom 3D Render to 2D Sprite Sheet)",
+        "license": "Studio Proprietary / Clean Asset",
+        "silhouette": "Heavy spiked armor plating, horned skull crest, giant rebar cleaver, glowing red chest core"
+      }
+    }
+  },
+  "archetypes": [
+    {
+      "id": "walker",
+      "name": "Zombie Walker (Bộ Hành Cơ Bản)",
+      "role": "Standard fodder / swarm unit",
+      "baseScale": 1.0,
+      "effectiveCanvasSize": { "width": 84, "height": 96 },
+      "mobileViewportSize": { "width": 28, "height": 32 },
+      "visualColorProfile": {
+        "skin": "#4d6b53",
+        "clothing": "#334155",
+        "eyes": "#fef08a",
+        "blood": "#7f1d1d"
+      },
+      "silhouetteFeatures": "Bipedal shambling gait, slumped shoulders, arms outstretched forward, shredded casual apparel.",
+      "animations": {
+        "idle": { "frames": 17, "fps": 12, "atlasPrefix": "zombie_idle" },
+        "walk": { "frames": 17, "fps": 14, "atlasPrefix": "zombie_move" },
+        "attack": { "frames": 9, "fps": 15, "atlasPrefix": "zombie_attack" },
+        "death": { "frames": 1, "fps": 1, "atlasPrefix": "zombie_corpse" }
+      },
+      "combatStats": {
+        "baseHp": 100,
+        "speed": 35,
+        "attackDamage": 8,
+        "attackIntervalMs": 1000,
+        "hitboxRadius": 22
+      }
+    },
+    {
+      "id": "runner",
+      "name": "Zombie Runner (Cuồng Nộ Tốc Độ)",
+      "role": "Fast flanking interceptor / backline disruptor",
+      "baseScale": 0.85,
+      "effectiveCanvasSize": { "width": 64, "height": 88 },
+      "mobileViewportSize": { "width": 21.3, "height": 29.3 },
+      "visualColorProfile": {
+        "skin": "#881337",
+        "clothing": "#1c1917",
+        "eyes": "#ef4444",
+        "trail": "#f43f5e"
+      },
+      "silhouetteFeatures": "Low quadruped crouch / feral sprint, hyper-extended neck, clawed limbs digging into asphalt, crimson vascular glow.",
+      "animations": {
+        "idle": { "frames": 12, "fps": 15, "atlasPrefix": "runner_idle" },
+        "walk": { "frames": 16, "fps": 24, "atlasPrefix": "runner_sprint" },
+        "attack": { "frames": 8, "fps": 20, "atlasPrefix": "runner_pounce" },
+        "death": { "frames": 6, "fps": 18, "atlasPrefix": "runner_death" }
+      },
+      "combatStats": {
+        "baseHp": 60,
+        "speed": 85,
+        "attackDamage": 14,
+        "attackIntervalMs": 650,
+        "hitboxRadius": 18
+      }
+    },
+    {
+      "id": "tank",
+      "name": "Zombie Tank / Brute (Đột Biến Thiết Giáp)",
+      "role": "Heavy frontline sponge / fortress battering ram",
+      "baseScale": 1.45,
+      "effectiveCanvasSize": { "width": 142, "height": 136 },
+      "mobileViewportSize": { "width": 47.3, "height": 45.3 },
+      "visualColorProfile": {
+        "skin": "#365314",
+        "armor": "#475569",
+        "eyes": "#eab308",
+        "core": "#f97316"
+      },
+      "silhouetteFeatures": "Massive hunchback, bone carapace on spine and shoulders, tree-trunk fists, heavy ground-tremor gait.",
+      "animations": {
+        "idle": { "frames": 16, "fps": 10, "atlasPrefix": "tank_idle" },
+        "walk": { "frames": 20, "fps": 10, "atlasPrefix": "tank_march" },
+        "attack": { "frames": 12, "fps": 12, "atlasPrefix": "tank_ground_slam" },
+        "death": { "frames": 8, "fps": 10, "atlasPrefix": "tank_collapse" }
+      },
+      "combatStats": {
+        "baseHp": 450,
+        "speed": 22,
+        "attackDamage": 35,
+        "attackIntervalMs": 1800,
+        "hitboxRadius": 38
+      }
+    },
+    {
+      "id": "boss",
+      "name": "Zombie King / Nemesis (Chúa Tể Thành Trì)",
+      "role": "Match climax raid boss / community focus target",
+      "baseScale": 1.85,
+      "effectiveCanvasSize": { "width": 185, "height": 180 },
+      "mobileViewportSize": { "width": 61.6, "height": 60.0 },
+      "visualColorProfile": {
+        "skin": "#1e1b4b",
+        "armor": "#0f172a",
+        "eyes": "#dc2626",
+        "core": "#a855f7",
+        "aura": "#c026d3"
+      },
+      "silhouetteFeatures": "Towering juggernaut, crowned skull helmet, jagged barbed wire wrap, colossal two-handed concrete cleaver, dark purple necrotic aura particles.",
+      "animations": {
+        "idle": { "frames": 20, "fps": 12, "atlasPrefix": "boss_idle" },
+        "walk": { "frames": 24, "fps": 12, "atlasPrefix": "boss_stride" },
+        "attack": { "frames": 16, "fps": 14, "atlasPrefix": "boss_cleave" },
+        "special": { "frames": 20, "fps": 15, "atlasPrefix": "boss_roar_summon" },
+        "death": { "frames": 24, "fps": 12, "atlasPrefix": "boss_obliteration" }
+      },
+      "combatStats": {
+        "baseHp": 2500,
+        "speed": 18,
+        "attackDamage": 90,
+        "attackIntervalMs": 2400,
+        "hitboxRadius": 50
+      }
+    }
+  ]
+}

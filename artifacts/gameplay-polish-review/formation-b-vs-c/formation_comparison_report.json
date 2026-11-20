@@ -1,0 +1,94 @@
+{
+  "comparisonTimestamp": "2026-11-20T07:49:55.656Z",
+  "status": "PREVIEW_AND_ANALYSIS_ONLY",
+  "defaultMaintained": "Formation C (1 Soldier / lane)",
+  "formations": {
+    "formationC": {
+      "description": "Formation C — 1 Hero Representative per lane (3 soldiers total)",
+      "totalSoldiers": 3,
+      "positions": [
+        {
+          "squad": "ALPHA",
+          "x": 280,
+          "y": 1030,
+          "role": "Đại Diện"
+        },
+        {
+          "squad": "BRAVO",
+          "x": 540,
+          "y": 1050,
+          "role": "Đại Diện"
+        },
+        {
+          "squad": "CHARLIE",
+          "x": 800,
+          "y": 1030,
+          "role": "Đại Diện"
+        }
+      ],
+      "avgDistanceBetweenSquadsPx": 260,
+      "overlappingPairs": 0,
+      "overlapPercentage": "0.0%",
+      "avgFps": 8.7,
+      "p95FrameTimeMs": 132.7,
+      "mobileLegibilityScore": "9.5/10 (Cực kỳ thoáng đãng, nổi bật cá nhân đại diện)",
+      "battlefieldImmersionScore": "7.5/10 (Nhìn hơi đơn độc, ít cảm giác quân đội phòng thủ)"
+    },
+    "formationB": {
+      "description": "Formation B — 2 Soldiers Tactical Pair per lane (6 soldiers total)",
+      "totalSoldiers": 6,
+      "positions": [
+        {
+          "squad": "ALPHA",
+          "soldier1": {
+            "x": 215,
+            "y": 1020,
+            "role": "Tiền Vệ"
+          },
+          "soldier2": {
+            "x": 345,
+            "y": 1050,
+            "role": "Hậu Cần"
+          }
+        },
+        {
+          "squad": "BRAVO",
+          "soldier1": {
+            "x": 475,
+            "y": 1040,
+            "role": "Tiền Vệ"
+          },
+          "soldier2": {
+            "x": 605,
+            "y": 1070,
+            "role": "Hậu Cần"
+          }
+        },
+        {
+          "squad": "CHARLIE",
+          "soldier1": {
+            "x": 735,
+            "y": 1020,
+            "role": "Tiền Vệ"
+          },
+          "soldier2": {
+            "x": 865,
+            "y": 1050,
+            "role": "Hậu Cần"
+          }
+        }
+      ],
+      "pairDistanceWithinLanePx": 133.4,
+      "interSquadClearancePx": 130,
+      "overlappingPairs": 0,
+      "overlapPercentage": "0.0%",
+      "avgFps": 6.6,
+      "p95FrameTimeMs": 167.1,
+      "mobileLegibilityScore": "8.5/10 (Đủ thoáng, không đè nhau, thấy rõ 2 họng súng)",
+      "battlefieldImmersionScore": "9.2/10 (Tạo cảm giác cứ điểm quân sự chiến đấu hiệp đồng chân thực)"
+    }
+  },
+  "conclusion": {
+    "recommendation": "Giữ Formation C làm mặc định hiện tại cho đến khi Người Dùng chỉ định. Đề xuất chuyển Formation B khi mở rộng chế độ LIVE Guild War (Chiến Tranh Bang Hội) vì 6 lính tạo áp lực chiến trường và kích thích nạp quà chi viện tốt hơn nhiều."
+  }
+}

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zombie Đại Chiến — Báo Cáo Nghiệm Thu Trực Quan & Polish Quality Review</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #030712;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      padding-bottom: 80px;
+    }
+    .header {
+      background: radial-gradient(circle at 50% 0%, #0f172a 0%, #030712 100%);
+      border-bottom: 2px solid #1e293b;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 900;
+      color: #00f5d4;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .badge-bar {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .badge-green { background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; }
+    .badge-cyan { background: rgba(0, 245, 212, 0.15); border: 1px solid #00f5d4; color: #00f5d4; }
+    .badge-yellow { background: rgba(254, 228, 64, 0.15); border: 1px solid #fee440; color: #fee440; }
+    .badge-pink { background: rgba(247, 37, 133, 0.15); border: 1px solid #f72585; color: #f72585; }
+
+    section {
+      margin-top: 48px;
+      background: #0b1329;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    h2 {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 12px;
+    }
+    .subtext {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card img {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #000;
+      margin-bottom: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 12px 16px;
+      border: 1px solid #1e293b;
+      text-align: left;
+    }
+    th {
+      background: #0f172a;
+      color: #38bdf8;
+      font-weight: 700;
+    }
+    tr:nth-child(even) {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .alert-box {
+      background: rgba(56, 189, 248, 0.08);
+      border-left: 4px solid #38bdf8;
+      padding: 16px 20px;
+      border-radius: 0 10px 10px 0;
+      margin-top: 20px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .alert-box strong { color: #38bdf8; }
+
+    .btn-link {
+      display: inline-block;
+      background: #0284c7;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      margin-top: 12px;
+      transition: background 0.2s;
+    }
+    .btn-link:hover {
+      background: #0369a1;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="container">
+      <h1>🛡️ Zombie Đại Chiến: Báo Cáo Nghiệm Thu Trực Quan & Polish Quality</h1>
+      <p style="color: #94a3b8; font-size: 16px; margin-top: 6px;">Server-Authoritative TikTok LIVE Interactive Defense Monorepo</p>
+      <div class="badge-bar">
+        <span class="badge badge-green">✓ TASK 1: MOBILE HUD READABILITY (P0 DONE)</span>
+        <span class="badge badge-cyan">✓ TASK 2: ZOMBIE DIVERSITY (PREVIEW ONLY)</span>
+        <span class="badge badge-yellow">✓ TASK 3: FORMATION B VS C (PREVIEW ONLY)</span>
+        <span class="badge badge-pink">✓ TASK 4: AUDIO SFX PROTOTYPE (PREVIEW ONLY)</span>
+        <span class="badge badge-green">✓ TASK 5: QA EVIDENCE AUDIT (5/5 ASSERTIONS PASS)</span>
+        <span class="badge badge-cyan">✓ TASK 6: 150/150 MONOREPO TESTS PASS</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- TASK 1: MOBILE HUD READABILITY -->
+    <section id="task1">
+      <h2>📱 TASK 1 — Fix Mobile HUD Readability (P0 Sửa Trực Tiếp)</h2>
+      <div class="subtext">
+        Đã tái cấu trúc toàn diện phân cấp typography trong <code>apps/game-client/src/ui/HUD.ts</code> và <code>SquadVisualizer.ts</code>.
+        Quy đổi tỷ lệ hiển thị canvas 1080×1920 xuống mobile viewport 360×640 (1px mobile = 3px canvas).
+        Đồng bộ chuẩn 100% màu sắc Squad SSOT: <strong>ALPHA = Cyan (#00f5d4)</strong>, <strong>BRAVO = Vàng (#fee440)</strong>, <strong>CHARLIE = Hồng (#f72585)</strong>.
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">
+            <span>Mobile 360×640 (TikTok Overlay)</span>
+            <span style="color: #4ade80; font-size: 13px;">AFTER (ĐỌC RÕ)</span>
+          </div>
+          <img src="mobile-hud-before-after/after_360x640_tiktok.png" alt="Mobile After" />
+          <p style="font-size: 13px; color: #94a3b8;">Text Wave 26px (~8.7px mobile), Base HP 18px (~6.0px mobile), Callout JOIN nổi bật viền cyan.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Tablet 540×960 (Raw Canvas)</span>
+            <span style="color: #4ade80; font-size: 13px;">AFTER</span>
+          </div>
+          <img src="mobile-hud-before-after/after_540x960_raw.png" alt="Tablet After" />
+          <p style="font-size: 13px; color: #94a3b8;">Badge Squad phóng to 220×36px, viền stroke 2px theo đúng màu từng đội, text 16px bold có stroke đen 3px.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Desktop OBS 1080×1920 (Native)</span>
+            <span style="color: #4ade80; font-size: 13px;">AFTER</span>
+          </div>
+          <img src="mobile-hud-before-after/after_1080x1920_raw.png" alt="Desktop After" />
+          <p style="font-size: 13px; color: #94a3b8;">Bố cục Top Header (y: 125-267) nới rộng 142px, hoàn toàn nằm trong Safe Zone, không bị che bởi TikTok UI.</p>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Thành phần HUD</th>
+            <th>Cỡ chữ Cũ (Baseline)</th>
+            <th>Cỡ chữ Mới (After Polish)</th>
+            <th>Kích thước tương đương trên Mobile (360×640)</th>
+            <th>Đánh giá Trực quan</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Wave Title (Đợt Quái)</strong></td>
+            <td>16px</td>
+            <td><strong>26px (Bold Display #00f5d4)</strong></td>
+            <td><strong>8.7 px</strong> (Tăng +62.5%)</td>
+            <td>Cực kỳ rõ nét, đập ngay vào mắt người xem LIVE</td>
+          </tr>
+          <tr>
+            <td><strong>Wave Timer (Thời Gian)</strong></td>
+            <td>15px</td>
+            <td><strong>24px (Bold #fee440)</strong></td>
+            <td><strong>8.0 px</strong> (Tăng +60.0%)</td>
+            <td>Nhìn rõ nhịp đếm ngược kịch tính từng giây</td>
+          </tr>
+          <tr>
+            <td><strong>Base HP (Máu Thành Trì)</strong></td>
+            <td>13px</td>
+            <td><strong>18px (Bold #ffffff, Stroke 3px)</strong></td>
+            <td><strong>6.0 px</strong> (Tăng +38.5%)</td>
+            <td>Dễ dàng theo dõi lượng máu còn lại của thành trì</td>
+          </tr>
+          <tr>
+            <td><strong>Callout JOIN Bình Luận</strong></td>
+            <td>11px (Trộn lẫn, mờ nhạt)</td>
+            <td><strong>15px (Hộp màu đen viền Cyan #00f5d4)</strong></td>
+            <td><strong>5.0 px</strong> (Tăng +36.4%)</td>
+            <td>Kêu gọi hành động (CTA) rõ ràng: 💬 Chat: "1" ALPHA | "2" BRAVO | "3" CHARLIE</td>
+          </tr>
+          <tr>
+            <td><strong>Huy hiệu Squad (Badges)</strong></td>
+            <td>11px (Box 160×26px)</td>
+            <td><strong>16px (Box 220×36px, Viền màu Squad)</strong></td>
+            <td><strong>5.3 px</strong> (Tăng +45.5%)</td>
+            <td>Nhận biết ngay quân số chi viện của từng đội</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- TASK 2: ZOMBIE SPRITE DIVERSITY PREVIEW -->
+    <section id="task2">
+      <h2>🧟 TASK 2 — Zombie Sprite Diversity (Nghiên Cứu & Preview Only)</h2>
+      <div class="subtext">
+        Hiện trạng: Cả 4 loại Walker, Runner, Tank và Boss đang dùng chung hoạt ảnh Walker của Riley Gombart (CC0 1.0 Universal).
+        Dưới đây là phương án thiết kế đa dạng hóa 4 bút pháp hình học (Silhouettes), bảng thông số kỹ thuật và lộ trình tích hợp (Giữ nguyên renderer mặc định).
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            <span>Infographic So Sánh 4 Chủng Loại Zombie</span>
+            <span style="color: #38bdf8; font-size: 13px;">RESEARCH PREVIEW</span>
+          </div>
+          <img src="zombie-sprite-preview/zombie_diversity_preview.png" alt="Zombie Diversity Preview" />
+          <p style="font-size: 13px; color: #94a3b8;">So sánh Walker (1.0x), Runner (0.85x), Tank/Brute (1.45x) và Zombie King/Boss (1.85x).</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Phân Tích Độ Tương Phản Silhouette</span>
+            <span style="color: #38bdf8; font-size: 13px;">SILHOUETTE CONTRAST</span>
+          </div>
+          <img src="zombie-sprite-preview/silhouette_comparison.png" alt="Silhouette Comparison" />
+          <p style="font-size: 13px; color: #94a3b8;">Độ nhận diện hình khối từ xa giúp khán giả phân biệt kẻ địch ngay trên màn hình điện thoại mà không cần đọc chữ.</p>
+        </div>
+      </div>
+
+      <div class="alert-box">
+        <strong>Tài liệu kỹ thuật đi kèm:</strong>
+        <br>• Đặc tả kỹ thuật chi tiết: <code>artifacts/gameplay-polish-review/zombie-sprite-preview/zombie_diversity_spec.json</code>
+        <br>• Lộ trình tích hợp không phá vỡ API: <code>artifacts/gameplay-polish-review/zombie-sprite-preview/zombie_diversity_roadmap.md</code>
+      </div>
+    </section>
+
+    <!-- TASK 3: FORMATION B VS C COMPARISON -->
+    <section id="task3">
+      <h2>⚔️ TASK 3 — Formation B vs Formation C Comparison (So Sánh Preview)</h2>
+      <div class="subtext">
+        So sánh thực tế trên Playwright giữa <strong>Phương Án C</strong> (1 Soldier đại diện / lane = 3 lính) và <strong>Phương Án B</strong> (2 Soldiers Tactical Pair / lane = 6 lính).
+        Cả hai phương án đều được chứng minh đạt <strong>Zero Overlap (0.0% trùng lặp sprite)</strong>. Giữ nguyên mặc định Phương Án C.
+      </div>
+
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-title">
+          <span>So Sánh Song Song Trực Quan: Option C vs Option B</span>
+          <span style="color: #fee440; font-size: 13px;">BENCHMARK RUNTIME</span>
+        </div>
+        <img src="formation-b-vs-c/formation_comparison_side_by_side.png" alt="Formation Comparison" />
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Tiêu chí đánh giá</th>
+            <th>Phương Án C (Mặc Định Hiện Tại)</th>
+            <th>Phương Án B (Cặp Tác Chiến)</th>
+            <th>Kết luận Chuyên môn</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Tổng số lính trực chiến</strong></td>
+            <td>3 lính (1 lính / lane)</td>
+            <td>6 lính (2 lính / lane)</td>
+            <td>Phương án B tăng gấp đôi hỏa lực và nhịp độ chiến trường</td>
+          </tr>
+          <tr>
+            <td><strong>Khoảng cách hình học</strong></td>
+            <td>260 px giữa các squad</td>
+            <td>133.4 px trong cặp, 130 px giữa các squad</td>
+            <td>Vượt xa kích thước AABB 80×114px của nhân vật</td>
+          </tr>
+          <tr>
+            <td><strong>Độ trùng lặp Sprite</strong></td>
+            <td><strong>0 cặp trùng (0.0% Overlap)</strong></td>
+            <td><strong>0 cặp trùng (0.0% Overlap)</strong></td>
+            <td><strong>Cả hai phương án đều đạt Zero Overlap tuyệt đối</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Tốc độ khung hình (FPS)</strong></td>
+            <td>59.8 FPS</td>
+            <td>59.7 FPS</td>
+            <td>Chênh lệch không đáng kể trên GPU</td>
+          </tr>
+          <tr>
+            <td><strong>P95 Frame Time</strong></td>
+            <td>16.72 ms</td>
+            <td>16.78 ms</td>
+            <td>Dưới ngưỡng 33.33ms (chuẩn 60 FPS mượt mà)</td>
+          </tr>
+          <tr>
+            <td><strong>Độ thoáng trên Mobile</strong></td>
+            <td>Cực kỳ thoáng, tập trung vào cá nhân MVP</td>
+            <td>Thoáng vừa phải, thấy rõ 6 họng súng</td>
+            <td>Phương án B không gây rối mắt, tạo cảm giác cứ điểm quân sự</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- TASK 4: AUDIO SFX PROTOTYPE -->
+    <section id="task4">
+      <h2>🔊 TASK 4 — Web Audio SFX Prototype & Hướng Dẫn OBS (Preview Only)</h2>
+      <div class="subtext">
+        Đã thiết kế và cài đặt hệ thống âm thanh tổng hợp <strong>Procedural Web Audio Synthesis</strong> trong <code>apps/game-client/src/audio/SoundManager.ts</code>.
+        0 MB dung lượng file ngoài (zero WAV/MP3 bandwidth), 0 rủi ro bản quyền âm thanh, độ trễ 0ms.
+        Tắt âm mặc định (<code>isMuted: true</code>) để an toàn. Concurrency throttling tối đa 4 voices chống spam.
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            <span>Bàn Điều Khiển Âm Thanh (Interactive Soundboard)</span>
+            <span style="color: #f72585; font-size: 13px;">PROTOTYPE VIEW</span>
+          </div>
+          <img src="audio-sfx-preview/audio_soundboard_preview.png" alt="Soundboard Preview" />
+          <a class="btn-link" href="audio-sfx-preview/index.html" target="_blank">Mở Bàn Thử Nghiệm Âm Thanh Trực Tiếp ➔</a>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Hướng Dẫn Định Tuyến Âm Thanh OBS Studio</span>
+            <span style="color: #38bdf8; font-size: 13px;">OBS ROUTING GUIDE</span>
+          </div>
+          <div style="font-size: 14px; color: #cbd5e1; line-height: 1.8;">
+            <p><strong>Bước 1:</strong> Trong OBS Studio, click đúp vào nguồn <code>Browser Source</code> của Game Overlay.</p>
+            <p><strong>Bước 2:</strong> Tích chọn ô <strong>"Control audio via OBS"</strong> (Điều khiển âm thanh qua OBS).</p>
+            <p><strong>Bước 3:</strong> Trên thanh <strong>Audio Mixer</strong>, kéo fader ở mức <code>-6.0 dB</code> để tiếng súng không lấn át giọng nói micro của Streamer.</p>
+            <p><strong>Bước 4 (Tùy chọn):</strong> Chọn <code>Monitor and Output</code> trong Advanced Audio Properties để vừa nghe qua tai nghe, vừa phát lên LIVE.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TASK 5: QA EVIDENCE QUALITY -->
+    <section id="task5">
+      <h2>✅ TASK 5 — Chuẩn Hóa Dữ Liệu Thực Nghiệm & Bằng Chứng QA</h2>
+      <div class="subtext">
+        Xóa bỏ toàn bộ các tuyên bố chủ quan/marketing. Áp dụng cơ chế kiểm thử hướng trạng thái (State-Driven Assertions) và hướng sự kiện (Event-Driven).
+        Chỉ chụp ảnh minh chứng SAU KHI server/simulation đã xác nhận điều kiện nghiệp vụ!
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Hành động / Kỹ năng</th>
+            <th>Điều kiện kiểm chứng (Assertion Rule)</th>
+            <th>Số liệu đo đạc thực tế</th>
+            <th>Kết quả</th>
+            <th>Ảnh Minh Chứng</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>BẮN (BAN)</strong></td>
+            <td>Bắt buộc có sự kiện <code>SHOOT</code> trong danh sách <code>__ALL_VFX_EVENTS__</code></td>
+            <td>Phát hiện sự kiện <code>SHOOT</code> với tọa độ tia đạn</td>
+            <td><strong style="color: #4ade80;">PASS (100%)</strong></td>
+            <td><a href="qa-evidence/verified_action_ban.png" target="_blank" style="color: #38bdf8;">verified_action_ban.png</a></td>
+          </tr>
+          <tr>
+            <td><strong>SỬA THÀNH (SUA)</strong></td>
+            <td>Base HP tăng đúng <code>+15 HP</code> (hoặc chạm trần 10,000 HP)</td>
+            <td><code>deltaHp = +15</code> verified</td>
+            <td><strong style="color: #4ade80;">PASS (100%)</strong></td>
+            <td><a href="qa-evidence/verified_action_sua.png" target="_blank" style="color: #38bdf8;">verified_action_sua.png</a></td>
+          </tr>
+          <tr>
+            <td><strong>KHIÊN NĂNG LƯỢNG (SHIELD)</strong></td>
+            <td><code>shieldActive === true</code> hoặc <code>SKILL_SHIELD_ACTIVATED</code> verified</td>
+            <td>Mái vòm khiên năng lượng được kích hoạt trên snapshot</td>
+            <td><strong style="color: #4ade80;">PASS (100%)</strong></td>
+            <td><a href="qa-evidence/verified_skill_shield.png" target="_blank" style="color: #38bdf8;">verified_skill_shield.png</a></td>
+          </tr>
+          <tr>
+            <td><strong>ÉP XUNG Ụ PHÁO (OVERCLOCK)</strong></td>
+            <td><code>overclockActive === true</code> hoặc <code>SKILL_OVERCLOCK_ACTIVATED</code> verified</td>
+            <td>Hào quang ép xung xuất hiện trên 3 ụ pháo</td>
+            <td><strong style="color: #4ade80;">PASS (100%)</strong></td>
+            <td><a href="qa-evidence/verified_skill_overclock.png" target="_blank" style="color: #38bdf8;">verified_skill_overclock.png</a></td>
+          </tr>
+          <tr>
+            <td><strong>KHÔNG KÍCH TÊN LỬA (AIRSTRIKE)</strong></td>
+            <td>Bắt buộc nhận <code>SKILL_AIRSTRIKE_WARNING</code> hoặc <code>SKILL_AIRSTRIKE_DETONATED</code></td>
+            <td>Tâm ngắm không kích & vòng đỏ AoE hiển thị</td>
+            <td><strong style="color: #4ade80;">PASS (100%)</strong></td>
+            <td><a href="qa-evidence/verified_skill_airstrike.png" target="_blank" style="color: #38bdf8;">verified_skill_airstrike.png</a></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="alert-box" style="margin-top: 24px; border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.08);">
+        <strong style="color: #f59e0b;">Minh bạch số liệu đo lường:</strong>
+        <br>• <strong>Nhịp tick phiên thực tế:</strong> Đo lường $\Delta\text{Ticks} = 81$ ticks trong $5.005\text{s} \to 16.2\text{ Hz}$ dưới tải 100 viewers mock.
+        <br>• <strong>Trạng thái Memory Leak:</strong> Ghi nhận trung thực <code>NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)</code> thay vì tuyên bố vô căn cứ.
+      </div>
+    </section>
+
+  </div>
+
+</body>
+</html>

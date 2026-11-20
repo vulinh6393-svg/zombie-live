@@ -113,18 +113,20 @@ export class SquadVisualizer {
     const container = this.scene.add.container(sq.centerX, sq.centerY + 82).setDepth(28);
 
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x0a1128, 0.94);
-    bg.fillRoundedRect(-100, -13, 200, 26, 6);
-    bg.lineStyle(1.5, Phaser.Display.Color.HexStringToColor(sq.color).color, 0.95);
-    bg.strokeRoundedRect(-100, -13, 200, 26, 6);
+    bg.fillStyle(0x0a1128, 0.95);
+    bg.fillRoundedRect(-110, -18, 220, 36, 8);
+    bg.lineStyle(2, Phaser.Display.Color.HexStringToColor(sq.color).color, 1);
+    bg.strokeRoundedRect(-110, -18, 220, 36, 8);
 
     const repCount = this.formations[this.formationMode].length;
-    const label = repCount === 1 ? `${sq.name} SQUAD: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`;
+    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} LÍNH)`;
     const text = this.scene.add.text(0, 0, label, {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '11px',
+      fontSize: '16px',
       fontStyle: 'bold',
       color: sq.color,
+      stroke: '#000000',
+      strokeThickness: 3,
     }).setOrigin(0.5);
 
     container.add([bg, text]);
@@ -135,7 +137,7 @@ export class SquadVisualizer {
     const badge = this.squadBadges.get(sq.id);
     if (!badge) return;
     const repCount = this.formations[this.formationMode].length;
-    const label = repCount === 1 ? `${sq.name} SQUAD: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} TRỰC CHIẾN)`;
+    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} LÍNH)`;
     badge.text.setText(label);
   }
 

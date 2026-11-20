@@ -1188,3 +1188,32 @@
   - [x] Thực thi chuỗi tương tác Dashboard (JOIN 1/2/3, BAN, SUA, Khiên, Ép Xung, Tên Lửa Airstrike).
   - [x] Đánh giá chi tiết chất lượng đồ họa, animation, tỷ lệ sprite, bố cục Safe Zone và trải nghiệm người xem TikTok LIVE.
   - [x] Xuất báo cáo chuyên sâu và bộ ảnh audit tại `artifacts/visual-acceptance/audit/`.
+
+## Giai đoạn: Mobile UI Polish & Quality Preview (P0 & Previews - ĐÃ HOÀN TẤT 100%)
+- [x] **TASK 1 — Fix Mobile HUD Readability (P0 - Sửa Trực Tiếp):**
+  - [x] Thiết kế lại phân cấp typography trong `apps/game-client/src/ui/HUD.ts`, `SquadVisualizer.ts`, `BattlefieldScene.ts`.
+  - [x] Ưu tiên 4 thông tin cốt lõi: Wave (Đợt), Fortress HP (Thành trì), Hướng dẫn JOIN, Đóng góp người chơi (Top MVP).
+  - [x] Đảm bảo văn bản then chốt đọc rõ ràng tại độ phân giải mobile 360×640 mà không làm vỡ bố cục 1080×1920 trên desktop OBS.
+  - [x] Đồng bộ màu sắc squad theo đúng cấu hình thực tế (`SquadVisualizer.ts`: ALPHA = Cyan `#00f5d4`, BRAVO = Vàng `#fee440`, CHARLIE = Hồng `#f72585`).
+  - [x] Chụp ảnh so sánh BEFORE vs AFTER tại 1080×1920, 540×960, 360×640 (kèm simulated TikTok overlay).
+- [x] **TASK 2 — Zombie Sprite Diversity (Nghiên Cứu & Preview Only):**
+  - [x] Rà soát toàn bộ sprite hiện có trong `apps/game-client/public/assets`, kiểm tra attribution/license.
+  - [x] Thiết kế phương án sprite riêng biệt cho Walker, Runner, Tank/Brute, Zombie King/Boss.
+  - [x] Tạo bảng so sánh silhouette, scale, animation plan và ảnh preview độc lập (không thay đổi renderer mặc định).
+- [x] **TASK 3 — Formation B vs Formation C Comparison (So Sánh Preview):**
+  - [x] Khởi tạo kịch bản so sánh Formation C (3 lính) vs Formation B (6 lính) cùng điều kiện trận đấu.
+  - [x] Đo lường: Mật độ, độ trùng lặp sprite (overlap), FPS, số display objects, khả năng nhận diện trên mobile.
+  - [x] Chụp ảnh so sánh trực quan và bảng số liệu (giữ nguyên mặc định Formation C).
+- [x] **TASK 4 — Audio SFX Prototype (Prototype & Preview Only):**
+  - [x] Thiết kế kiến trúc âm thanh Web Audio với Sound Manager: súng, zombie, nổ/airstrike, khiên, boss, còi báo động.
+  - [x] Bổ sung Master Volume, SFX Volume, Mute, Concurrency limiter (chống spam âm thanh).
+  - [x] Tạo preview âm thanh độc lập và hướng dẫn OBS Audio capture (không bật mặc định trong game chính).
+- [x] **TASK 5 — Fix QA Evidence Quality (Chuẩn Hóa Dữ Liệu Thực Nghiệm):**
+  - [x] Sửa script audit thành event-driven / state-driven (chỉ chụp khi state active, verify event thực tế).
+  - [x] Đo lường delta simulation tick trong phiên thay vì lấy giá trị tích lũy.
+  - [x] Ghi nhận trung thực `NOT MEASURED` cho memory leak time-series nếu không đo theo chuỗi thời gian.
+  - [x] Loại bỏ toàn bộ các tuyên bố chủ quan chưa được kiểm chứng.
+- [x] **TASK 6 — Monorepo Regression, Delivery & Packaging:**
+  - [x] Chạy `pnpm run build`, `pnpm run typecheck`, `pnpm test` (150/150 PASS).
+  - [x] Tạo thư mục `artifacts/gameplay-polish-review/` đầy đủ các thư mục con và `index.html`, `review-summary.md`.
+  - [x] Commit và push lên GitHub nhánh `feat/phase02-visual-refinement`.
