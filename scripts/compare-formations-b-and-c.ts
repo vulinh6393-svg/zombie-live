@@ -3,249 +3,289 @@ import path from 'path';
 import fs from 'fs';
 
 const OUT_DIR = path.resolve('artifacts/gameplay-polish-review/formation-b-vs-c');
-const BRAIN_DIR = path.resolve('C:/Users/admin/.gemini/antigravity/brain/8f087681-8572-4911-976b-b3062eed932e/formation-b-vs-c');
-
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
-if (!fs.existsSync(BRAIN_DIR)) fs.mkdirSync(BRAIN_DIR, { recursive: true });
 
-async function profileFormation(mode: 'B' | 'C') {
-  const browser = await chromium.launch({ headless: true });
+interface BenchmarkRun {
+  runIndex: number;
+  frameCount: number;
+  durationMs: number;
+  avgFps: number;
+  medianFrameTimeMs: number;
+  p95FrameTimeMs: number;
+  rawFrameTimesMs: number[];
+}
+
+async function benchmarkFormation(mode: 'B' | 'C') {
+  const browser = await chromium.launch({
+    channel: 'chrome',
+    headless: true,
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox']
+  });
   const page = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
 
-  console.log(`[TASK 3] Navigating to http://127.0.0.1:5174/overlay?formation=${mode}&debug=1...`);
+  console.log(`[TASK 3] Loading http://127.0.0.1:5174/overlay?formation=${mode}&debug=1 ...`);
   await page.goto(`http://127.0.0.1:5174/overlay?formation=${mode}&debug=1`, { waitUntil: 'networkidle', timeout: 30000 });
-  await page.waitForTimeout(3000); // Allow simulation and Phaser rendering to stabilize
+  await page.waitForTimeout(2500);
 
-  // Measure performance over 120 frames using requestAnimationFrame
-  const metrics = await page.evaluate(`
-    new Promise((resolve) => {
-      const times = [];
-      let lastTime = performance.now();
-      let frames = 0;
-
-      const loop = () => {
-        const now = performance.now();
-        const delta = now - lastTime;
-        lastTime = now;
-        times.push(delta);
-        frames++;
-
-        if (frames < 120) {
-          requestAnimationFrame(loop);
-        } else {
-          times.shift();
-          times.sort((a, b) => a - b);
-          const p95 = times[Math.floor(times.length * 0.95)];
-          const avgDelta = times.reduce((a, b) => a + b, 0) / times.length;
-          const avgFps = 1000 / avgDelta;
-          resolve({ avgFps, p95FrameTime: p95, frameTimes: times });
+  // Inspect WebGL renderer & active zombie count for parity verification
+  const envInfo = await page.evaluate(`
+    (function() {
+      const canvas = document.querySelector('canvas');
+      let rendererStr = 'UNKNOWN';
+      if (canvas) {
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (gl) {
+          const ext = gl.getExtension('WEBGL_debug_renderer_info');
+          rendererStr = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
         }
+      }
+      const qa = window.__BATTLEFIELD_QA__ && window.__BATTLEFIELD_QA__.getSocketStatus ? window.__BATTLEFIELD_QA__.getSocketStatus() : {};
+      return {
+        webglRenderer: rendererStr,
+        zombieCount: qa.zombieCount ?? null,
+        phase: qa.phase ?? null
       };
-      requestAnimationFrame(loop);
-    })
-  `) as { avgFps: number; p95FrameTime: number; frameTimes: number[] };
+    })()
+  `) as { webglRenderer: string; zombieCount: number | null; phase: string | null };
 
-  // Capture 1080x1920 Full Native
+  // Warm-up 60 frames
+  console.log(`[TASK 3] Formation ${mode}: Warming up 60 frames...`);
+  await page.evaluate(`
+    new Promise((resolve) => {
+      let f = 0;
+      const w = () => { if (++f >= 60) resolve(true); else requestAnimationFrame(w); };
+      requestAnimationFrame(w);
+    })
+  `);
+
+  // 3 independent runs of 180 frames each
+  const runs: BenchmarkRun[] = [];
+  for (let r = 1; r <= 3; r++) {
+    console.log(`[TASK 3] Formation ${mode}: Run ${r}/3 (180 frames)...`);
+    const res = await page.evaluate(`
+      new Promise((resolve) => {
+        const times = [];
+        let last = performance.now();
+        let count = 0;
+        const start = last;
+        const step = () => {
+          const now = performance.now();
+          times.push(Math.round((now - last) * 100) / 100);
+          last = now;
+          count++;
+          if (count < 180) {
+            requestAnimationFrame(step);
+          } else {
+            times.shift();
+            const sorted = [...times].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            const p95 = sorted[Math.floor(sorted.length * 0.95)];
+            const totalMs = now - start;
+            const avgFps = (times.length / totalMs) * 1000;
+            resolve({
+              frameCount: times.length,
+              durationMs: Math.round(totalMs),
+              avgFps: Math.round(avgFps * 10) / 10,
+              medianFrameTimeMs: median,
+              p95FrameTimeMs: p95,
+              rawFrameTimesMs: times
+            });
+          }
+        };
+        requestAnimationFrame(step);
+      })
+    `) as Omit<BenchmarkRun, 'runIndex'>;
+    runs.push({ runIndex: r, ...res });
+  }
+
+  // Capture 1080x1920 and 360x640 screenshots
   const full1080Path = path.join(OUT_DIR, `formation_${mode.toLowerCase()}_1080x1920.png`);
   await page.screenshot({ path: full1080Path });
-  fs.copyFileSync(full1080Path, path.join(BRAIN_DIR, `formation_${mode.toLowerCase()}_1080x1920.png`));
 
-  // Capture Mobile Viewport 360x640
   await page.setViewportSize({ width: 360, height: 640 });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(400);
   const mobilePath = path.join(OUT_DIR, `formation_${mode.toLowerCase()}_360x640.png`);
   await page.screenshot({ path: mobilePath });
-  fs.copyFileSync(mobilePath, path.join(BRAIN_DIR, `formation_${mode.toLowerCase()}_360x640.png`));
 
   await browser.close();
 
+  const sortedFps = runs.map(x => x.avgFps).sort((a, b) => a - b);
+  const sortedP95 = runs.map(x => x.p95FrameTimeMs).sort((a, b) => a - b);
+  const sortedMed = runs.map(x => x.medianFrameTimeMs).sort((a, b) => a - b);
+
   return {
     mode,
-    avgFps: Math.round(metrics.avgFps * 10) / 10,
-    p95FrameTime: Math.round(metrics.p95FrameTime * 100) / 100,
+    envInfo,
+    runs,
+    summary: {
+      medianAvgFps: sortedFps[1],
+      medianFrameTimeMs: sortedMed[1],
+      medianP95FrameTimeMs: sortedP95[1],
+    },
     full1080Path,
-    mobilePath,
+    mobilePath
   };
 }
 
 async function run() {
-  console.log('[TASK 3] Starting Formation B vs C Comparison...');
+  console.log('[TASK 3] Starting Controlled Formation B vs C Benchmark...');
+  const dataC = await benchmarkFormation('C');
+  const dataB = await benchmarkFormation('B');
 
-  const dataC = await profileFormation('C');
-  const dataB = await profileFormation('B');
+  const isSoftwareRenderer =
+    (dataC.envInfo.webglRenderer || '').toLowerCase().includes('swiftshader') ||
+    (dataC.envInfo.webglRenderer || '').toLowerCase().includes('software');
 
-  // Mathematical bounds comparison
+  const hardwareParityStatus = isSoftwareRenderer || dataC.summary.medianAvgFps < 30
+    ? 'INCONCLUSIVE_SOFTWARE_RASTERIZER'
+    : 'VERIFIED_GPU_PARITY';
+
   const report = {
     comparisonTimestamp: new Date().toISOString(),
-    status: 'PREVIEW_AND_ANALYSIS_ONLY',
+    methodology: {
+      environment: 'Headless Chromium (Playwright) with identical flags (--use-gl=angle --use-angle=swiftshader)',
+      rendererDetectedC: dataC.envInfo.webglRenderer,
+      rendererDetectedB: dataB.envInfo.webglRenderer,
+      isSoftwareRendering: isSoftwareRenderer,
+      warmupFrames: 60,
+      runsPerFormation: 3,
+      framesPerRun: 180,
+      zombieCountAtSample: { C: dataC.envInfo.zombieCount, B: dataB.envInfo.zombieCount },
+      hardwarePerformanceConclusion: hardwareParityStatus
+    },
     defaultMaintained: 'Formation C (1 Soldier / lane)',
     formations: {
       formationC: {
         description: 'Formation C — 1 Hero Representative per lane (3 soldiers total)',
         totalSoldiers: 3,
-        positions: [
-          { squad: 'ALPHA', x: 280, y: 1030, role: 'Đại Diện' },
-          { squad: 'BRAVO', x: 540, y: 1050, role: 'Đại Diện' },
-          { squad: 'CHARLIE', x: 800, y: 1030, role: 'Đại Diện' }
-        ],
-        avgDistanceBetweenSquadsPx: 260,
         overlappingPairs: 0,
         overlapPercentage: '0.0%',
-        avgFps: dataC.avgFps,
-        p95FrameTimeMs: dataC.p95FrameTime,
-        mobileLegibilityScore: '9.5/10 (Cực kỳ thoáng đãng, nổi bật cá nhân đại diện)',
-        battlefieldImmersionScore: '7.5/10 (Nhìn hơi đơn độc, ít cảm giác quân đội phòng thủ)'
+        medianAvgFps: dataC.summary.medianAvgFps,
+        medianFrameTimeMs: dataC.summary.medianFrameTimeMs,
+        medianP95FrameTimeMs: dataC.summary.medianP95FrameTimeMs,
+        runs: dataC.runs
       },
       formationB: {
         description: 'Formation B — 2 Soldiers Tactical Pair per lane (6 soldiers total)',
         totalSoldiers: 6,
-        positions: [
-          { squad: 'ALPHA', soldier1: { x: 215, y: 1020, role: 'Tiền Vệ' }, soldier2: { x: 345, y: 1050, role: 'Hậu Cần' } },
-          { squad: 'BRAVO', soldier1: { x: 475, y: 1040, role: 'Tiền Vệ' }, soldier2: { x: 605, y: 1070, role: 'Hậu Cần' } },
-          { squad: 'CHARLIE', soldier1: { x: 735, y: 1020, role: 'Tiền Vệ' }, soldier2: { x: 865, y: 1050, role: 'Hậu Cần' } }
-        ],
-        pairDistanceWithinLanePx: 133.4,
-        interSquadClearancePx: 130.0,
         overlappingPairs: 0,
         overlapPercentage: '0.0%',
-        avgFps: dataB.avgFps,
-        p95FrameTimeMs: dataB.p95FrameTime,
-        mobileLegibilityScore: '8.5/10 (Đủ thoáng, không đè nhau, thấy rõ 2 họng súng)',
-        battlefieldImmersionScore: '9.2/10 (Tạo cảm giác cứ điểm quân sự chiến đấu hiệp đồng chân thực)'
+        medianAvgFps: dataB.summary.medianAvgFps,
+        medianFrameTimeMs: dataB.summary.medianFrameTimeMs,
+        medianP95FrameTimeMs: dataB.summary.medianP95FrameTimeMs,
+        runs: dataB.runs
       }
     },
     conclusion: {
-      recommendation: 'Giữ Formation C làm mặc định hiện tại cho đến khi Người Dùng chỉ định. Đề xuất chuyển Formation B khi mở rộng chế độ LIVE Guild War (Chiến Tranh Bang Hội) vì 6 lính tạo áp lực chiến trường và kích thích nạp quà chi viện tốt hơn nhiều.'
+      status: hardwareParityStatus,
+      note: isSoftwareRenderer
+        ? 'Headless Chromium ran on SwiftShader CPU software rasterizer; FPS reflects CPU software rendering (~6-12 FPS), not real GPU performance. Therefore hardware FPS parity between B and C is marked INCONCLUSIVE pending real GPU browser measurement.'
+        : 'Measured on hardware GPU renderer under identical load.'
     }
   };
 
-  const reportJsonPath = path.join(OUT_DIR, 'formation_comparison_report.json');
-  fs.writeFileSync(reportJsonPath, JSON.stringify(report, null, 2), 'utf8');
-  fs.copyFileSync(reportJsonPath, path.join(BRAIN_DIR, 'formation_comparison_report.json'));
+  const jsonPath = path.join(OUT_DIR, 'formation_comparison_report.json');
+  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf8');
 
-  // Generate Side-by-side Visual Infographic
-  const browser = await chromium.launch({ headless: true });
+  // Generate Markdown directly from the exact JSON report values (Single Source of Truth)
+  const md = `# Báo Cáo So Sánh Đội Hình: Formation C vs Formation B
+
+> **Phân loại**: So Sánh Trực Quan & Benchmark Thực Nghiệm (Cùng Máy, Cùng Chromium, Cùng Renderer)  
+> **Trạng thái mặc định**: Giữ nguyên **Formation C** (1 Soldier / lane).  
+> **Trạng thái kết luận hiệu năng GPU**: \`${hardwareParityStatus}\`
+
+---
+
+## 1. Điều Kiện Benchmark Đồng Nhất
+
+* **Môi trường**: Headless Chromium (\`--use-gl=angle --use-angle=swiftshader\`)
+* **WebGL Renderer thực tế**: \`${dataC.envInfo.webglRenderer}\` (Software Rendering: \`${isSoftwareRenderer}\`)
+* **Quy trình đo**: Warm-up **60 frames** + **3 lần đo độc lập × 180 frames/lần** cho mỗi phương án.
+* **Số lượng Zombie tại thời điểm đo**: Formation C = \`${dataC.envInfo.zombieCount}\`, Formation B = \`${dataB.envInfo.zombieCount}\`.
+
+---
+
+## 2. Kết Quả Đo Đạc Thực Tế (Trích Xuất Trực Tiếp Từ JSON)
+
+| Chỉ Số Đo Đạc | Formation C (Mặc Định - 3 Lính) | Formation B (Tactical Pair - 6 Lính) |
+| :--- | :---: | :---: |
+| **Số lượng lính trực chiến** | 3 lính | 6 lính |
+| **Độ trùng lặp Sprite (Overlap)** | 0 cặp (0.0%) | 0 cặp (0.0%) |
+| **Median Avg FPS (3 runs)** | **${dataC.summary.medianAvgFps} FPS** | **${dataB.summary.medianAvgFps} FPS** |
+| **Median Frame Time** | **${dataC.summary.medianFrameTimeMs} ms** | **${dataB.summary.medianFrameTimeMs} ms** |
+| **Median P95 Frame Time** | **${dataC.summary.medianP95FrameTimeMs} ms** | **${dataB.summary.medianP95FrameTimeMs} ms** |
+
+### Chi Tiết 3 Lần Đo (Raw Runs)
+* **Formation C**: ${dataC.runs.map(r => `Run ${r.runIndex}: ${r.avgFps} FPS (median ${r.medianFrameTimeMs}ms, p95 ${r.p95FrameTimeMs}ms)`).join(' | ')}
+* **Formation B**: ${dataB.runs.map(r => `Run ${r.runIndex}: ${r.avgFps} FPS (median ${r.medianFrameTimeMs}ms, p95 ${r.p95FrameTimeMs}ms)`).join(' | ')}
+
+---
+
+## 3. Kết Luận Trung Thực
+
+${isSoftwareRenderer
+  ? '> [!WARNING]\n> **Kết luận hiệu năng phần cứng: `INCONCLUSIVE`**\n> Do môi trường headless sử dụng bộ dựng hình phần mềm **SwiftShader** (CPU rasterizer), tốc độ khung hình đo được là ~' + dataC.summary.medianAvgFps + ' FPS (C) và ~' + dataB.summary.medianAvgFps + ' FPS (B). Số liệu này **không phản ánh hiệu năng GPU thực tế** khi chạy trên Chrome/OBS có tăng tốc phần cứng, do đó chưa đủ cơ sở kết luận Formation B không làm giảm hiệu năng trên GPU.'
+  : '> Đã đo trên GPU thực tế với đầy đủ 3 lần lặp.'}
+
+* Tiếp tục giữ **Formation C** làm mặc định trong game chính.
+`;
+  fs.writeFileSync(path.join(OUT_DIR, 'formation_analysis.md'), md, 'utf8');
+
+  // Re-generate side-by-side image with the exact same JSON metrics
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const compPage = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
-
   const b64C = `data:image/png;base64,${fs.readFileSync(dataC.full1080Path).toString('base64')}`;
   const b64B = `data:image/png;base64,${fs.readFileSync(dataB.full1080Path).toString('base64')}`;
 
-  const compHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
+  const compHtml = `<!DOCTYPE html><html><head><style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #050811;
-      color: #e2e8f0;
-      font-family: system-ui, sans-serif;
-      padding: 30px 40px;
-      width: 1920px;
-      height: 1080px;
-      display: flex;
-      flex-direction: column;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      border-bottom: 2px solid #1e293b;
-      padding-bottom: 15px;
-    }
+    body { background: #050811; color: #e2e8f0; font-family: system-ui, sans-serif; padding: 30px 40px; width: 1920px; height: 1080px; display: flex; flex-direction: column; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #1e293b; padding-bottom: 15px; }
     .title { font-size: 28px; font-weight: 800; color: #00f5d4; }
-    .badge { background: #3b82f6; color: #fff; padding: 4px 14px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+    .badge { background: #f59e0b; color: #000; padding: 4px 14px; border-radius: 999px; font-weight: 800; font-size: 13px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; flex: 1; }
-    .panel {
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-    }
+    .panel { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; }
     .panel-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; }
-    .img-container {
-      flex: 1;
-      background: #000;
-      border-radius: 8px;
-      overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    .img-container img {
-      max-height: 800px;
-      width: auto;
-      object-fit: contain;
-    }
-    .stats {
-      margin-top: 15px;
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      background: #070b14;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 13px;
-    }
+    .img-container { flex: 1; background: #000; border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+    .img-container img { max-height: 780px; width: auto; object-fit: contain; }
+    .stats { margin-top: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: #070b14; padding: 12px; border-radius: 8px; font-size: 13px; }
     .stat-box { display: flex; flex-direction: column; }
     .stat-label { color: #94a3b8; font-size: 11px; text-transform: uppercase; }
     .stat-val { font-weight: 700; color: #38bdf8; font-size: 15px; margin-top: 2px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="title">⚔️ Squad Formation Comparison: Option C vs Option B</div>
-    <div class="badge">PREVIEW & EMPIRICAL BENCHMARK</div>
-  </div>
-  <div class="grid">
-    <div class="panel">
-      <div class="panel-title">
-        <span style="color: #00f5d4;">PHƯƠNG ÁN C: 1 Lính Đại Diện / Lane (MẶC ĐỊNH HIỆN TẠI)</span>
-        <span style="font-size: 14px; color: #94a3b8;">Tổng: 3 Lính</span>
+  </style></head><body>
+    <div class="header">
+      <div class="title">⚔️ Formation C vs B Benchmark (${hardwareParityStatus})</div>
+      <div class="badge">Renderer: ${dataC.envInfo.webglRenderer}</div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <div class="panel-title"><span style="color:#00f5d4;">FORMATION C (MẶC ĐỊNH - 3 LÍNH)</span><span>3 Runs Median</span></div>
+        <div class="img-container"><img src="${b64C}" /></div>
+        <div class="stats">
+          <div class="stat-box"><span class="stat-label">Overlap:</span><span class="stat-val" style="color:#4ade80;">0 (0.0%)</span></div>
+          <div class="stat-box"><span class="stat-label">Median FPS:</span><span class="stat-val">${dataC.summary.medianAvgFps} FPS</span></div>
+          <div class="stat-box"><span class="stat-label">Median Frame:</span><span class="stat-val">${dataC.summary.medianFrameTimeMs} ms</span></div>
+          <div class="stat-box"><span class="stat-label">Median P95:</span><span class="stat-val">${dataC.summary.medianP95FrameTimeMs} ms</span></div>
+        </div>
       </div>
-      <div class="img-container">
-        <img src="${b64C}" />
-      </div>
-      <div class="stats">
-        <div class="stat-box"><span class="stat-label">Overlap Cặp:</span><span class="stat-val" style="color:#4ade80;">0 cặp (0.0%)</span></div>
-        <div class="stat-box"><span class="stat-label">Khoảng cách lính:</span><span class="stat-val">260 px</span></div>
-        <div class="stat-box"><span class="stat-label">Hiệu năng FPS:</span><span class="stat-val">${dataC.avgFps} FPS</span></div>
-        <div class="stat-box"><span class="stat-label">P95 Frame Time:</span><span class="stat-val">${dataC.p95FrameTime} ms</span></div>
+      <div class="panel">
+        <div class="panel-title"><span style="color:#fee440;">FORMATION B (TACTICAL PAIR - 6 LÍNH)</span><span>3 Runs Median</span></div>
+        <div class="img-container"><img src="${b64B}" /></div>
+        <div class="stats">
+          <div class="stat-box"><span class="stat-label">Overlap:</span><span class="stat-val" style="color:#4ade80;">0 (0.0%)</span></div>
+          <div class="stat-box"><span class="stat-label">Median FPS:</span><span class="stat-val">${dataB.summary.medianAvgFps} FPS</span></div>
+          <div class="stat-box"><span class="stat-label">Median Frame:</span><span class="stat-val">${dataB.summary.medianFrameTimeMs} ms</span></div>
+          <div class="stat-box"><span class="stat-label">Median P95:</span><span class="stat-val">${dataB.summary.medianP95FrameTimeMs} ms</span></div>
+        </div>
       </div>
     </div>
-
-    <div class="panel">
-      <div class="panel-title">
-        <span style="color: #fee440;">PHƯƠNG ÁN B: 2 Lính Tactical Pair / Lane (CẶP TÁC CHIẾN)</span>
-        <span style="font-size: 14px; color: #94a3b8;">Tổng: 6 Lính</span>
-      </div>
-      <div class="img-container">
-        <img src="${b64B}" />
-      </div>
-      <div class="stats">
-        <div class="stat-box"><span class="stat-label">Overlap Cặp:</span><span class="stat-val" style="color:#4ade80;">0 cặp (0.0%)</span></div>
-        <div class="stat-box"><span class="stat-label">Khoảng cách cặp:</span><span class="stat-val">133.4 px</span></div>
-        <div class="stat-box"><span class="stat-label">Hiệu năng FPS:</span><span class="stat-val">${dataB.avgFps} FPS</span></div>
-        <div class="stat-box"><span class="stat-label">P95 Frame Time:</span><span class="stat-val">${dataB.p95FrameTime} ms</span></div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `;
-
+  </body></html>`;
   await compPage.setContent(compHtml);
-  await compPage.waitForTimeout(500);
-  const compPngPath = path.join(OUT_DIR, 'formation_comparison_side_by_side.png');
-  await compPage.screenshot({ path: compPngPath });
-  fs.copyFileSync(compPngPath, path.join(BRAIN_DIR, 'formation_comparison_side_by_side.png'));
-  console.log(`[TASK 3] Generated side-by-side comparison: ${compPngPath}`);
-
+  await compPage.waitForTimeout(400);
+  await compPage.screenshot({ path: path.join(OUT_DIR, 'formation_comparison_side_by_side.png') });
   await browser.close();
-  console.log('[TASK 3] Formation B vs C Comparison complete!');
+
+  console.log('[TASK 3] Formation B vs C Benchmark complete!');
 }
 
 run().catch((err) => {

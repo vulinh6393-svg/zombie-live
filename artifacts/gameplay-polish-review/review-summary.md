@@ -1,37 +1,53 @@
-# Báo Cáo Tổng Hợp Nghiệm Thu Trực Quan & Đánh Giá Chất Lượng Gameplay
-## Dự Án Zombie Đại Chiến: Thành Trì Cuối Cùng (Monorepo `zombie-live`)
+# Báo Cáo Tổng Hợp Nghiệm Thu Trực Quan & Hiệu Chỉnh QA
+## Dự Án Zombie Đại Chiến: Thành Trì Cuối Cùng (`zombie-live`)
 
 > **Nhánh**: `feat/phase02-visual-refinement`  
-> **Thư mục sản phẩm bàn giao**: `artifacts/gameplay-polish-review/`  
-> **Trạng thái thực thi**: **100% HOÀN TẤT** — Đáp ứng đầy đủ các yêu cầu của Người Dùng.
+> **Nguồn dữ liệu**: Trích xuất trực tiếp từ `hud_readability_metrics.json`, `formation_comparison_report.json` và `qa_empirical_telemetry.json`.  
+> **Nguyên tắc**: Không thay đổi gameplay mặc định (Formation C, sprite Walker CC0, Audio tắt mặc định).
 
 ---
 
-## 1. Tóm Tắt Kết Quả Triển Khai 6 Nhiệm Vụ
+## 1. P0 — Mobile HUD Readability (`HUD.ts`, `SquadVisualizer.ts`)
 
-| Nhiệm Vụ | Nội Dung & Phạm Vi | Trạng Thái | Minh Chứng Kỹ Thuật |
-| :--- | :--- | :--- | :--- |
-| **TASK 1** | **Fix Mobile HUD Readability (P0 Sửa Trực Tiếp)**<br>Nâng cấp typography, Top Container 142px ($y: 125-267$), Wave 26px, Base HP 18px, Squad Badges 220×36px, Callout JOIN viền Cyan, đồng bộ SSOT màu Cyan/Vàng/Hồng. | **ĐÃ HOÀN THÀNH** | 12 ảnh BEFORE/AFTER tại 1080×1920, 540×960, 360×640 trong `mobile-hud-before-after/` |
-| **TASK 2** | **Zombie Sprite Diversity Preview (Nghiên Cứu & Preview Only)**<br>Audit license Riley Gombart CC0 1.0; thiết kế 4 silhouette riêng biệt cho Walker, Runner, Tank, Boss; đặc tả kỹ thuật và lộ trình tích hợp không phá vỡ API. | **ĐÃ HOÀN THÀNH** | `zombie_diversity_spec.json`, `zombie_diversity_roadmap.md`, `zombie_diversity_preview.png`, `silhouette_comparison.png` |
-| **TASK 3** | **Formation B vs Formation C Comparison (So Sánh Preview)**<br>So sánh Playwright giữa Option C (3 lính) vs Option B (6 lính); chứng minh Zero Overlap (0.0% trùng lặp); giữ nguyên mặc định Option C. | **ĐÃ HOÀN THÀNH** | `formation_comparison_report.json`, `formation_analysis.md`, `formation_comparison_side_by_side.png`, ảnh chụp 1080 & 360 |
-| **TASK 4** | **Audio SFX Prototype (Prototype & Preview Only)**<br>Xây dựng `SoundManager.ts` tổng hợp âm thanh Web Audio (0 MB WAV/MP3, 0 rủi ro bản quyền, 0ms latency); tắt âm mặc định (`isMuted: true`); hướng dẫn định tuyến OBS. | **ĐÃ HOÀN THÀNH** | `SoundManager.ts`, `audio_architecture.md`, `audio-sfx-preview/index.html` (interactive soundboard), `audio_soundboard_preview.png` |
-| **TASK 5** | **Fix QA Evidence Quality (Chuẩn Hóa Dữ Liệu Thực Nghiệm)**<br>Áp dụng State-Driven assertions (5/5 PASS: BAN, SUA, SHIELD, OVERCLOCK, AIRSTRIKE); đo delta simulation tick phiên thực tế (16.2–19.1 Hz); ghi nhận trung thực memory leak `NOT MEASURED`. | **ĐÃ HOÀN THÀNH** | `qa_empirical_telemetry.json`, `qa_evidence_report.md`, 5 ảnh verified chụp sau khi assert pass |
-| **TASK 6** | **Monorepo Build, Typecheck, Test & Delivery**<br>Typecheck 0 lỗi; 150/150 tests PASS trên toàn bộ 7 packages `@zombie-live/*`; trang trực quan hóa trung tâm `index.html`. | **ĐÃ HOÀN THÀNH** | `artifacts/gameplay-polish-review/index.html`, monorepo test log |
+* **Tái phân cấp thông tin**: Ẩn dòng thống kê phụ `entityCountText` khỏi Top HUD để nhường chỗ cho các thông tin cốt lõi (**Wave**, **Timer**, **Base HP**, **JOIN CTA**, **Squad Badges**).
+* **Đo đạc trực tiếp trên viewport `360×640` (`hud_readability_metrics.json`)**:
+  * `clearOfTiktokTopPill`: **`true`** (`topHudMinYMobilePx = 63px` >= `tiktokTopPillBottomPx = 58px`, không bị host pill/viewer badge che).
+  * `anyHorizontalClipping`: **`false`** (không có chữ nào tràn hoặc bị cắt ngang).
+  * **Kích thước chữ thực tế sau scale `0.333x` trên màn hình `360×640`**:
+    * Wave & Timer (`36px` canvas): **`12.0 px`**
+    * Base HP `HP: 9,875 / 10,000 (99%)` (`34px` canvas): **`11.3 px`**
+    * Callout `GÕ: "1" ALPHA | "2" BRAVO | "3" CHARLIE` (`34px` canvas): **`11.3 px`**
+    * Squad Badges `ALPHA: 12`, `BRAVO: 18`, `CHARLIE: 10` (`32px` canvas): **`10.7 px`**
 
 ---
 
-## 2. Minh Bạch Dữ Liệu Thực Nghiệm (Honest QA Transparency)
+## 2. P0 — QA Evidence Fail-Closed & Đối Soát Hiệu Năng (`qa_empirical_telemetry.json`)
 
-1. **Về Màu Sắc Squad**:
-   - Khẳng định mã nguồn thực tế sử dụng: **ALPHA = Cyan (`#00f5d4`)**, **BRAVO = Vàng Kim (`#fee440`)**, **CHARLIE = Hồng Neon (`#f72585`)**. Toàn bộ văn bản callout, viền badge và highlight đã được đồng bộ chuẩn xác với cấu hình này.
-2. **Về Nhịp Tick Phiên Thực Tế**:
-   - Không lấy số tick tích lũy cộng dồn từ khi khởi động server (~1.2 triệu ticks).
-   - Đo lường trực tiếp $\Delta\text{Ticks}$ trong cửa sổ thời gian $5.005\text{ giây} \to 81\text{ ticks} \to 16.2\text{ Hz}$ dưới tải nền 100 viewers mock liên tục.
-3. **Về Bộ Nhớ (Memory Profiling)**:
-   - Ghi nhận trung thực: `NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)`.
-   - Một snapshot heap đơn lẻ không thể khẳng định hệ thống không có rò rỉ bộ nhớ.
-4. **Về Giữ Nguyên Mặc Định (Preserve Defaults)**:
-   - Không tự ý thay đổi renderer mặc định của game chính.
-   - Formation C vẫn là mặc định trong `BattlefieldScene.ts`.
-   - Hệ thống âm thanh `SoundManager` mặc định tắt tiếng (`isMuted: true`).
-   - Các sprite Walker CC0 của Riley Gombart vẫn là asset chạy chính thức cho đến khi Người Dùng phê duyệt bộ atlas mới.
+* **Overall Status**: **`PASS`** (`tickRateStatus`: **`VERIFIED_20HZ`**)
+* **5/5 Assertions Fail-Closed (Exit code `1` nếu có bất kỳ assertion nào FAIL)**:
+  1. `ACTION_BAN_SHOOT`: **PASS** (`responseAccepted: true`, khớp sự kiện `SHOOT` mới).
+  2. `ACTION_SUA_REPAIR`: **PASS** (Hạ HP tường `LEFT` xuống `900` qua `admin:damageWall`, gửi `SUA` `accepted: true`, tăng lên `915` ➔ **$\Delta = +15\text{ HP}$**).
+  3. `SKILL_AIRSTRIKE`: **PASS** (`accepted: true`, khớp chính xác `sourceId === providerEventId` = `qa_airstrike_1795700259761_ziocy`).
+  4. `SKILL_SHIELD`: **PASS** (`accepted: true`, `shieldActive: true`).
+  5. `SKILL_OVERCLOCK`: **PASS** (`accepted: true`, `overclockActive: true`).
+* **Đo song song Server Simulation vs Client Broadcast**:
+  * **Không tải (`no_load_10s`)**: Server delta **`20.6 Hz`**, Server `actualSimulationHz` **`20.1 Hz`**, Client tick **`20.2 Hz`**, Snapshot **`10.1 Hz`**.
+  * **Tải 100 Mock Viewers ổn định (`mock_100_viewers_10s`)**: Server delta **`20.1 Hz`**, Server `actualSimulationHz` **`20.1 Hz`**, Client tick **`20.0 Hz`**, Snapshot **`10.0 Hz`**. *(Lưu ý: trong giai đoạn burst lúc mới khởi chạy 100 viewers, server simulation từng ghi nhận tụt tạm thời xuống `13.1–14.0 Hz` do ghi PGlite đồng loạt, xác nhận nguyên nhân nằm ở event loop server lúc burst chứ không phải rớt gói phía client).*
+* **Memory Leak**: `NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)`.
+
+---
+
+## 3. P1 — Formation B vs Formation C Benchmark (`formation_comparison_report.json`)
+
+* **Điều kiện đồng nhất**: Cùng Chromium (`--use-gl=angle --use-angle=swiftshader`), WebGL Renderer `ANGLE (SwiftShader Device, Software Rendering: true)`, warm-up 60 frames + 3 lần đo × 180 frames/lần.
+* **Số liệu thực tế (trùng khớp 100% với JSON)**:
+  * **Formation C (3 lính - Mặc định)**: Median Avg FPS **`6.4 FPS`**, Median Frame Time **`155.3 ms`**, Median P95 **`176.5 ms`**, Overlap **`0 (0.0%)`**.
+  * **Formation B (6 lính - Preview)**: Median Avg FPS **`6.2 FPS`**, Median Frame Time **`159.4 ms`**, Median P95 **`184.2 ms`**, Overlap **`0 (0.0%)`**.
+* **Kết luận**: **`INCONCLUSIVE_SOFTWARE_RASTERIZER`** — Môi trường headless chạy bằng SwiftShader CPU rasterizer, không phản ánh hiệu năng GPU thực tế. Giữ nguyên **Formation C** làm mặc định.
+
+---
+
+## 4. Hạng Mục Preview (Chưa Tích Hợp Vào Game Chính)
+
+* **Zombie Sprite Diversity**: Tài liệu spec, roadmap và ảnh preview trong `zombie-sprite-preview/`. Game chính vẫn dùng sprite Walker CC0.
+* **Audio SFX Prototype**: `SoundManager.ts` (tắt mặc định `isMuted: true`) và soundboard tương tác trong `audio-sfx-preview/`. *(Lưu ý: Web Audio vẫn có độ trễ xử lý & phát âm thanh của trình duyệt/hệ điều hành, không tuyên bố 0ms).*

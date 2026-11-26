@@ -28,91 +28,87 @@ export class HUD {
     this.scene = scene;
     const width = 1080;
 
-    // --- 1. Top HUD Header (Safe under TikTok Top Pills: y: 125 - 275) ---
-    const topContainer = scene.add.container(0, 125).setDepth(150);
+    // --- 1. Top HUD Header (Safe below TikTok Top Pills even on 360x640: y: 175 - 355) ---
+    const topContainer = scene.add.container(0, 175).setDepth(150);
 
     const topBg = scene.add.graphics();
-    topBg.fillStyle(0x0a1128, 0.95);
-    topBg.fillRoundedRect(30, 0, width - 60, 142, 14);
-    topBg.lineStyle(2, 0x00f5d4, 0.9);
-    topBg.strokeRoundedRect(30, 0, width - 60, 142, 14);
+    topBg.fillStyle(0x0a1128, 0.94);
+    topBg.fillRoundedRect(24, 0, width - 48, 180, 16);
+    topBg.lineStyle(2.5, 0x00f5d4, 0.9);
+    topBg.strokeRoundedRect(24, 0, width - 48, 180, 16);
 
-    // Wave indicator - Heavy tactical display font
-    this.waveText = scene.add.text(55, 12, 'ĐỢT 3: TỔNG LỰC', {
+    // Row 1: Wave indicator & Timer (36px on 1080px = 12.0px on 360px mobile)
+    this.waveText = scene.add.text(48, 14, 'ĐỢT 3: TỔNG LỰC', {
       fontFamily: GAME_FONTS.DISPLAY,
-      fontSize: '26px',
+      fontSize: '36px',
       fontStyle: 'bold',
       color: '#00f5d4',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 4,
     });
 
-    // Wave countdown / elapsed timer
-    this.timerText = scene.add.text(width - 55, 14, '⏱️ 04:15', {
+    this.timerText = scene.add.text(width - 48, 14, '⏱️ 04:15', {
       fontFamily: GAME_FONTS.DISPLAY,
-      fontSize: '24px',
+      fontSize: '36px',
       fontStyle: 'bold',
       color: '#fee440',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 4,
     }).setOrigin(1, 0);
 
-    // Base HP Bar Background & Fill (Enlarged for mobile readability)
+    // Row 2: Base HP Bar (Enlarged to 984x44 for 36px = 12.0px mobile text)
     const baseHpBarBg = scene.add.graphics();
     baseHpBarBg.fillStyle(0x161a22, 0.95);
-    baseHpBarBg.fillRoundedRect(width / 2 - 290, 46, 580, 28, 14);
+    baseHpBarBg.fillRoundedRect(48, 64, width - 96, 44, 14);
     baseHpBarBg.lineStyle(2, 0x3e4451, 1);
-    baseHpBarBg.strokeRoundedRect(width / 2 - 290, 46, 580, 28, 14);
+    baseHpBarBg.strokeRoundedRect(48, 64, width - 96, 44, 14);
 
     this.baseHpBarFill = scene.add.graphics();
 
-    // High-legibility Fortress HP Text (P0: Readable on 360x640 mobile preview)
-    this.baseHpText = scene.add.text(width / 2, 60, 'THÀNH TRÌ: 10,000 / 10,000 HP (100%)', {
+    this.baseHpText = scene.add.text(width / 2, 86, 'HP: 10,000 / 10,000 (100%)', {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '18px',
+      fontSize: '34px',
       fontStyle: 'bold',
       color: '#ffffff',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 4,
     }).setOrigin(0.5);
 
-    // Streamlined military stats (High contrast, condensed for mobile)
-    this.entityCountText = scene.add.text(width / 2, 90, '👥 40 Chiến Binh  •  ⚔️ 3 Trực Chiến  •  🧟 10 Zombie', {
+    // Secondary entity stats hidden from top HUD to eliminate clutter and maximize mobile legibility
+    this.entityCountText = scene.add.text(width / 2, 0, '', {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '16px',
-      fontStyle: 'bold',
-      color: '#cbd5e1',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setOrigin(0.5);
+      fontSize: '14px',
+    }).setVisible(false);
 
-    // Prominent High-Contrast Callout Guidance for TikTok Viewers (P0 Priority)
+    // Row 3: Prominent High-Contrast Callout Guidance for TikTok Viewers (36px = 12.0px on 360px)
     const calloutBg = scene.add.graphics();
-    calloutBg.fillStyle(0x050e1f, 0.95);
-    calloutBg.fillRoundedRect(width / 2 - 310, 110, 620, 28, 14);
-    calloutBg.lineStyle(1.5, 0x00f5d4, 0.85);
-    calloutBg.strokeRoundedRect(width / 2 - 310, 110, 620, 28, 14);
+    calloutBg.fillStyle(0x050e1f, 0.96);
+    calloutBg.fillRoundedRect(48, 120, width - 96, 48, 14);
+    calloutBg.lineStyle(2, 0x00f5d4, 0.9);
+    calloutBg.strokeRoundedRect(48, 120, width - 96, 48, 14);
 
-    const callout = scene.add.text(width / 2, 124, '💬 Chat: "1" ALPHA (Cyan)  |  "2" BRAVO (Vàng)  |  "3" CHARLIE (Hồng)', {
+    const callout = scene.add.text(width / 2, 144, 'GÕ: "1" ALPHA | "2" BRAVO | "3" CHARLIE', {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '15px',
+      fontSize: '34px',
       fontStyle: 'bold',
       color: '#00f5d4',
+      stroke: '#000000',
+      strokeThickness: 3,
     }).setOrigin(0.5);
 
     topContainer.add([topBg, this.waveText, this.timerText, baseHpBarBg, this.baseHpBarFill, this.baseHpText, this.entityCountText, calloutBg, callout]);
 
-    // --- 2. Boss HP Bar (Docked safely at y: 280) ---
-    this.bossContainer = scene.add.container(0, 280).setDepth(150);
+    // --- 2. Boss HP Bar (Docked safely at y: 368) ---
+    this.bossContainer = scene.add.container(0, 368).setDepth(150);
     const bossBg = scene.add.graphics();
     bossBg.fillStyle(0x2d0047, 0.95);
-    bossBg.fillRoundedRect(80, 0, width - 160, 66, 12);
+    bossBg.fillRoundedRect(48, 0, width - 96, 76, 14);
     bossBg.lineStyle(2, 0xf72585, 1);
-    bossBg.strokeRoundedRect(80, 0, width - 160, 66, 12);
+    bossBg.strokeRoundedRect(48, 0, width - 96, 76, 14);
 
-    const bossTitle = scene.add.text(width / 2, 16, '⚠️ ZOMBIE KING (TRÙM CUỐI TIẾN CÔNG) ⚠️', {
+    const bossTitle = scene.add.text(width / 2, 20, '⚠️ ZOMBIE KING ⚠️', {
       fontFamily: GAME_FONTS.DISPLAY,
-      fontSize: '20px',
+      fontSize: '28px',
       fontStyle: 'bold',
       color: '#f72585',
       stroke: '#000000',
@@ -120,9 +116,9 @@ export class HUD {
     }).setOrigin(0.5);
 
     this.bossHpBarFill = scene.add.graphics();
-    this.bossHpText = scene.add.text(width / 2, 46, '12,000 / 12,000 HP', {
+    this.bossHpText = scene.add.text(width / 2, 54, '12,000 / 12,000 HP', {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '16px',
+      fontSize: '24px',
       fontStyle: 'bold',
       color: '#ffffff',
       stroke: '#000000',
@@ -132,37 +128,37 @@ export class HUD {
     this.bossContainer.add([bossBg, bossTitle, this.bossHpBarFill, this.bossHpText]);
     this.bossContainer.setVisible(false);
 
-    // --- 3. Compact Gift Skill Alert Banner (y: 355, auto hides in 2.5s) ---
-    this.giftBanner = scene.add.container(width / 2, 355).setDepth(160);
+    // --- 3. High-Visibility Gift Skill Alert Banner (y: 400, auto hides in 2.5s) ---
+    this.giftBanner = scene.add.container(width / 2, 400).setDepth(160);
     const giftBg = scene.add.graphics();
-    giftBg.fillStyle(0x38040e, 0.94);
-    giftBg.fillRoundedRect(-270, -24, 540, 48, 24);
-    giftBg.lineStyle(2, 0xff0055, 1);
-    giftBg.strokeRoundedRect(-270, -24, 540, 48, 24);
+    giftBg.fillStyle(0x38040e, 0.95);
+    giftBg.fillRoundedRect(-460, -32, 920, 64, 24);
+    giftBg.lineStyle(2.5, 0xff0055, 1);
+    giftBg.strokeRoundedRect(-460, -32, 920, 64, 24);
 
-    this.giftText = scene.add.text(0, 0, '🎁 VIP_Gamer99 KÍCH HOẠT: TÊN LỬA TỔNG LỰC!', {
+    this.giftText = scene.add.text(0, 0, '🎁 VIP_Gamer99: TÊN LỬA TỔNG LỰC!', {
       fontFamily: GAME_FONTS.DISPLAY,
-      fontSize: '17px',
+      fontSize: '30px',
       fontStyle: 'bold',
       color: '#fee440',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 4,
     }).setOrigin(0.5);
 
     this.giftBanner.add([giftBg, this.giftText]);
     this.giftBanner.setVisible(false);
 
-    // --- 4. MVP Tactical Leaderboard (High legibility, docked top-left y: 280) ---
-    this.mvpContainer = scene.add.container(35, 280).setDepth(140);
+    // --- 4. Compact MVP Leaderboard (Secondary info, tucked neatly at top-left y: 368 without blocking lanes) ---
+    this.mvpContainer = scene.add.container(24, 368).setDepth(140);
     const mvpBg = scene.add.graphics();
-    mvpBg.fillStyle(0x0a1128, 0.92);
-    mvpBg.fillRoundedRect(0, 0, 220, 145, 10);
-    mvpBg.lineStyle(1.5, 0x38bdf8, 0.9);
-    mvpBg.strokeRoundedRect(0, 0, 220, 145, 10);
+    mvpBg.fillStyle(0x0a1128, 0.88);
+    mvpBg.fillRoundedRect(0, 0, 260, 124, 10);
+    mvpBg.lineStyle(1.5, 0x38bdf8, 0.85);
+    mvpBg.strokeRoundedRect(0, 0, 260, 124, 10);
 
-    const mvpHeader = scene.add.text(110, 16, '★ TOP CHIẾN CÔNG ★', {
+    const mvpHeader = scene.add.text(130, 16, '★ TOP MVP ★', {
       fontFamily: GAME_FONTS.DISPLAY,
-      fontSize: '13px',
+      fontSize: '18px',
       fontStyle: 'bold',
       color: '#fee440',
       stroke: '#000000',
@@ -171,10 +167,10 @@ export class HUD {
 
     this.mvpContainer.add([mvpBg, mvpHeader]);
 
-    for (let i = 0; i < 4; i++) {
-      const row = scene.add.text(14, 38 + i * 26, `${i + 1}. Đang tải...`, {
+    for (let i = 0; i < 3; i++) {
+      const row = scene.add.text(14, 38 + i * 28, `${i + 1}. Đang tải...`, {
         fontFamily: GAME_FONTS.TACTICAL,
-        fontSize: '14px',
+        fontSize: '18px',
         fontStyle: 'bold',
         color: '#e2e8f0',
         stroke: '#000000',
@@ -212,23 +208,17 @@ export class HUD {
     // 3. Base HP
     const baseRatio = Math.max(0, snapshot.baseHp / snapshot.maxBaseHp);
     const percent = Math.round(baseRatio * 100);
-    this.baseHpText.setText(`THÀNH TRÌ: ${snapshot.baseHp.toLocaleString()} / ${snapshot.maxBaseHp.toLocaleString()} HP (${percent}%)`);
+    this.baseHpText.setText(`HP: ${snapshot.baseHp.toLocaleString()} / ${snapshot.maxBaseHp.toLocaleString()} (${percent}%)`);
 
     this.baseHpBarFill.clear();
-    const barWidth = 574;
+    const barWidth = width - 104; // 976px inside 984px border
     const currentW = Math.max(0, barWidth * baseRatio);
     const color = baseRatio > 0.5 ? 0x00f5d4 : baseRatio > 0.25 ? 0xfee440 : 0xff0055;
     this.baseHpBarFill.fillStyle(color, 1);
-    this.baseHpBarFill.fillRoundedRect(width / 2 - 287, 49, currentW, 22, 11);
+    this.baseHpBarFill.fillRoundedRect(52, 68, currentW, 36, 11);
 
-    // 4. Entity Statistics (Streamlined high-contrast stats)
-    const aliveZombies = snapshot.zombies.filter((z) => z.hp > 0).length;
-    const totalMembers = snapshot.activePlayerCount || 40;
-    const activeSoldiers = 3; // 1 representative soldier per squad in Phase 02.4
-
-    this.entityCountText.setText(
-      `👥 ${totalMembers} Chiến Binh  •  ⚔️ ${activeSoldiers} Trực Chiến  •  🧟 ${aliveZombies} Zombie`
-    );
+    // 4. Entity Statistics (Hidden from top HUD to preserve mobile legibility)
+    this.entityCountText.setVisible(false);
 
     // 5. Boss Bar
     if (snapshot.phase === 'BOSS' && snapshot.bossHp !== undefined && snapshot.maxBossHp !== undefined) {
@@ -237,7 +227,7 @@ export class HUD {
       this.bossHpText.setText(`${snapshot.bossHp.toLocaleString()} / ${snapshot.maxBossHp.toLocaleString()} HP`);
       this.bossHpBarFill.clear();
       this.bossHpBarFill.fillStyle(0xf72585, 1);
-      this.bossHpBarFill.fillRoundedRect(85, 34, (width - 170) * bossRatio, 20, 8);
+      this.bossHpBarFill.fillRoundedRect(56, 38, (width - 112) * bossRatio, 28, 8);
     } else {
       this.bossContainer.setVisible(false);
     }

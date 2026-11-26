@@ -233,38 +233,38 @@
         <tbody>
           <tr>
             <td><strong>Wave Title (Đợt Quái)</strong></td>
-            <td>16px</td>
-            <td><strong>26px (Bold Display #00f5d4)</strong></td>
-            <td><strong>8.7 px</strong> (Tăng +62.5%)</td>
-            <td>Cực kỳ rõ nét, đập ngay vào mắt người xem LIVE</td>
+            <td>26px</td>
+            <td><strong>36px (Bold Display #00f5d4)</strong></td>
+            <td><strong>12.0 px</strong></td>
+            <td>Đạt ngưỡng >= 12px trên 360×640, rõ nét</td>
           </tr>
           <tr>
             <td><strong>Wave Timer (Thời Gian)</strong></td>
-            <td>15px</td>
-            <td><strong>24px (Bold #fee440)</strong></td>
-            <td><strong>8.0 px</strong> (Tăng +60.0%)</td>
-            <td>Nhìn rõ nhịp đếm ngược kịch tính từng giây</td>
+            <td>24px</td>
+            <td><strong>36px (Bold #fee440)</strong></td>
+            <td><strong>12.0 px</strong></td>
+            <td>Đạt ngưỡng >= 12px trên 360×640, rõ nét</td>
           </tr>
           <tr>
             <td><strong>Base HP (Máu Thành Trì)</strong></td>
-            <td>13px</td>
-            <td><strong>18px (Bold #ffffff, Stroke 3px)</strong></td>
-            <td><strong>6.0 px</strong> (Tăng +38.5%)</td>
-            <td>Dễ dàng theo dõi lượng máu còn lại của thành trì</td>
+            <td>18px</td>
+            <td><strong>34px (HP: X / 10,000)</strong></td>
+            <td><strong>11.3 px</strong></td>
+            <td>Rút gọn chữ thừa, không clipping</td>
           </tr>
           <tr>
             <td><strong>Callout JOIN Bình Luận</strong></td>
-            <td>11px (Trộn lẫn, mờ nhạt)</td>
-            <td><strong>15px (Hộp màu đen viền Cyan #00f5d4)</strong></td>
-            <td><strong>5.0 px</strong> (Tăng +36.4%)</td>
-            <td>Kêu gọi hành động (CTA) rõ ràng: 💬 Chat: "1" ALPHA | "2" BRAVO | "3" CHARLIE</td>
+            <td>15px</td>
+            <td><strong>34px (Hộp viền Cyan #00f5d4)</strong></td>
+            <td><strong>11.3 px</strong></td>
+            <td>Rõ ràng, tách khỏi TikTok top pill (y=63px >= 58px)</td>
           </tr>
           <tr>
             <td><strong>Huy hiệu Squad (Badges)</strong></td>
-            <td>11px (Box 160×26px)</td>
-            <td><strong>16px (Box 220×36px, Viền màu Squad)</strong></td>
-            <td><strong>5.3 px</strong> (Tăng +45.5%)</td>
-            <td>Nhận biết ngay quân số chi viện của từng đội</td>
+            <td>16px (Box 220×36px)</td>
+            <td><strong>32px (Box 244×50px)</strong></td>
+            <td><strong>10.7 px</strong></td>
+            <td>Rút gọn thành ALPHA: 12 / BRAVO: 18 / CHARLIE: 10</td>
           </tr>
         </tbody>
       </table>
@@ -335,37 +335,31 @@
             <td><strong>Tổng số lính trực chiến</strong></td>
             <td>3 lính (1 lính / lane)</td>
             <td>6 lính (2 lính / lane)</td>
-            <td>Phương án B tăng gấp đôi hỏa lực và nhịp độ chiến trường</td>
-          </tr>
-          <tr>
-            <td><strong>Khoảng cách hình học</strong></td>
-            <td>260 px giữa các squad</td>
-            <td>133.4 px trong cặp, 130 px giữa các squad</td>
-            <td>Vượt xa kích thước AABB 80×114px của nhân vật</td>
+            <td>Giữ Formation C mặc định</td>
           </tr>
           <tr>
             <td><strong>Độ trùng lặp Sprite</strong></td>
-            <td><strong>0 cặp trùng (0.0% Overlap)</strong></td>
-            <td><strong>0 cặp trùng (0.0% Overlap)</strong></td>
-            <td><strong>Cả hai phương án đều đạt Zero Overlap tuyệt đối</strong></td>
+            <td><strong>0 cặp (0.0% Overlap)</strong></td>
+            <td><strong>0 cặp (0.0% Overlap)</strong></td>
+            <td>Zero Overlap trên cả hai phương án</td>
           </tr>
           <tr>
-            <td><strong>Tốc độ khung hình (FPS)</strong></td>
-            <td>59.8 FPS</td>
-            <td>59.7 FPS</td>
-            <td>Chênh lệch không đáng kể trên GPU</td>
+            <td><strong>Median Avg FPS (3 runs, SwiftShader)</strong></td>
+            <td><strong>6.4 FPS</strong></td>
+            <td><strong>6.2 FPS</strong></td>
+            <td>Headless CPU software rasterizer</td>
           </tr>
           <tr>
-            <td><strong>P95 Frame Time</strong></td>
-            <td>16.72 ms</td>
-            <td>16.78 ms</td>
-            <td>Dưới ngưỡng 33.33ms (chuẩn 60 FPS mượt mà)</td>
+            <td><strong>Median Frame Time</strong></td>
+            <td><strong>155.3 ms</strong></td>
+            <td><strong>159.4 ms</strong></td>
+            <td>Chạy cùng Chromium + SwiftShader</td>
           </tr>
           <tr>
-            <td><strong>Độ thoáng trên Mobile</strong></td>
-            <td>Cực kỳ thoáng, tập trung vào cá nhân MVP</td>
-            <td>Thoáng vừa phải, thấy rõ 6 họng súng</td>
-            <td>Phương án B không gây rối mắt, tạo cảm giác cứ điểm quân sự</td>
+            <td><strong>Median P95 Frame Time</strong></td>
+            <td><strong>176.5 ms</strong></td>
+            <td><strong>184.2 ms</strong></td>
+            <td>Kết luận GPU: <strong>INCONCLUSIVE</strong></td>
           </tr>
         </tbody>
       </table>
@@ -463,9 +457,11 @@
       </table>
 
       <div class="alert-box" style="margin-top: 24px; border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.08);">
-        <strong style="color: #f59e0b;">Minh bạch số liệu đo lường:</strong>
-        <br>• <strong>Nhịp tick phiên thực tế:</strong> Đo lường $\Delta\text{Ticks} = 81$ ticks trong $5.005\text{s} \to 16.2\text{ Hz}$ dưới tải 100 viewers mock.
-        <br>• <strong>Trạng thái Memory Leak:</strong> Ghi nhận trung thực <code>NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)</code> thay vì tuyên bố vô căn cứ.
+        <strong style="color: #f59e0b;">Minh bạch số liệu đo lường (Single Source of Truth):</strong>
+        <br>• <strong>Không tải (10s):</strong> Server delta 20.6 Hz (actualSimulationHz 20.1 Hz), Client tick 20.2 Hz, Snapshot 10.1 Hz.
+        <br>• <strong>Tải 100 Mock Viewers ổn định (10s):</strong> Server delta 20.1 Hz (actualSimulationHz 20.1 Hz), Client tick 20.0 Hz, Snapshot 10.0 Hz.
+        <br>• <strong>SUA:</strong> Tường LEFT hạ từ 1000 xuống 900, SUA tăng lên 915 (delta = +15 HP thực tế).
+        <br>• <strong>Trạng thái Memory Leak:</strong> Ghi nhận trung thực <code>NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)</code>.
       </div>
     </section>
 

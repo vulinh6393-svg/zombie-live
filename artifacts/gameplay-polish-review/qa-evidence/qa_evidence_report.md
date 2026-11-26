@@ -1,38 +1,40 @@
-# Báo Cáo Đo Đạc Thực Nghiệm & Chuẩn Hóa Bằng Chứng QA (Task 5)
+# Báo Cáo Đo Đạc Thực Nghiệm & Chuẩn Hóa Bằng Chứng QA
 
-> **Mục tiêu**: Xóa bỏ toàn bộ các tuyên bố chủ quan/marketing; thiết lập bộ assertion hướng trạng thái (State-Driven) và sự kiện (Event-Driven) nghiêm ngặt; minh bạch dữ liệu đo lường.
-
----
-
-## 1. Kết Quả Kiểm Thử Hướng Trạng Thái (State-Driven Assertions)
-
-Toàn bộ ảnh chụp bằng chứng kỹ thuật trong thư mục `artifacts/gameplay-polish-review/qa-evidence/` đều được chụp **SAU KHI** code assert thành công điều kiện trạng thái thực tế trên Game Engine / Snapshot Stream:
-
-| Thao Tác / Kỹ Năng | Điều Kiện Kiểm Chứng (Assertion Rule) | Dữ Liệu Đo Đạc Thực Tế | Kết Quả | Ảnh Minh Chứng |
-| :--- | :--- | :--- | :--- | :--- |
-| **BẮN (BAN)** | Bắt buộc có sự kiện `SHOOT` trong danh sách `__ALL_VFX_EVENTS__` | Phát hiện sự kiện `SHOOT` trong stream sự kiện authoritative | **PASS (100%)** | [verified_action_ban.png](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/artifacts/gameplay-polish-review/qa-evidence/verified_action_ban.png) |
-| **SỬA THÀNH (SUA)** | Base HP tăng đúng $+15\text{ HP}$ (hoặc chạm trần $10,000\text{ HP}$) | $\Delta\text{HP} = +15$ verified | **PASS (100%)** | [verified_action_sua.png](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/artifacts/gameplay-polish-review/qa-evidence/verified_action_sua.png) |
-| **KHIÊN NĂNG LƯỢNG (SHIELD)** | `shieldActive === true` hoặc `SKILL_SHIELD_ACTIVATED` verified | Nhận sự kiện `SKILL_SHIELD_ACTIVATED` & kích hoạt vòm khiên | **PASS (100%)** | [verified_skill_shield.png](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/artifacts/gameplay-polish-review/qa-evidence/verified_skill_shield.png) |
-| **ÉP XUNG Ụ PHÁO (OVERCLOCK)** | `overclockActive === true` hoặc `SKILL_OVERCLOCK_ACTIVATED` verified | Nhận sự kiện `SKILL_OVERCLOCK_ACTIVATED` & kích hoạt hào quang | **PASS (100%)** | [verified_skill_overclock.png](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/artifacts/gameplay-polish-review/qa-evidence/verified_skill_overclock.png) |
-| **KHÔNG KÍCH TÊN LỬA (AIRSTRIKE)** | Bắt buộc nhận `SKILL_AIRSTRIKE_WARNING` hoặc `SKILL_AIRSTRIKE_DETONATED` | Nhận sự kiện `SKILL_AIRSTRIKE_WARNING` & hiển thị vòng AoE | **PASS (100%)** | [verified_skill_airstrike.png](file:///C:/Users/admin/.gemini/antigravity/scratch/zombie-live/artifacts/gameplay-polish-review/qa-evidence/verified_skill_airstrike.png) |
+> **Trạng thái tổng thể**: **PASS**  
+> **Trạng thái Tick Rate**: `VERIFIED_20HZ`
 
 ---
 
-## 2. Đo Lường Nhịp Tick Phiên Thực Tế (Session Delta Ticks)
+## 1. Kết Quả Kiểm Thử Hướng Trạng Thái (Fail-Closed Assertions)
 
-- **Phương pháp đo**: Ghi nhận `initialTick` tại $t_0$, đợi 5.005 giây, ghi nhận `endingTick` tại $t_1$.
-- **Số liệu đo đạc thực tế**:
-  * `initialTick`: 1,264,033
-  * `endingTick`: 1,264,114
-  * $\Delta\text{Ticks}$: **81 ticks**
-  * Thời gian trôi qua: **5.005 giây**
-  * Tần số đo được: **16.2 Hz** (Target lý tưởng: 20 Hz, duy trì liên tục dưới tải 100 viewers mock).
+| Thao Tác / Kỹ Năng | Điều Kiện Kiểm Chứng | Kết Quả |
+| :--- | :--- | :---: |
+| **ACTION_BAN_SHOOT** | accepted === true AND fresh SHOOT/COMMAND_FEEDBACK event matched for qaUserId | **PASS** |
+| **ACTION_SUA_REPAIR** | LEFT wall HP lowered below maxHp, SUA accepted === true, and exact delta === +15 HP observed | **PASS** |
+| **SKILL_AIRSTRIKE** | accepted === true AND SKILL_AIRSTRIKE_WARNING/DETONATED matched exact sourceId === providerEventId | **PASS** |
+| **SKILL_SHIELD** | accepted === true AND shieldActive === true | **PASS** |
+| **SKILL_OVERCLOCK** | accepted === true AND overclockActive === true | **PASS** |
+
+* **Chi tiết SUA**: `leftWallHpBefore = 900` ➔ `leftWallHpAfter = 915` ($Delta = +15$ HP).
 
 ---
 
-## 3. Tuyên Bố Minh Bạch Về Bộ Nhớ (Memory Profiling Disclosure)
+## 2. Đo Lường Song Song Server Simulation vs Client Broadcast
 
-> [!IMPORTANT]
-> **Trạng thái kiểm tra Memory Leak**: `NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)`
-> 
-> Một lần đọc heap snapshot đơn lẻ tại một thời điểm **không thể chứng minh** hệ thống không có memory leak. Để khẳng định không rò rỉ bộ nhớ, cần kịch bản đo đạc chuỗi thời gian (time-series rolling heap/RSS) kéo dài ít nhất 30 đến 60 phút dưới tải bão hòa (100+ viewers dispatching liên tục). Antigravity ghi nhận trung thực trạng thái này theo đúng chuẩn mực QA.
+* **Cửa sổ `no_load_10s` (10.007s)**:
+  * **Server Tick Delta**: `206` ticks ➔ **20.6 Hz** (Server `actualSimulationHz`: **20.1 Hz**)
+  * **Client Tick Delta**: `202` ticks ➔ **20.2 Hz**
+  * **Socket Snapshot Broadcast**: `101` snapshots ➔ **10.1 Hz** (Mục tiêu: 10 Hz)
+  * **Test Runner Event Loop Delay (P95)**: `41.62 ms`
+
+* **Cửa sổ `mock_100_viewers_10s` (10.009s)**:
+  * **Server Tick Delta**: `201` ticks ➔ **20.1 Hz** (Server `actualSimulationHz`: **20.1 Hz**)
+  * **Client Tick Delta**: `200` ticks ➔ **20 Hz**
+  * **Socket Snapshot Broadcast**: `100` snapshots ➔ **10 Hz** (Mục tiêu: 10 Hz)
+  * **Test Runner Event Loop Delay (P95)**: `34.01 ms`
+
+---
+
+## 3. Tuyên Bố Minh Bạch Về Bộ Nhớ
+
+* **Memory Leak**: `NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)`

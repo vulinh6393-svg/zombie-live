@@ -109,24 +109,24 @@ export class SquadVisualizer {
   }
 
   private createSquadBadge(sq: SquadData): void {
-    // Positioned below the soldiers at y: centerY + 82 (on fortified parapet)
-    const container = this.scene.add.container(sq.centerX, sq.centerY + 82).setDepth(28);
+    // Positioned below the soldiers at y: centerY + 86 (on fortified parapet)
+    const container = this.scene.add.container(sq.centerX, sq.centerY + 86).setDepth(28);
 
     const bg = this.scene.add.graphics();
     bg.fillStyle(0x0a1128, 0.95);
-    bg.fillRoundedRect(-110, -18, 220, 36, 8);
-    bg.lineStyle(2, Phaser.Display.Color.HexStringToColor(sq.color).color, 1);
-    bg.strokeRoundedRect(-110, -18, 220, 36, 8);
+    bg.fillRoundedRect(-122, -25, 244, 50, 10);
+    bg.lineStyle(2.5, Phaser.Display.Color.HexStringToColor(sq.color).color, 1);
+    bg.strokeRoundedRect(-122, -25, 244, 50, 10);
 
     const repCount = this.formations[this.formationMode].length;
-    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} LÍNH)`;
+    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers}` : `${sq.name}: ${sq.totalMembers} (${repCount})`;
     const text = this.scene.add.text(0, 0, label, {
       fontFamily: GAME_FONTS.TACTICAL,
-      fontSize: '16px',
+      fontSize: '32px',
       fontStyle: 'bold',
       color: sq.color,
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 4,
     }).setOrigin(0.5);
 
     container.add([bg, text]);
@@ -137,7 +137,7 @@ export class SquadVisualizer {
     const badge = this.squadBadges.get(sq.id);
     if (!badge) return;
     const repCount = this.formations[this.formationMode].length;
-    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers} CHI VIỆN` : `${sq.name}: ${sq.totalMembers} CHI VIỆN (${repCount} LÍNH)`;
+    const label = repCount === 1 ? `${sq.name}: ${sq.totalMembers}` : `${sq.name}: ${sq.totalMembers} (${repCount})`;
     badge.text.setText(label);
   }
 

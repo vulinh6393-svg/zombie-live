@@ -1,0 +1,19 @@
+{
+  "windowLabel": "no_load_10s",
+  "elapsedSeconds": 10.007,
+  "serverStartTick": 3928523,
+  "serverEndTick": 3928729,
+  "serverTickDelta": 206,
+  "serverDeltaHz": 20.6,
+  "serverReportedActualSimulationHz": 20.1,
+  "clientStartTick": 3928528,
+  "clientEndTick": 3928730,
+  "clientTickDelta": 202,
+  "clientObservedTickHz": 20.2,
+  "snapshotCountDelta": 101,
+  "snapshotBroadcastHz": 10.1,
+  "testRunnerEventLoopDelayMeanMs": 29,
+  "testRunnerEventLoopDelayP95Ms": 41.62,
+  "targetSimulationHz": 20,
+  "targetBroadcastHz": 10
+}

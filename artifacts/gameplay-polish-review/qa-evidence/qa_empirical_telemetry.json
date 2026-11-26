@@ -1,56 +1,93 @@
 {
-  "auditTimestamp": "2026-11-20T08:07:53.906Z",
-  "sessionTiming": {
-    "elapsedSeconds": 5.005,
-    "initialTick": 1264033,
-    "endingTick": 1264114,
-    "deltaTicks": 81,
-    "measuredTickRateHz": 16.2,
-    "targetTickRateHz": 20,
-    "tickRateStatus": "VERIFIED_DETERMINISTIC_20HZ"
-  },
+  "auditTimestamp": "2026-11-26T13:37:43.688Z",
+  "overallStatus": "PASS",
+  "tickRateStatus": "VERIFIED_20HZ",
+  "performanceWindows": [
+    {
+      "windowLabel": "no_load_10s",
+      "elapsedSeconds": 10.007,
+      "serverStartTick": 3928523,
+      "serverEndTick": 3928729,
+      "serverTickDelta": 206,
+      "serverDeltaHz": 20.6,
+      "serverReportedActualSimulationHz": 20.1,
+      "clientStartTick": 3928528,
+      "clientEndTick": 3928730,
+      "clientTickDelta": 202,
+      "clientObservedTickHz": 20.2,
+      "snapshotCountDelta": 101,
+      "snapshotBroadcastHz": 10.1,
+      "testRunnerEventLoopDelayMeanMs": 29,
+      "testRunnerEventLoopDelayP95Ms": 41.62,
+      "targetSimulationHz": 20,
+      "targetBroadcastHz": 10
+    },
+    {
+      "windowLabel": "mock_100_viewers_10s",
+      "elapsedSeconds": 10.009,
+      "serverStartTick": 3933210,
+      "serverEndTick": 3933411,
+      "serverTickDelta": 201,
+      "serverDeltaHz": 20.1,
+      "serverReportedActualSimulationHz": 20.1,
+      "clientStartTick": 3933210,
+      "clientEndTick": 3933410,
+      "clientTickDelta": 200,
+      "clientObservedTickHz": 20,
+      "snapshotCountDelta": 100,
+      "snapshotBroadcastHz": 10,
+      "testRunnerEventLoopDelayMeanMs": 27.83,
+      "testRunnerEventLoopDelayP95Ms": 34.01,
+      "targetSimulationHz": 20,
+      "targetBroadcastHz": 10
+    }
+  ],
   "memoryProfiling": {
-    "heapLeakStatus": "NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)",
-    "note": "Single snapshot heap measurement cannot prove absence of memory leaks. Marked honestly as NOT MEASURED per QA standards."
+    "heapLeakStatus": "NOT MEASURED (Requires rolling Heap/RSS profiling over 30+ minutes)"
   },
   "assertions": [
     {
       "test": "ACTION_BAN_SHOOT",
-      "condition": "SHOOT event detected in authoritative VFX event stream",
-      "asserted": true,
+      "condition": "accepted === true AND fresh SHOOT/COMMAND_FEEDBACK event matched for qaUserId",
+      "responseAccepted": true,
+      "matchedEvent": true,
       "status": "PASS",
       "screenshot": "verified_action_ban.png"
     },
     {
       "test": "ACTION_SUA_REPAIR",
-      "condition": "deltaHp === 15 (or baseHp maintained at maxHp 10,000)",
-      "hpBefore": 10000,
-      "hpAfter": 10000,
-      "deltaHp": 0,
-      "asserted": true,
+      "condition": "LEFT wall HP lowered below maxHp, SUA accepted === true, and exact delta === +15 HP observed",
+      "responseAccepted": true,
+      "leftWallHpBefore": 900,
+      "leftWallHpAfter": 915,
+      "deltaHp": 15,
       "status": "PASS",
       "screenshot": "verified_action_sua.png"
     },
     {
+      "test": "SKILL_AIRSTRIKE",
+      "condition": "accepted === true AND SKILL_AIRSTRIKE_WARNING/DETONATED matched exact sourceId === providerEventId",
+      "providerEventId": "qa_airstrike_1795700259761_ziocy",
+      "responseAccepted": true,
+      "matchedSourceId": "qa_airstrike_1795700259761_ziocy",
+      "status": "PASS",
+      "screenshot": "verified_skill_airstrike.png"
+    },
+    {
       "test": "SKILL_SHIELD",
-      "condition": "shieldActive === true or SKILL_SHIELD_ACTIVATED event verified before capture",
-      "asserted": true,
+      "condition": "accepted === true AND shieldActive === true",
+      "responseAccepted": true,
+      "shieldActive": true,
       "status": "PASS",
       "screenshot": "verified_skill_shield.png"
     },
     {
       "test": "SKILL_OVERCLOCK",
-      "condition": "overclockActive === true or SKILL_OVERCLOCK_ACTIVATED event verified before capture",
-      "asserted": true,
+      "condition": "accepted === true AND overclockActive === true",
+      "responseAccepted": true,
+      "overclockActive": true,
       "status": "PASS",
       "screenshot": "verified_skill_overclock.png"
-    },
-    {
-      "test": "SKILL_AIRSTRIKE",
-      "condition": "SKILL_AIRSTRIKE_WARNING or SKILL_AIRSTRIKE_DETONATED event detected in VFX stream",
-      "asserted": true,
-      "status": "PASS",
-      "screenshot": "verified_skill_airstrike.png"
     }
   ]
 }

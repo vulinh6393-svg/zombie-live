@@ -1183,6 +1183,9 @@ export class BattlefieldScene extends Phaser.Scene {
         snapshotCount: (this.snapshotSource as any)?.getSnapshotCount?.() ?? 0,
         tick: this.latestSnapshot?.tick ?? 0,
         baseHp: this.latestSnapshot?.baseHp ?? 0,
+        maxBaseHp: this.latestSnapshot?.maxBaseHp ?? 10000,
+        walls: this.latestSnapshot?.walls ?? null,
+        zombieCount: this.latestSnapshot?.zombies?.filter((z) => z.hp > 0).length ?? 0,
         phase: this.latestSnapshot?.phase ?? '',
       }),
       getActiveBanner: () => {
